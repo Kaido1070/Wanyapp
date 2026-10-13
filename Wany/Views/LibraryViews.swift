@@ -12,7 +12,7 @@ struct DiscoverView: View {
     @State private var message: String?
     var body: some View {
         WanyScroll {
-            HStack { Text("استكشف").font(.largeTitle.bold()); Spacer(); Menu(sourceLabel(source)) { ForEach(sources,id:\.self) { s in Button(sourceLabel(s)) { source = s; Task { await load(reset:true) } } } }
+            HStack { Text("استكشف").font(.largeTitle.bold()); Spacer(); Menu(sourceLabel(source)) { ForEach(sources,id:\.self) { s in Button(sourceLabel(s)) { source = s; Task { await load(reset:true) } } } } }
             HStack { TextField("ابحث عن قصة",text:$query).submitLabel(.search).onSubmit { Task { await load(reset:true) } }; Button { Task { await load(reset:true) } } label: { Image(systemName:"magnifyingglass") } }.card()
             Picker("ترتيب",selection:$mode) { Text("الأحدث").tag("latest"); Text("الأكثر شعبية").tag("popular") }.pickerStyle(.segmented).onChange(of:mode) { _,_ in Task { await load(reset:true) } }
             if let message { Text(message).font(.caption).foregroundStyle(.orange) }
