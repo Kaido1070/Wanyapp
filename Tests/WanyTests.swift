@@ -2,6 +2,24 @@ import XCTest
 @testable import Wany
 
 final class WanyTests: XCTestCase {
+    func testReaderChromeFollowsSlowScrollAndReversal() {
+        var direction = ReaderScrollDirection()
+        XCTAssertNil(direction.update(offset:100,userScrolling:false))
+        XCTAssertNil(direction.update(offset:106,userScrolling:true))
+        XCTAssertNil(direction.update(offset:112,userScrolling:true))
+        XCTAssertEqual(direction.update(offset:118,userScrolling:true),false)
+        XCTAssertNil(direction.update(offset:113,userScrolling:true))
+        XCTAssertEqual(direction.update(offset:103,userScrolling:true),true)
+    }
+    func testReaderChromeIgnoresRestorationAndRevealsAtTop() {
+        var direction = ReaderScrollDirection()
+        XCTAssertNil(direction.update(offset:0,userScrolling:false))
+        XCTAssertNil(direction.update(offset:3000,userScrolling:false))
+        XCTAssertEqual(direction.update(offset:3020,userScrolling:true),false)
+        XCTAssertNil(direction.update(offset:12,userScrolling:false))
+        XCTAssertEqual(direction.update(offset:10,userScrolling:true),true)
+        XCTAssertEqual(direction.update(offset:-20,userScrolling:true),true)
+    }
     func story() -> Story { Story(key:"tx:test",source:"teamx",slug:"test",type:"manhwa",url:"https://example.com/story",title:"Test",cover:"",genres:[]) }
     func testDownloadDoesNotCompleteWithMissingImages() {
         let s = story()
