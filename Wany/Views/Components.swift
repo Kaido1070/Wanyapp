@@ -12,7 +12,7 @@ struct WanyCard: ViewModifier {
 extension View { func card() -> some View { modifier(WanyCard()) } }
 struct WanyScroll<Content: View>: View {
     @EnvironmentObject var store: AppStore
-    @State private var scrollDirection = ReaderScrollDirection()
+    @State private var scrollDirection = ReaderScrollDirection(revealDistance:192)
     let content: Content
     init(@ViewBuilder content: ()->Content) { self.content = content() }
     var body: some View {
@@ -27,7 +27,7 @@ struct WanyScroll<Content: View>: View {
                     }
                 })
         }
-        .onAppear { scrollDirection = ReaderScrollDirection(); store.chromeHidden = false }
+        .onAppear { scrollDirection = ReaderScrollDirection(revealDistance:192); store.chromeHidden = false }
         .background(Theme.background)
     }
 }
@@ -47,7 +47,7 @@ struct StoryCard: View {
     var showReadingProgress = false
     var body: some View {
         VStack(alignment:.leading,spacing:8) {
-            NavigationLink { StoryView(initial:story) } label: {
+            WanyLink { StoryView(initial:story) } label: {
                 VStack(alignment:.leading,spacing:7) {
                     CoverView(story:story).frame(height:205).clipShape(RoundedRectangle(cornerRadius:15))
                     Text(story.title).font(.subheadline.weight(.semibold)).lineLimit(2).frame(height:40,alignment:.topLeading)
@@ -58,7 +58,7 @@ struct StoryCard: View {
                 let full = store.stories[story.key] ?? story
                 let summary = state.readingSummary(for:full)
                 if let number = summary.chapter {
-                    NavigationLink { ReaderView(story:full,chapter:full.chapters?.first(where:{$0.number == number}) ?? Chapter(number:number,title:"الفصل \(chapterNumber(number))")) } label: {
+                    WanyLink { ReaderView(story:full,chapter:full.chapters?.first(where:{$0.number == number}) ?? Chapter(number:number,title:"الفصل \(chapterNumber(number))")) } label: {
                         Label("وصلت للفصل \(chapterNumber(number))",systemImage:"play.fill").font(.caption).frame(maxWidth:.infinity,minHeight:44,alignment:.leading).contentShape(Rectangle())
                     }.buttonStyle(.plain).foregroundStyle(Theme.accent)
                 } else { Text("لم تبدأ القراءة").font(.caption).foregroundStyle(.secondary).frame(minHeight:44) }

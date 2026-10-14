@@ -239,3 +239,13 @@ extension AccountState {
         }
     }
 }
+
+func storyStatusLabel(_ value: String) -> String {
+    switch value.trimmingCharacters(in:.whitespacesAndNewlines).lowercased() {
+    case "ongoing", "on-going", "publishing": return "مستمر"
+    case "completed", "complete", "finished": return "مكتمل"
+    case "hiatus": return "متوقف مؤقتًا"
+    case "cancelled", "canceled": return "ملغى"
+    default: return value
+    }
+}

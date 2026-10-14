@@ -96,9 +96,9 @@ struct FeedView: View {
                 if groups.isEmpty && !store.loadingFeed { EmptyState(icon:"sparkle",title:"لا توجد فصول جديدة هنا",detail:"الفصول المنشورة خلال آخر 24 ساعة، مع توضيح مصدر كل فصل واستبعاد الإصدارات القديمة المكررة.") }
                 ForEach(groups) { group in
                     VStack(alignment:.leading,spacing:14) {
-                        NavigationLink { StoryView(initial:group.item) } label: { HStack { CoverView(story:group.item).frame(width:55,height:78).clipShape(RoundedRectangle(cornerRadius:8)); Text(group.item.title).font(.headline).foregroundStyle(.primary) } }
+                        WanyLink { StoryView(initial:group.item) } label: { HStack { CoverView(story:group.item).frame(width:55,height:78).clipShape(RoundedRectangle(cornerRadius:8)); Text(group.item.title).font(.headline).foregroundStyle(.primary) } }
                         ForEach(group.chapters) { chapter in
-                            NavigationLink {
+                            WanyLink {
                                 SourceChapterDestination(key:chapter.sourceKey,chapter:Chapter(number:chapter.number,title:chapter.title),fallback:group.item)
                             } label: { HStack { Text(chapter.title); Spacer(); Text(chapter.sourceLabel).foregroundStyle(Theme.accent); if chapter.read { Image(systemName:"checkmark") } }.font(.caption).foregroundStyle(.primary).padding(.vertical,4) }
                         }
@@ -145,11 +145,11 @@ struct ProfileView: View {
                     ProfileAvatar(user:state.user).frame(width:66,height:66)
                     VStack(alignment:.leading,spacing:6) { HStack { Text(state.user.name).font(.title2.bold()); AccountBadge(kind:state.user.badgeType) }; Text("@"+state.user.username).font(.caption).foregroundStyle(.secondary) }
                     Spacer()
-                    NavigationLink { StatsView() } label: { Image(systemName:"chart.bar.xaxis").font(.title2) }
+                    WanyLink { StatsView() } label: { Image(systemName:"chart.bar.xaxis").font(.title2) }
                 }.frame(maxWidth:.infinity,alignment:.leading)
                 HStack { Label(store.syncing ? "جاري المزامنة…" : state.pending.isEmpty ? "التقدم متزامن" : "\(state.pending.count) تحديث بانتظار الاتصال",systemImage:state.pending.isEmpty ? "checkmark.icloud" : "icloud.and.arrow.up").font(.caption).foregroundStyle(.secondary); Spacer(); Button { Task { await store.refresh() } } label: { Image(systemName:"arrow.clockwise") }.disabled(!store.online || store.syncing) }
                 if let last = state.data.lastOpened, let story = store.stories[last.mangaId] {
-                    NavigationLink { ReaderView(story:story,chapter:story.chapters?.first(where:{$0.number == last.chapter}) ?? Chapter(number:last.chapter,title:"الفصل \(chapterNumber(last.chapter))")) } label: {
+                    WanyLink { ReaderView(story:story,chapter:story.chapters?.first(where:{$0.number == last.chapter}) ?? Chapter(number:last.chapter,title:"الفصل \(chapterNumber(last.chapter))")) } label: {
                         HStack { CoverView(story:story).frame(width:60,height:84).clipShape(RoundedRectangle(cornerRadius:10)); VStack(alignment:.leading,spacing:6) { Text("أكمل من حيث توقفت").font(.caption).foregroundStyle(Theme.accent); Text(story.title).bold().lineLimit(1); Text("الفصل \(chapterNumber(last.chapter))").font(.caption) }; Spacer(); Image(systemName:"play.fill") }.foregroundStyle(.primary).card()
                     }
                 }
@@ -159,8 +159,8 @@ struct ProfileView: View {
                     stat("مفضلة",state.data.favorites.count)
                 }
                 HStack(spacing:16) {
-                    NavigationLink { FriendsView() } label: { Label("الأصدقاء",systemImage:"person.2").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }
-                    NavigationLink { ActivityView() } label: { Label("النشاط",systemImage:"clock").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }
+                    WanyLink { FriendsView() } label: { Label("الأصدقاء",systemImage:"person.2").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }
+                    WanyLink { ActivityView() } label: { Label("النشاط",systemImage:"clock").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }
                 }.font(.subheadline).buttonStyle(.plain)
                 HStack(spacing:8) {
                     ForEach([("reading","أقرأ حاليًا"),("favorites","المفضلة"),("lists","القوائم")],id:\.0) { pair in
@@ -177,7 +177,7 @@ struct ProfileView: View {
                     if !listID.isEmpty {
                         HStack(spacing:16) {
                             Button { adding = true } label: { Label("إضافة قصص",systemImage:"plus").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }.disabled(!store.online)
-                            NavigationLink { ListDetailView(id:listID,title:lists.value["lists"].array.first(where:{$0["id"].string == listID})?["name"].string ?? "القائمة") } label: { Label("إدارة القائمة",systemImage:"slider.horizontal.3").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }
+                            WanyLink { ListDetailView(id:listID,title:lists.value["lists"].array.first(where:{$0["id"].string == listID})?["name"].string ?? "القائمة") } label: { Label("إدارة القائمة",systemImage:"slider.horizontal.3").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }
                         }.font(.caption).buttonStyle(.plain)
                     } else { Text("أنشئ قائمتك من زر + وأضف لها القصص التي تختارها.").font(.subheadline).foregroundStyle(.secondary) }
                 }

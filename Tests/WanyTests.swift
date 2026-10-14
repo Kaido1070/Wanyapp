@@ -3,6 +3,25 @@ import UIKit
 @testable import Wany
 
 final class WanyTests: XCTestCase {
+    func testBottomBarRequiresDoubleUpwardTravelAndReaderRequiresTriple() {
+        var bottom = ReaderScrollDirection(revealDistance:192)
+        var reader = ReaderScrollDirection(revealDistance:288)
+        for offset in [CGFloat(1000),1020] {
+            _ = bottom.update(offset:offset,userScrolling:true)
+            _ = reader.update(offset:offset,userScrolling:true)
+        }
+        XCTAssertNil(bottom.update(offset:924,userScrolling:true))
+        XCTAssertNil(reader.update(offset:924,userScrolling:true))
+        XCTAssertEqual(bottom.update(offset:828,userScrolling:true),true)
+        XCTAssertNil(reader.update(offset:828,userScrolling:true))
+        XCTAssertEqual(reader.update(offset:732,userScrolling:true),true)
+    }
+    func testStoryStatusIsLocalizedWithoutChangingUnknownLabels() {
+        XCTAssertEqual(storyStatusLabel("ongoing"),"مستمر")
+        XCTAssertEqual(storyStatusLabel(" Ongoing "),"مستمر")
+        XCTAssertEqual(storyStatusLabel("completed"),"مكتمل")
+        XCTAssertEqual(storyStatusLabel("مستمر"),"مستمر")
+    }
     func testAllSourcesShowsAvailableResultsInBalancedOrder() {
         var first = story(); first.key = "tx:one"
         var second = story(); second.key = "tx:two"

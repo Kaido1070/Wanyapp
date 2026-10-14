@@ -3,8 +3,10 @@ import UIKit
 
 // Observe the actual scroll offset, including deceleration, independently of lazy page layout.
 struct ReaderScrollDirection {
+    var revealDistance: CGFloat = 96
     private var previous: CGFloat?
     private var travel: CGFloat = 0
+    init(revealDistance: CGFloat = 96) { self.revealDistance = revealDistance }
     mutating func update(offset: CGFloat, userScrolling: Bool) -> Bool? {
         defer { previous = offset }
         guard userScrolling, let previous else { travel = 0; return nil }
@@ -14,7 +16,7 @@ struct ReaderScrollDirection {
         if (delta > 0) != (travel > 0) { travel = 0 }
         travel += delta
         // Require a deliberate upward scroll before revealing the header.
-        let threshold: CGFloat = travel < 0 ? 96 : 14
+        let threshold: CGFloat = travel < 0 ? revealDistance : 14
         guard abs(travel) >= threshold else { return nil }
         let visible = travel < 0
         travel = 0

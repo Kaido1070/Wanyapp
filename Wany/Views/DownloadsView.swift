@@ -40,7 +40,7 @@ struct DownloadsView: View {
             ForEach(downloads.savedJobs.filter { filter == "الكل" || (filter == "مكتمل" ? $0.complete : !$0.complete) }) { job in
                 VStack(alignment:.leading,spacing:15) {
                     HStack {
-                        NavigationLink { StoryView(initial:job.story) } label: {
+                        WanyLink { StoryView(initial:job.story) } label: {
                             HStack { CoverView(story:job.story).frame(width:58,height:82).clipShape(RoundedRectangle(cornerRadius:9)); VStack(alignment:.leading,spacing:6) { Text(job.story.title).bold().lineLimit(2); Text(job.selectionMode == "unread" ? "الفصول غير المقروءة" : job.wholeStory ? "القصة كاملة" : "فصول محددة").font(.caption).foregroundStyle(.secondary) } }.foregroundStyle(.primary)
                         }
                         Spacer(); Button(role:.destructive) { removing = job.id } label: { Image(systemName:"trash") }

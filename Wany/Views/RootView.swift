@@ -22,11 +22,10 @@ struct RootView: View {
                         }
                     }
                     .onAppear { store.mainPageVisible = true }
-                    .onDisappear { store.mainPageVisible = false }
                     .navigationTitle("Wany").navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement:.topBarLeading) { Image("Logo").resizable().frame(width:30,height:30).clipShape(RoundedRectangle(cornerRadius:8)) }
-                        ToolbarItem(placement:.topBarTrailing) { NavigationLink { SettingsView() } label: { Image(systemName:"gearshape") } }
+                        ToolbarItem(placement:.topBarTrailing) { WanyLink { SettingsView() } label: { Image(systemName:"gearshape") } }
                     }
                     .safeAreaInset(edge:.top,spacing:0) {
                         if !store.online { Label("أوفلاين · تقدمك محفوظ على الجهاز",systemImage:"wifi.slash").font(.caption).frame(maxWidth:.infinity).padding(7).background(Theme.surface) }
@@ -36,7 +35,7 @@ struct RootView: View {
                 .id(selected)
                 .overlay(alignment:.bottom) {
                     if store.mainPageVisible && !store.readerActive { HStack(spacing:0) {
-                        ForEach(0..<5) { i in Button { selected = i; store.chromeHidden = false } label: {
+                        ForEach(0..<5) { i in Button { selected = i; store.mainPageVisible = true; store.chromeHidden = false } label: {
                             VStack(spacing:5) { Image(systemName:icons[i]).font(.system(size:21)); Text(titles[i]).font(.system(size:10,weight:.medium)) }.foregroundStyle(selected == i ? Theme.accent : .secondary).frame(maxWidth:.infinity).padding(.vertical,12)
                         } }
                     }.buttonStyle(.plain).background(.ultraThinMaterial,in:RoundedRectangle(cornerRadius:24)).padding(.horizontal,14).padding(.bottom,6)

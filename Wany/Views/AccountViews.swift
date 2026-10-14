@@ -31,7 +31,7 @@ struct ListsView: View {
         WanyScroll {
             HStack { Text("قوائمي").font(.largeTitle.bold()); Spacer(); Button { create = true } label: { Image(systemName:"plus") }.disabled(!store.online) }
             ForEach(Array(page.value["lists"].array.enumerated()),id:\.offset) { _,list in
-                NavigationLink { ListDetailView(id:list["id"].string,title:list["name"].string) } label: { HStack { Image(systemName:"list.bullet.rectangle"); Text(list["name"].string); Spacer(); Text("\(Int(list["itemCount"].number))").foregroundStyle(.secondary); Image(systemName:"chevron.left") }.foregroundStyle(.primary).card() }
+                WanyLink { ListDetailView(id:list["id"].string,title:list["name"].string) } label: { HStack { Image(systemName:"list.bullet.rectangle"); Text(list["name"].string); Spacer(); Text("\(Int(list["itemCount"].number))").foregroundStyle(.secondary); Image(systemName:"chevron.left") }.foregroundStyle(.primary).card() }
             }
             if let error = page.error { Text(error).foregroundStyle(.orange) }
         }.task { await page.load("/api/lists",store:store) }.refreshable { await page.load("/api/lists",store:store) }
@@ -48,7 +48,7 @@ struct ListDetailView: View {
             HStack { Text(title).font(.largeTitle.bold()); Spacer(); Button { adding = true } label: { Image(systemName:"plus") }.disabled(!store.online) }
             ForEach(Array(page.value["items"].array.enumerated()),id:\.offset) { _,item in
                 if let story = store.stories[item["mangaId"].string] {
-                    HStack { NavigationLink { StoryView(initial:story) } label: { Text(story.title).foregroundStyle(.primary) }; Spacer(); Button(role:.destructive) { Task { do { _ = try await API.shared.raw("/api/lists/"+id+"/items/"+story.key,method:"DELETE"); await load() } catch { store.error = error.localizedDescription } } } label: { Image(systemName:"minus.circle") }.disabled(!store.online) }.card()
+                    HStack { WanyLink { StoryView(initial:story) } label: { Text(story.title).foregroundStyle(.primary) }; Spacer(); Button(role:.destructive) { Task { do { _ = try await API.shared.raw("/api/lists/"+id+"/items/"+story.key,method:"DELETE"); await load() } catch { store.error = error.localizedDescription } } } label: { Image(systemName:"minus.circle") }.disabled(!store.online) }.card()
                 } else { Text(item["mangaId"].string).font(.caption) }
             }
             if let error = page.error { Text(error).foregroundStyle(.orange) }
@@ -81,7 +81,7 @@ struct FriendsView: View {
                 HStack { userLabel(entry["user"]); Spacer(); Button("قبول") { Task { await action("/api/friends/requests/"+entry["user"]["id"].string+"/accept") } }; Button("رفض") { Task { await action("/api/friends/requests/"+entry["user"]["id"].string+"/reject") } } }.card()
             }
             ForEach(Array(page.value["friends"].array.enumerated()),id:\.offset) { _,entry in
-                NavigationLink { PublicProfileView(id:entry["user"]["id"].string) } label: { userLabel(entry["user"]).frame(maxWidth:.infinity,alignment:.leading).card() }.foregroundStyle(.primary)
+                WanyLink { PublicProfileView(id:entry["user"]["id"].string) } label: { userLabel(entry["user"]).frame(maxWidth:.infinity,alignment:.leading).card() }.foregroundStyle(.primary)
             }
             if let error = page.error { Text(error).foregroundStyle(.orange) }
         }.task { await load() }.refreshable { await load() }
@@ -121,7 +121,7 @@ struct ActivityView: View {
             ForEach(Array(page.value["events"].array.enumerated()),id:\.offset) { _,event in VStack(alignment:.leading,spacing:8) {
                 HStack { Text(event["user"]["name"].string).bold(); AccountBadge(kind:event["user"]["badgeType"].string) }
                 Text(labels[event["type"].string] ?? event["type"].string).font(.caption).foregroundStyle(.secondary)
-                if let story = store.stories[event["mangaId"].string] { NavigationLink(story.title) { StoryView(initial:story) } }
+                if let story = store.stories[event["mangaId"].string] { WanyLink(story.title) { StoryView(initial:story) } }
                 if event["chapterNumber"].number > 0 { Text("الفصل \(chapterNumber(event["chapterNumber"].number))").font(.caption) }
                 if !event["list"]["name"].string.isEmpty { Text(event["list"]["name"].string) }
             }.frame(maxWidth:.infinity,alignment:.leading).card() }
@@ -142,7 +142,7 @@ struct SettingsView: View {
                 Text("الحساب").font(.headline)
                 Button { name = store.state?.user.name ?? ""; editingName = true } label: { settingsRow("الاسم الظاهر",value:store.state?.user.name ?? "",icon:"pencil") }.disabled(!store.online)
                 Divider()
-                NavigationLink { AvatarPickerView() } label: { settingsRow("الصورة الشخصية",icon:"person.crop.circle") }
+                WanyLink { AvatarPickerView() } label: { settingsRow("الصورة الشخصية",icon:"person.crop.circle") }
                 Divider()
                 Toggle("حساب خاص",isOn:Binding(get:{store.state?.user.profileVisibility == "private"},set:{ value in Task { do { try await API.shared.send("/api/profile/visibility",method:"PUT",value:["visibility":value ? "private" : "public"]); await store.refresh() } catch { if !isRequestCancellation(error) { store.error = error.localizedDescription } } } })).disabled(!store.online)
             }.card()
@@ -166,9 +166,9 @@ struct SettingsView: View {
             }.card()
             VStack(alignment:.leading,spacing:16) {
                 Text(AppVersion.display).font(.subheadline)
-                NavigationLink { UpdatesView() } label: { settingsRow("سجل التحديثات",icon:"clock.arrow.circlepath") }
+                WanyLink { UpdatesView() } label: { settingsRow("سجل التحديثات",icon:"clock.arrow.circlepath") }
             }.card()
-            Button(role:.destructive) { logout = true } label: { Text("تسجيل الخروج").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }.card()
+            Button(role:.destructive) { logout = true } label: { Label("تسجيل الخروج",systemImage:"rectangle.portrait.and.arrow.right").font(.headline).foregroundStyle(.red).frame(maxWidth:.infinity,minHeight:52).contentShape(Rectangle()) }.padding(12).background(Color.red.opacity(0.12),in:RoundedRectangle(cornerRadius:20)).overlay(RoundedRectangle(cornerRadius:20).stroke(Color.red.opacity(0.4),lineWidth:1))
         }.buttonStyle(.plain).navigationTitle("الإعدادات")
         .alert("الاسم الظاهر",isPresented:$editingName) {
             TextField("اسمك",text:$name)

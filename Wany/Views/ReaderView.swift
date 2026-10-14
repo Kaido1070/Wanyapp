@@ -53,7 +53,7 @@ struct ReaderView: View {
     @State private var currentPage: Int?
     @State private var interacted = false
     @State private var controls = true
-    @State private var scrollDirection = ReaderScrollDirection()
+    @State private var scrollDirection = ReaderScrollDirection(revealDistance:288)
     @State private var activeChapter: Chapter?
     @State private var choosingChapter = false
     @State private var chapterQuery = ""
@@ -174,7 +174,7 @@ struct ReaderView: View {
         savePosition()
         if let payload { downloads.leaveChapter(payload.id) }
         payload = nil; error = nil; currentPage = nil; interacted = false
-        percent = 0; lastSave = -100; scrollDirection = ReaderScrollDirection(); controls = true
+        percent = 0; lastSave = -100; scrollDirection = ReaderScrollDirection(revealDistance:288); controls = true
         activeChapter = target
         Task { await store.syncProgress() }
     }

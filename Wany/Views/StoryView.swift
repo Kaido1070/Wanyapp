@@ -24,7 +24,7 @@ struct StoryView: View {
                 VStack(alignment:.leading,spacing:10) {
                     Text(story.title).font(.title2.bold())
                     Text(sourceLabel(story.source)).font(.caption).foregroundStyle(Theme.accent)
-                    Text(story.status ?? story.type).font(.caption).foregroundStyle(.secondary)
+                    Text(storyStatusLabel(story.status ?? story.type)).font(.caption).foregroundStyle(.secondary)
                     Button { Task { await store.toggleFavorite(story) } } label: { Label(store.state?.data.favorites.contains(story.key) == true ? "في المفضلة" : "أضف للمفضلة",systemImage:store.state?.data.favorites.contains(story.key) == true ? "heart.fill" : "heart") }.buttonStyle(.bordered)
                     Menu("حالة القراءة") { ForEach([("reading","أقرأ حاليًا"),("completed","مكتمل"),("paused","متوقف"),("planned","أخطط لقراءته")],id:\.0) { pair in Button(pair.1) { Task { await store.setStatus(story,status:pair.0) } } } }
                 }.frame(maxWidth:.infinity,alignment:.leading)
@@ -32,7 +32,7 @@ struct StoryView: View {
             if let description = story.description, !description.isEmpty { Text(description.replacingOccurrences(of:"<[^>]+>",with:"",options:.regularExpression)).font(.subheadline).foregroundStyle(.secondary).frame(maxWidth:.infinity,alignment:.leading) }
             if !story.genres.isEmpty { Text(story.genres.joined(separator:" · ")).font(.caption).foregroundStyle(Theme.accent).frame(maxWidth:.infinity,alignment:.leading) }
             if let recent = store.state?.data.library.first(where:{$0.mangaId == story.key})?.lastReadChapter {
-                NavigationLink { ReaderView(story:story,chapter:story.chapters?.first(where:{$0.number == recent}) ?? Chapter(number:recent,title:"الفصل \(chapterNumber(recent))")) } label: { Label("متابعة الفصل \(chapterNumber(recent))",systemImage:"book.fill").frame(maxWidth:.infinity) }.buttonStyle(.bordered)
+                WanyLink { ReaderView(story:story,chapter:story.chapters?.first(where:{$0.number == recent}) ?? Chapter(number:recent,title:"الفصل \(chapterNumber(recent))")) } label: { Label("متابعة الفصل \(chapterNumber(recent))",systemImage:"book.fill").frame(maxWidth:.infinity) }.buttonStyle(.bordered)
             }
             Button { Task { await downloads.enqueue(story) } } label: {
                 HStack { if downloads.preparing.contains(story.key) { ProgressView() }; Label(downloads.preparing.contains(story.key) ? "تجهيز جميع الفصول…" : "تحميل القصة كاملة",systemImage:"arrow.down.to.line").bold() }.frame(maxWidth:.infinity).padding(9)
@@ -41,12 +41,14 @@ struct StoryView: View {
                 preparingUnread = true
                 Task { await store.downloadUnread(story); preparingUnread = false }
             } label: {
-                HStack {
+                VStack(spacing:8) {
+                    HStack {
                     if preparingUnread { ProgressView() }
                     Label(preparingUnread ? "فحص الفصول غير المقروءة…" : "تحميل الفصول غير المقروءة",systemImage:"book.closed").bold()
+                    }
+                    Text("يتجاوز الفصول التي أكملتها، ويشمل الفصل الذي لم تكمل قراءته.").font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }.frame(maxWidth:.infinity).padding(9)
             }.buttonStyle(.bordered).disabled(preparingUnread || downloads.preparing.contains(story.key) || !store.online)
-            Text("يتجاوز الفصول التي أكملتها، ويشمل الفصل الذي لم تكمل قراءته.").font(.caption).foregroundStyle(.secondary).frame(maxWidth:.infinity,alignment:.leading)
             if let job = downloads.savedJobs.first(where:{$0.id == story.key}) { DownloadSummary(job:job).card() }
             HStack { Text("الفصول · \(story.chapters?.count ?? 0)").font(.title3.bold()); Spacer(); if loading { ProgressView() }; Button { ascending.toggle() } label: { Image(systemName:"arrow.up.arrow.down") }; Button(selecting ? "إلغاء" : "تحديد") { selecting.toggle(); selected.removeAll() } }
             if let error { Text(error).font(.caption).foregroundStyle(.orange); Button("إعادة جلب قائمة الفصول") { Task { await refresh() } } }
@@ -59,7 +61,7 @@ struct StoryView: View {
                 ForEach(chapters) { chapter in
                     HStack {
                         if selecting { Button { if selected.contains(chapter.id) { selected.remove(chapter.id) } else { selected.insert(chapter.id) } } label: { Image(systemName:selected.contains(chapter.id) ? "checkmark.circle.fill" : "circle") } }
-                        NavigationLink { ReaderView(story:story,chapter:chapter) } label: {
+                        WanyLink { ReaderView(story:story,chapter:chapter) } label: {
                             VStack(alignment:.leading,spacing:5) { Text(chapter.title).font(.subheadline); if store.state?.data.completed.contains(story.key+":"+chapter.id) == true { Text("مقروء").font(.caption2).foregroundStyle(Theme.accent) } }.frame(maxWidth:.infinity,alignment:.leading).foregroundStyle(.primary)
                         }
                         if downloads.savedJobs.first(where:{$0.id == story.key})?.chapters.first(where:{$0.id == chapter.id})?.complete == true { Image(systemName:"checkmark.circle.fill").foregroundStyle(.green) }
