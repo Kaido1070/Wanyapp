@@ -13,7 +13,7 @@ enum ImageQuality: String, CaseIterable, Identifiable {
 enum ImageStorage {
     // Write a smaller candidate first; never replace a valid image with a larger or invalid file.
     static func compact(_ url: URL, quality: ImageQuality) throws -> Int64 {
-        let original = Int64((try url.resourceValues(forKeys:[.fileSizeKey])).fileSize ?? 0)
+        let original = (try FileManager.default.attributesOfItem(atPath:url.path)[.size] as? NSNumber)?.int64Value ?? 0
         guard quality != .original, let source = CGImageSourceCreateWithURL(url as CFURL,nil),
               CGImageSourceGetCount(source) == 1,
               let info = CGImageSourceCopyPropertiesAtIndex(source,0,nil) as? [CFString:Any],
@@ -30,7 +30,7 @@ enum ImageStorage {
         guard let destination = CGImageDestinationCreateWithURL(candidate as CFURL,UTType.jpeg.identifier as CFString,1,nil) else { return original }
         CGImageDestinationAddImage(destination,image,[kCGImageDestinationLossyCompressionQuality:quality.compression] as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { return original }
-        let size = Int64((try candidate.resourceValues(forKeys:[.fileSizeKey])).fileSize ?? 0)
+        let size = (try FileManager.default.attributesOfItem(atPath:candidate.path)[.size] as? NSNumber)?.int64Value ?? 0
         guard size > 0, size < original,
               let check = CGImageSourceCreateWithURL(candidate as CFURL,nil), CGImageSourceCreateImageAtIndex(check,0,nil) != nil else { return original }
         let bytes = try Data(contentsOf:candidate)
