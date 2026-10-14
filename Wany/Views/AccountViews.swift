@@ -13,7 +13,7 @@ import SwiftUI
             let response = try await API.shared.get(path,query:query,as:JSONValue.self)
             guard store.state?.user.id == owner else { return }
             value = response; error = nil; try Disk.save(value,owner:owner,name:filename)
-        } catch { self.error = error.localizedDescription }
+        } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
 }
 struct ListsView: View {

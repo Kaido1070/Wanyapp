@@ -2,6 +2,54 @@ import XCTest
 @testable import Wany
 
 final class WanyTests: XCTestCase {
+    func testCancellationIsSilentButRealNetworkErrorsAreNot() {
+        XCTAssertTrue(isRequestCancellation(CancellationError()))
+        XCTAssertTrue(isRequestCancellation(URLError(.cancelled)))
+        XCTAssertFalse(isRequestCancellation(URLError(.timedOut)))
+        XCTAssertFalse(isRequestCancellation(APIError(message:"cancelled",status:500)))
+    }
+    func testStoryProgressCountsFractionalChaptersAndSkippedGaps() throws {
+        var work = story(); work.chapterListComplete = true
+        work.chapters = [1,2,2.5,10].map { Chapter(number:$0,title:chapterNumber($0)) }
+        var state = AccountState(user:Account(id:"u",name:"U",username:"u"))
+        state.data.completed = [work.key+":1",work.key+":1"]
+        let partial = ProgressRecord(mangaId:work.key,chapter:10,percent:50,updatedAt:2000)
+        state.pending[partial.id] = partial
+        let summary = state.readingSummary(for:work)
+        XCTAssertEqual(summary.chapter,10); XCTAssertEqual(summary.completedCount,1)
+        XCTAssertEqual(try XCTUnwrap(summary.percent),37.5,accuracy:0.001)
+    }
+    func testOfflineCompletionAndRereadKeepStoryProgress() throws {
+        var work = story(); work.declaredChapterCount = 2
+        var state = AccountState(user:Account(id:"u",name:"U",username:"u"))
+        let done = ProgressRecord(mangaId:work.key,chapter:1,percent:100,updatedAt:1000)
+        state.completedPending = [done.id:done]
+        state.pending[done.id] = ProgressRecord(mangaId:work.key,chapter:1,percent:20,updatedAt:2000)
+        let summary = state.readingSummary(for:work)
+        XCTAssertEqual(summary.chapter,1); XCTAssertEqual(summary.completedCount,1)
+        XCTAssertEqual(try XCTUnwrap(summary.percent),50,accuracy:0.001)
+    }
+    func testStoryProgressUsesLatestPositionAndIgnoresOtherStories() throws {
+        var work = story(); work.declaredChapterCount = 10
+        var state = AccountState(user:Account(id:"u",name:"U",username:"u"))
+        state.data.library = [LibraryEntry(mangaId:work.key,status:"reading",addedAt:1,updatedAt:1,lastReadAt:3000,lastReadChapter:2,highestReachedChapter:9)]
+        let older = ProgressRecord(mangaId:work.key,chapter:9,percent:100,updatedAt:1000)
+        state.data.progress[older.id] = older
+        state.data.completed = ["tx:other:1"]
+        XCTAssertEqual(state.readingSummary(for:work).chapter,2)
+        XCTAssertEqual(try XCTUnwrap(state.readingSummary(for:work).percent),10,accuracy:0.001)
+        let local = ProgressRecord(mangaId:work.key,chapter:3,percent:50,updatedAt:4000)
+        state.pending[local.id] = local
+        XCTAssertEqual(state.readingSummary(for:work).chapter,3)
+        XCTAssertEqual(try XCTUnwrap(state.readingSummary(for:work).percent),15,accuracy:0.001)
+    }
+    func testStoryProgressDoesNotGuessTotalFromLatestChapterNumber() {
+        var work = story(); work.latest = 125.2
+        let state = AccountState(user:Account(id:"u",name:"U",username:"u"))
+        XCTAssertNil(state.readingSummary(for:work).percent)
+        work.chapterListComplete = true; work.chapters = [Chapter(number:125.2,title:"125.2")]
+        XCTAssertEqual(state.readingSummary(for:work).percent,0)
+    }
     func testReaderChromeFollowsSlowScrollAndReversal() {
         var direction = ReaderScrollDirection()
         XCTAssertNil(direction.update(offset:100,userScrolling:false))

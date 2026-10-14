@@ -18,6 +18,7 @@ import UIKit
     private var metadataTask: Task<Void,Never>?
     private var metadataToken: UUID?
     private var syncTask: Task<Void,Never>?
+    private var refreshTask: Task<Void,Never>?
     private var engine: FeedEngine?
     private var coverRequests: Set<String> = []
     private var metadataRefreshed: [String: Date] = [:]
@@ -50,11 +51,12 @@ import UIKit
         var merged = story
         if let old = stories[story.key], old.chapterListComplete == true, story.chapterListComplete != true { merged.chapters = old.chapters; merged.chapterListComplete = true; merged.chapterPageCount = old.chapterPageCount }
         stories[story.key] = merged
-        do { try Disk.save(stories,owner:owner,name:"stories.json") } catch { self.error = error.localizedDescription }
+        do { try Disk.save(stories,owner:owner,name:"stories.json") } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
     func login(username: String, password: String) async {
         guard online else { error = "تسجيل الدخول لأول مرة يحتاج إنترنت"; return }
         do {
+            refreshTask?.cancel()
             metadataTask?.cancel(); metadataTask = nil; metadataToken = nil
             API.shared.generation = UUID(); engine = nil
             let body = try JSONEncoder().encode(["username":username.precomposedStringWithCompatibilityMapping.trimmingCharacters(in:.whitespacesAndNewlines).lowercased(),"password":password])
@@ -65,17 +67,27 @@ import UIKit
             UserDefaults.standard.set(user.id,forKey:"lastAccount")
             loadStories(user.id); downloads.attach(user.id); persist()
             await refresh()
-        } catch { self.error = error.localizedDescription }
+        } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
     func logout() async {
-        persist(); metadataTask?.cancel(); metadataTask = nil; metadataToken = nil; syncTask?.cancel()
+        persist(); refreshTask?.cancel(); metadataTask?.cancel(); metadataTask = nil; metadataToken = nil; syncTask?.cancel()
         if online { _ = try? await API.shared.raw("/api/logout",method:"POST") }
         API.shared.clear(); downloads.attach(nil); state = nil; stories = [:]; engine = nil
         UserDefaults.standard.removeObject(forKey:"lastAccount"); loginRequired = false
     }
     func refresh() async {
         guard online, let owner = state?.user.id, !syncing else { return }
-        syncing = true; defer { syncing = false }
+        syncing = true
+        // SwiftUI can cancel its refresh task when its view changes. The account owns this sync.
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.refreshAccount(owner:owner)
+        }
+        refreshTask = task
+        await task.value
+        refreshTask = nil; syncing = false
+    }
+    private func refreshAccount(owner: String) async {
         do {
             let session = try await API.shared.get("/api/session",as:SessionResponse.self)
             guard state?.user.id == owner else { return }
@@ -88,7 +100,11 @@ import UIKit
             if let stats = try? await API.shared.get("/api/reading/stats",as:JSONValue.self), state?.user.id == owner { state?.stats = stats["stats"].object; persist() }
             if let profile = try? await API.shared.get("/api/profiles/"+owner,as:JSONValue.self), state?.user.id == owner { state?.profile = profile; persist() }
             cacheLibrary()
-        } catch { if (error as? APIError)?.status == 401 { loginRequired = true } else { self.error = error.localizedDescription } }
+        } catch {
+            guard !Task.isCancelled, !isRequestCancellation(error), state?.user.id == owner else { return }
+            if (error as? APIError)?.status == 401 { loginRequired = true }
+            else { self.error = error.localizedDescription }
+        }
     }
     private func merge(_ remote: AccountData) {
         guard var current = state else { return }
@@ -155,7 +171,7 @@ import UIKit
             let unread = current.unreadChapters(in:full)
             guard !unread.isEmpty else { downloads.notice = "جميع فصول هذه القصة مقروءة؛ لا توجد فصول غير مقروءة للتحميل"; return }
             await downloads.enqueue(full,chapters:unread,unreadOnly:true)
-        } catch { self.error = error.localizedDescription }
+        } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
     func toggleFavorite(_ story: Story) async {
         guard let state else { return }
@@ -170,10 +186,10 @@ import UIKit
                 guard self.state?.user.id == owner else { return }; self.state?.data.favorites.append(story.key)
             }
             persist(); remember(story); cacheLibrary()
-        } catch { self.error = error.localizedDescription }
+        } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
     func setStatus(_ story: Story, status: String) async {
-        do { try await API.shared.send("/api/library",method:"PUT",value:["mangaId":story.key,"status":status]); await refresh() } catch { self.error = error.localizedDescription }
+        do { try await API.shared.send("/api/library",method:"PUT",value:["mangaId":story.key,"status":status]); await refresh() } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
     func cacheLibrary() {
         guard metadataTask == nil, let current = state, online else { return }
@@ -230,6 +246,6 @@ import UIKit
             if kind == "fyp" { state?.fyp = try JSONDecoder().decode(FypSnapshot.self,from:result).recommendations; for r in state?.fyp ?? [] { remember(r.item) } }
             else { state?.newFeed = try JSONDecoder().decode(NewFeed.self,from:result); for r in state?.newFeed?.all ?? [] { remember(r.item) } }
             persist()
-        } catch { self.error = error.localizedDescription }
+        } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
 }

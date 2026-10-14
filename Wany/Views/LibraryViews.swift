@@ -118,7 +118,7 @@ struct ProfileView: View {
                     NavigationLink { ActivityView() } label: { Label("النشاط",systemImage:"clock") }
                 }.font(.caption).padding(.vertical,6)
                 ScrollView(.horizontal,showsIndicators:false) { HStack { ForEach([("reading","أقرأ حاليًا"),("favorites","المفضلة"),("completed","مكتمل"),("planned","لاحقًا"),("paused","متوقف"),("all","الكل")],id:\.0) { pair in Button(pair.1) { tab = pair.0 }.buttonStyle(.bordered).tint(tab == pair.0 ? Theme.accent : .gray) } } }
-                StoryGrid(stories:keys.compactMap { store.stories[$0] })
+                StoryGrid(stories:keys.compactMap { store.stories[$0] },showReadingProgress:true)
                 let missing = keys.filter { store.stories[$0] == nil }.count
                 if missing > 0 { Text("\(missing) قصة بانتظار حفظ تفاصيلها عند الاتصال").font(.caption).foregroundStyle(.secondary) }
                 if keys.isEmpty { EmptyState(icon:"books.vertical",title:"لا توجد قصص هنا",detail:"أضف قصة من صفحة الاستكشاف لتظهر في مكتبتك.") }

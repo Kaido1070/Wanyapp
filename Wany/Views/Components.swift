@@ -51,20 +51,35 @@ struct CoverView: View {
     }
 }
 struct StoryCard: View {
+    @EnvironmentObject var store: AppStore
     let story: Story
+    var showReadingProgress = false
     var body: some View {
         NavigationLink { StoryView(initial:story) } label: {
             VStack(alignment:.leading,spacing:7) {
                 CoverView(story:story).frame(height:205).clipShape(RoundedRectangle(cornerRadius:15))
                 Text(story.title).font(.subheadline.weight(.semibold)).lineLimit(2).frame(height:40,alignment:.topLeading)
                 HStack { Text(sourceLabel(story.source)); Spacer(); if let latest = story.latest { Text(chapterNumber(latest)) } }.font(.caption2).foregroundStyle(.secondary)
+                if showReadingProgress, let state = store.state {
+                    let summary = state.readingSummary(for:store.stories[story.key] ?? story)
+                    VStack(alignment:.leading,spacing:5) {
+                        Text(summary.chapter.map { "وصلت للفصل " + chapterNumber($0) } ?? "لم تبدأ القراءة").font(.caption).foregroundStyle(Theme.accent)
+                        if let percent = summary.percent {
+                            HStack { Text("تقدم القصة"); Spacer(); Text(percent.formatted(.number.precision(.fractionLength(1))) + "٪").monospacedDigit() }.font(.caption2).foregroundStyle(.secondary)
+                            ProgressView(value:percent,total:100).tint(Theme.accent)
+                        } else {
+                            Text("\(summary.completedCount) فصل مقروء · النسبة بانتظار تحديث الفصول").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }.frame(maxWidth:.infinity,alignment:.leading)
+                }
             }.foregroundStyle(.primary)
         }.buttonStyle(.plain)
     }
 }
 struct StoryGrid: View {
     let stories: [Story]
-    var body: some View { LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],spacing:20) { ForEach(stories) { StoryCard(story:$0) } } }
+    var showReadingProgress = false
+    var body: some View { LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],spacing:20) { ForEach(stories) { StoryCard(story:$0,showReadingProgress:showReadingProgress) } } }
 }
 struct AccountBadge: View {
     let kind: String?
