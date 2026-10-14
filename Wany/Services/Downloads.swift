@@ -27,7 +27,8 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
             if FileManager.default.fileExists(atPath:destination.path) { try FileManager.default.removeItem(at:destination) }
             try FileManager.default.moveItem(at:location,to:destination)
             try FileManager.default.setAttributes([.protectionKey:FileProtectionType.completeUntilFirstUserAuthentication],ofItemAtPath:destination.path)
-            let bytes = (try? ImageStorage.compact(destination,quality:ImageQuality(rawValue:t.quality ?? "original") ?? .original)) ?? Int64((try destination.resourceValues(forKeys:[.fileSizeKey])).fileSize ?? 0)
+            let originalBytes = Int64((try destination.resourceValues(forKeys:[.fileSizeKey])).fileSize ?? 0)
+            let bytes = (try? ImageStorage.compact(destination,quality:ImageQuality(rawValue:t.quality ?? "original") ?? .original)) ?? originalBytes
             finished?(t,bytes,nil)
         } catch { finished?(t,0,error.localizedDescription) }
     }
@@ -182,7 +183,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
             for i in jobs[j].chapters[c].images.indices where !jobs[j].chapters[c].images[i].done { jobs[j].chapters[c].images[i].attempts = 0 }
         }
         if jobs[j].chapters[c].payload == nil { install(payload,job:j,chapter:c,owner:owner) }
-        persist(); pump()
+        persist(); updateNetwork()
     }
     private func install(_ payload: ChapterPayload, job: Int, chapter: Int, owner: String) {
         jobs[job].chapters[chapter].payload = payload; jobs[job].chapters[chapter].error = nil
