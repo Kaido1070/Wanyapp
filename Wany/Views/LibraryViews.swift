@@ -1,9 +1,9 @@
 import SwiftUI
+import ImageIO
 
 struct DiscoverView: View {
     @EnvironmentObject var store: AppStore
     @State private var source = "all"
-    @State private var carouselSource = sources.first ?? "teamx"
     @State private var mode = "latest"
     @State private var query = ""
     @State private var submittedQuery = ""
@@ -32,28 +32,24 @@ struct DiscoverView: View {
             }.card()
             Picker("ترتيب",selection:$mode) { Text("الأحدث").tag("latest"); Text("الأكثر شعبية").tag("popular") }.pickerStyle(.segmented)
             if let message { Text(message).font(.caption).foregroundStyle(.orange) }
-            if source == "all" {
-                ScrollView(.horizontal,showsIndicators:false) {
-                    HStack(spacing:10) { ForEach(sources,id:\.self) { item in
-                        Button { withAnimation { carouselSource = item } } label: {
-                            Text(sourceLabel(item)).font(.subheadline.weight(.semibold)).padding(.horizontal,16).frame(minHeight:44).background(carouselSource == item ? Theme.accent.opacity(0.25) : Theme.surface,in:Capsule())
-                        }.buttonStyle(.plain)
-                    } }
-                }
-                Text("اسحب يمينًا أو يسارًا لتغيير المصدر").font(.caption).foregroundStyle(.secondary)
-                TabView(selection:$carouselSource) {
-                    ForEach(sources,id:\.self) { item in
-                        VStack(spacing:16) {
-                            StoryGrid(stories:sourceItems[item] ?? [])
-                            if (sourceItems[item] ?? []).isEmpty { EmptyState(icon:failed.contains(item) ? "wifi.exclamationmark" : "books.vertical",title:sourceLabel(item),detail:busy ? "جاري تحميل القصص…" : "لا توجد نتائج متاحة لهذا المصدر") }
-                            Spacer(minLength:0)
-                        }.padding(.horizontal,1).tag(item)
-                    }
-                }.tabViewStyle(.page(indexDisplayMode:.never)).frame(height:CGFloat(max(1,((sourceItems[carouselSource]?.count ?? 0)+1)/2))*310 + 24)
-            } else { StoryGrid(stories:items) }
+            let featured = items.filter { isWideCover($0) }
+            if !featured.isEmpty { DiscoverFeaturedStories(stories:featured) }
+            StoryGrid(stories:items.filter { !isWideCover($0) })
             if busy { ProgressView("جاري تحميل القصص") }
             if hasMore && !busy { Button("تحميل المزيد") { Task { await load(reset:false) } }.buttonStyle(.bordered) }
         }.task(id:requestKey) { await load(reset:true) }.refreshable { await load(reset:true) }
+        .task(id:items.map(\.cover)) {
+            // Warm the first covers so wide artwork can move into the carousel before scrolling.
+            for story in items.prefix(28) { guard !Task.isCancelled else { return }; await store.cacheCover(story) }
+        }
+    }
+    func isWideCover(_ story: Story) -> Bool {
+        guard let owner = store.state?.user.id,
+              let image = CGImageSourceCreateWithURL(Disk.file(owner,Disk.coverName(story.key)) as CFURL,nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(image,0,nil) as? [CFString:Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+              let height = properties[kCGImagePropertyPixelHeight] as? NSNumber else { return false }
+        return DiscoverResults.isWideCover(width:width.doubleValue,height:height.doubleValue)
     }
     func search() {
         let value = query.trimmingCharacters(in:.whitespacesAndNewlines)
@@ -94,6 +90,31 @@ struct DiscoverView: View {
                 message = failed.isEmpty ? nil : "تعذر تحميل: " + targets.filter { failed.contains($0) }.map(sourceLabel).joined(separator:"، ") + ". يمكنك إعادة المحاولة من تحميل المزيد."
             }
         }
+    }
+}
+struct DiscoverFeaturedStories: View {
+    let stories: [Story]
+    @State private var selected: String?
+    var body: some View {
+        VStack(spacing:10) {
+            ScrollView(.horizontal) {
+                LazyHStack(spacing:16) {
+                    ForEach(stories) { story in
+                        WanyLink { StoryView(initial:story) } label: {
+                            VStack(alignment:.leading,spacing:10) {
+                                CoverView(story:story).frame(height:190).clipShape(RoundedRectangle(cornerRadius:20))
+                                Text(story.title).font(.headline).lineLimit(2).frame(maxWidth:.infinity,minHeight:44,alignment:.topLeading)
+                            }.foregroundStyle(.primary).containerRelativeFrame(.horizontal).contentShape(Rectangle())
+                        }.buttonStyle(.plain).id(story.key)
+                    }
+                }.scrollTargetLayout()
+            }.scrollIndicators(.hidden).scrollTargetBehavior(.viewAligned).scrollPosition(id:$selected)
+            if stories.count > 1 {
+                HStack(spacing:6) { ForEach(stories) { story in
+                    Capsule().fill((selected ?? stories.first?.key) == story.key ? Theme.accent : Color.secondary.opacity(0.3)).frame(width:(selected ?? stories.first?.key) == story.key ? 18 : 6,height:5)
+                } }.accessibilityLabel("قصص مميزة قابلة للسحب")
+            }
+        }.onChange(of:stories.map(\.key)) { _,keys in if let selected, !keys.contains(selected) { self.selected = keys.first } }
     }
 }
 struct FeedView: View {

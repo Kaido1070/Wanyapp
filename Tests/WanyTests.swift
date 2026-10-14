@@ -3,6 +3,14 @@ import UIKit
 @testable import Wany
 
 final class WanyTests: XCTestCase {
+    func testDiscoverCarouselOnlyUsesLandscapeArtwork() {
+        XCTAssertTrue(DiscoverResults.isWideCover(width:1200,height:500))
+        XCTAssertFalse(DiscoverResults.isWideCover(width:400,height:600))
+        XCTAssertFalse(DiscoverResults.isWideCover(width:600,height:600))
+        XCTAssertFalse(DiscoverResults.isWideCover(width:1200,height:0))
+        XCTAssertFalse(DiscoverResults.isWideCover(width:.infinity,height:600))
+    }
+
     @MainActor func testDownloadQualityIsSentToServerWithoutChangingSourceURL() throws {
         let remote = "https://olympustaff.com/wp-content/uploads/chapter/page.jpg"
         let request = try API.shared.imageRequest(source:"teamx",url:remote,referer:"https://olympustaff.com/series/test",quality:.high)

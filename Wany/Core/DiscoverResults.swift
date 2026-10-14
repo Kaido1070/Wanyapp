@@ -1,6 +1,10 @@
 import Foundation
 
 enum DiscoverResults {
+    static func isWideCover(width: Double, height: Double) -> Bool {
+        width.isFinite && height.isFinite && width > 0 && height > 0 && width / height >= 1.2
+    }
+
     static func append(_ incoming: [Story], to existing: [Story]) -> [Story] {
         var keys = Set(existing.map(\.key))
         return existing + incoming.filter { keys.insert($0.key).inserted }
