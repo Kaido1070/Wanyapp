@@ -35,6 +35,7 @@ jobs:
         if: "!contains(github.event.head_commit.message, '[package-only]')"
         run: xcodebuild test -project Wany.xcodeproj -scheme Wany -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath build-simulator -resultBundlePath TestResults CODE_SIGNING_ALLOWED=NO
       - name: Capture native login screen
+        timeout-minutes: 2
         if: "!contains(github.event.head_commit.message, '[package-only]')"
         continue-on-error: true
         run: |
