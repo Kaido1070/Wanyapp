@@ -2,38 +2,78 @@ import SwiftUI
 
 struct DiscoverView: View {
     @EnvironmentObject var store: AppStore
-    @State private var source = "teamx"
+    @State private var source = "all"
     @State private var mode = "latest"
     @State private var query = ""
+    @State private var submittedQuery = ""
     @State private var items: [Story] = []
-    @State private var page = 1
-    @State private var hasMore = false
+    @State private var sourceItems: [String:[Story]] = [:]
+    @State private var pages: [String:Int] = [:]
+    @State private var more: Set<String> = []
+    @State private var failed: Set<String> = []
     @State private var busy = false
     @State private var message: String?
+    @State private var requestToken = UUID()
+    var requestKey: String { source + "|" + mode + "|" + submittedQuery }
+    var hasMore: Bool { !more.isEmpty || !failed.isEmpty }
     var body: some View {
         WanyScroll {
-            HStack { Text("استكشف").font(.largeTitle.bold()); Spacer(); Menu(sourceLabel(source)) { ForEach(sources,id:\.self) { s in Button(sourceLabel(s)) { source = s; Task { await load(reset:true) } } } } }
-            HStack { TextField("ابحث عن قصة",text:$query).submitLabel(.search).onSubmit { Task { await load(reset:true) } }; Button { Task { await load(reset:true) } } label: { Image(systemName:"magnifyingglass") } }.card()
-            Picker("ترتيب",selection:$mode) { Text("الأحدث").tag("latest"); Text("الأكثر شعبية").tag("popular") }.pickerStyle(.segmented).onChange(of:mode) { _,_ in Task { await load(reset:true) } }
+            HStack {
+                Text("استكشف").font(.largeTitle.bold()); Spacer()
+                Menu(source == "all" ? "الكل" : sourceLabel(source)) {
+                    Button("الكل") { source = "all" }
+                    ForEach(sources,id:\.self) { item in Button(sourceLabel(item)) { source = item } }
+                }.frame(minHeight:44)
+            }
+            HStack {
+                TextField("ابحث عن قصة",text:$query).submitLabel(.search).onSubmit { search() }
+                Button { search() } label: { Image(systemName:"magnifyingglass").frame(width:44,height:44) }
+            }.card()
+            Picker("ترتيب",selection:$mode) { Text("الأحدث").tag("latest"); Text("الأكثر شعبية").tag("popular") }.pickerStyle(.segmented)
             if let message { Text(message).font(.caption).foregroundStyle(.orange) }
             StoryGrid(stories:items)
             if busy { ProgressView("جاري تحميل القصص") }
             if hasMore && !busy { Button("تحميل المزيد") { Task { await load(reset:false) } }.buttonStyle(.bordered) }
-        }.task { if items.isEmpty { await load(reset:true) } }.refreshable { await load(reset:true) }
+        }.task(id:requestKey) { await load(reset:true) }.refreshable { await load(reset:true) }
+    }
+    func search() {
+        let value = query.trimmingCharacters(in:.whitespacesAndNewlines)
+        if submittedQuery == value { Task { await load(reset:true) } } else { submittedQuery = value }
     }
     func load(reset: Bool) async {
-        guard !busy else { return }
-        guard store.online else { items = store.stories.values.filter { $0.source == source && (query.isEmpty || $0.title.localizedCaseInsensitiveContains(query)) }.sorted { $0.title < $1.title }; message = "تظهر القصص المحفوظة على الجهاز"; return }
-        busy = true; defer { busy = false }
-        let nextPage = reset ? 1 : page+1
-        let endpoint = query.trimmingCharacters(in:.whitespaces).isEmpty ? mode : "search"
-        do {
-            let result = try await API.shared.get("/api/source/"+endpoint,query:["source":source,"page":String(nextPage),"q":query],as:APIList.self)
-            if reset { items = [] }
-            let existing = Set(items.map(\.key)); items += result.items.filter { !existing.contains($0.key) }
-            page = nextPage; hasMore = result.hasMore; message = nil
-            for item in result.items { store.remember(item) }
-        } catch { message = error.localizedDescription }
+        guard reset || !busy else { return }
+        let token = UUID(); requestToken = token
+        let selected = source; let text = submittedQuery
+        let endpoint = text.isEmpty ? mode : "search"
+        guard store.online else {
+            items = store.stories.values.filter { (selected == "all" || $0.source == selected) && (text.isEmpty || $0.title.localizedCaseInsensitiveContains(text)) }.sorted { $0.title < $1.title }
+            more = []; failed = []; busy = false; message = "تظهر القصص المحفوظة على الجهاز"; return
+        }
+        busy = true; defer { if requestToken == token { busy = false } }
+        if reset { items = []; sourceItems = [:]; pages = [:]; more = []; failed = []; message = nil }
+        let targets = selected == "all" ? sources.filter { reset || more.contains($0) || failed.contains($0) } : [selected]
+        let requestedPages = Dictionary(uniqueKeysWithValues:targets.map { ($0,reset ? 1 : (pages[$0] ?? 0)+1) })
+        let owner = store.state?.user.id
+        await withTaskGroup(of:(String,APIList?).self) { group in
+            for target in targets {
+                let page = requestedPages[target] ?? 1
+                group.addTask {
+                    let result = try? await API.shared.get("/api/source/"+endpoint,query:["source":target,"page":String(page),"q":text],as:APIList.self)
+                    return (target,result)
+                }
+            }
+            for await (target,result) in group {
+                guard !Task.isCancelled, requestToken == token, store.state?.user.id == owner else { group.cancelAll(); continue }
+                if let result {
+                    failed.remove(target); pages[target] = result.page
+                    if result.hasMore { more.insert(target) } else { more.remove(target) }
+                    sourceItems[target] = DiscoverResults.append(result.items,to:sourceItems[target] ?? [])
+                    items = DiscoverResults.combine(sourceItems,order:selected == "all" ? sources : [selected])
+                    for item in result.items { store.remember(item) }
+                } else { failed.insert(target) }
+                message = failed.isEmpty ? nil : "تعذر تحميل: " + targets.filter { failed.contains($0) }.map(sourceLabel).joined(separator:"، ") + ". يمكنك إعادة المحاولة من تحميل المزيد."
+            }
+        }
     }
 }
 struct FeedView: View {

@@ -3,6 +3,35 @@ import UIKit
 @testable import Wany
 
 final class WanyTests: XCTestCase {
+    func testAllSourcesShowsAvailableResultsInBalancedOrder() {
+        var first = story(); first.key = "tx:one"
+        var second = story(); second.key = "tx:two"
+        var other = story(); other.key = "az:one"; other.source = "azora"
+        let result = DiscoverResults.combine(["teamx":[first,second],"azora":[other]],order:["teamx","3asq","azora"])
+        XCTAssertEqual(result.map(\.key),["tx:one","az:one","tx:two"])
+        XCTAssertTrue(DiscoverResults.combine([:],order:sources).isEmpty)
+    }
+    func testExplorePaginationRemovesRepeatsWithinAndBetweenPages() {
+        var first = story(); first.key = "tx:one"
+        var second = story(); second.key = "tx:two"
+        XCTAssertEqual(DiscoverResults.append([first,second,second],to:[first]).map(\.key),["tx:one","tx:two"])
+    }
+    @MainActor func testScrollObserverReceivesActualScrollOffset() async throws {
+        let window = UIWindow(frame:UIScreen.main.bounds)
+        let controller = UIViewController(); window.rootViewController = controller
+        let scroll = UIScrollView(frame:window.bounds); scroll.contentSize = CGSize(width:window.bounds.width,height:3000)
+        controller.view.addSubview(scroll)
+        let content = UIView(frame:CGRect(x:0,y:0,width:window.bounds.width,height:3000)); scroll.addSubview(content)
+        let probe = ReaderScrollObserver.Probe(frame:content.bounds); content.addSubview(probe)
+        let received = expectation(description:"Actual offset is observed")
+        probe.onScroll = { offset,_ in if offset >= 250 { received.fulfill() } }
+        window.makeKeyAndVisible()
+        defer { probe.observation = nil; window.isHidden = true }
+        try await Task.sleep(for:.milliseconds(100))
+        XCTAssertTrue(probe.observed === scroll)
+        scroll.setContentOffset(CGPoint(x:0,y:300),animated:false)
+        await fulfillment(of:[received],timeout:2)
+    }
     @MainActor func testTemporaryReadingExpiresWithoutTouchingSavedChaptersOrProgress() throws {
         let downloads = Downloads.shared; let oldOwner = downloads.owner; let online = downloads.online
         let owner = "test-"+UUID().uuidString; downloads.online = false

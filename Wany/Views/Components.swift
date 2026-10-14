@@ -10,33 +10,24 @@ struct WanyCard: ViewModifier {
     func body(content: Content) -> some View { content.padding(16).background(Theme.surface,in:RoundedRectangle(cornerRadius:20)) }
 }
 extension View { func card() -> some View { modifier(WanyCard()) } }
-struct OffsetKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: ()->CGFloat) { value = nextValue() }
-}
 struct WanyScroll<Content: View>: View {
     @EnvironmentObject var store: AppStore
-    @State private var last: CGFloat = 0
-    @State private var travel: CGFloat = 0
-    @State private var direction = false
+    @State private var scrollDirection = ReaderScrollDirection()
     let content: Content
     init(@ViewBuilder content: ()->Content) { self.content = content() }
     var body: some View {
         ScrollView {
-            VStack(spacing:18) {
-                GeometryReader { proxy in Color.clear.preference(key:OffsetKey.self,value:proxy.frame(in:.named("page")).minY) }.frame(height:0)
-                content
-            }.padding(.horizontal,18).padding(.bottom,24)
-        }.coordinateSpace(name:"page")
-        .onPreferenceChange(OffsetKey.self) { value in
-            let delta = last-value; last = value
-            if value > -80 { store.chromeHidden = false; travel = 0; return }
-            guard abs(delta) >= 1 else { return }
-            if (delta > 0) != direction { direction = delta > 0; travel = 0 }
-            travel += abs(delta)
-            if travel >= (direction ? 28 : 16) { withAnimation(.easeInOut(duration:0.22)) { store.chromeHidden = direction }; travel = 0 }
+            VStack(spacing:18) { content }
+                .padding(.horizontal,18)
+                // Navigation destinations must reserve their own space for the floating bar.
+                .padding(.bottom,store.mainPageVisible ? store.bottomBarHeight + 32 : 32)
+                .background(ReaderScrollObserver { offset, moving in
+                    if let visible = scrollDirection.update(offset:offset,userScrolling:moving), store.chromeHidden == visible {
+                        withAnimation(.easeInOut(duration:0.22)) { store.chromeHidden = !visible }
+                    }
+                })
         }
-        .onAppear { store.chromeHidden = false }
+        .onAppear { scrollDirection = ReaderScrollDirection(); store.chromeHidden = false }
         .background(Theme.background)
     }
 }

@@ -21,6 +21,8 @@ struct RootView: View {
                         default: ProfileView()
                         }
                     }
+                    .onAppear { store.mainPageVisible = true }
+                    .onDisappear { store.mainPageVisible = false }
                     .navigationTitle("Wany").navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement:.topBarLeading) { Image("Logo").resizable().frame(width:30,height:30).clipShape(RoundedRectangle(cornerRadius:8)) }
@@ -32,17 +34,19 @@ struct RootView: View {
                     }
                 }
                 .id(selected)
-                .safeAreaInset(edge:.bottom,spacing:0) {
-                    if !store.readerActive { HStack(spacing:0) {
+                .overlay(alignment:.bottom) {
+                    if store.mainPageVisible && !store.readerActive { HStack(spacing:0) {
                         ForEach(0..<5) { i in Button { selected = i; store.chromeHidden = false } label: {
                             VStack(spacing:5) { Image(systemName:icons[i]).font(.system(size:21)); Text(titles[i]).font(.system(size:10,weight:.medium)) }.foregroundStyle(selected == i ? Theme.accent : .secondary).frame(maxWidth:.infinity).padding(.vertical,12)
                         } }
                     }.buttonStyle(.plain).background(.ultraThinMaterial,in:RoundedRectangle(cornerRadius:24)).padding(.horizontal,14).padding(.bottom,6)
+                        .background(GeometryReader { proxy in Color.clear.preference(key:BottomBarHeightKey.self,value:proxy.size.height) })
                         .offset(y:store.chromeHidden ? 140 : 0).opacity(store.chromeHidden ? 0 : 1).allowsHitTesting(!store.chromeHidden).animation(.easeInOut(duration:0.22),value:store.chromeHidden)
                     }
                 }
             }
         }
+        .onPreferenceChange(BottomBarHeightKey.self) { store.bottomBarHeight = max(90,$0) }
         .sheet(isPresented:$loginSheet) { LoginView().onChange(of:store.loginRequired) { _,needed in if !needed { loginSheet = false } } }
         .alert("Wany",isPresented:Binding(get:{store.error != nil || downloads.notice != nil},set:{if !$0 { store.error = nil; downloads.notice = nil }})) { Button("حسنًا") { store.error = nil; downloads.notice = nil } } message: { Text(store.error ?? downloads.notice ?? "") }
     }
@@ -70,4 +74,9 @@ struct LoginView: View {
             Spacer(); Spacer()
         }.padding(28).background(Theme.background)
     }
+}
+
+private struct BottomBarHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 90
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
