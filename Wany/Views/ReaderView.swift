@@ -129,8 +129,10 @@ struct ReaderView: View {
         .task {
             if store.online, let full = try? await API.shared.fullSeries(story.key), !Task.isCancelled { store.remember(full) }
         }
+        .onAppear { store.readerActive = true; store.chromeHidden = true }
         .onDisappear {
-            store.chromeHidden = false
+            store.readerActive = false; store.chromeHidden = false
+            if let payload { downloads.leaveChapter(payload.id) }
             savePosition()
             Task { await store.syncProgress() }
         }
@@ -145,7 +147,7 @@ struct ReaderView: View {
                             Text(item.title).foregroundStyle(.primary)
                             Spacer()
                             if item.id == readingChapter.id { Image(systemName:"book.fill").foregroundStyle(Theme.accent) }
-                            if downloads.jobs.first(where:{$0.id == story.key})?.chapters.first(where:{$0.id == item.id})?.complete == true { Image(systemName:"checkmark.circle.fill").foregroundStyle(.green) }
+                            if downloads.savedJobs.first(where:{$0.id == story.key})?.chapters.first(where:{$0.id == item.id})?.complete == true { Image(systemName:"checkmark.circle.fill").foregroundStyle(.green) }
                         }
                     }
                 }
@@ -170,6 +172,7 @@ struct ReaderView: View {
     func open(_ target: Chapter) {
         guard target.id != readingChapter.id else { return }
         savePosition()
+        if let payload { downloads.leaveChapter(payload.id) }
         payload = nil; error = nil; currentPage = nil; interacted = false
         percent = 0; lastSave = -100; scrollDirection = ReaderScrollDirection(); controls = true
         activeChapter = target
@@ -187,7 +190,7 @@ struct ReaderView: View {
         let id = story.key+":"+requested.id
         if let saved = Disk.read(ChapterPayload.self,owner:owner,name:Disk.chapterName(id)) {
             payload = saved; currentPage = restoredPage(saved)
-            if store.online { downloads.usePayload(saved) }
+            downloads.usePayload(saved)
             return
         }
         guard store.online else { error = "هذا الفصل غير محمل. اتصل بالإنترنت لتنزيله؛ بقية الفصول المحملة متاحة من التنزيلات."; return }

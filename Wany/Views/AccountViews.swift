@@ -4,16 +4,22 @@ import SwiftUI
     @Published var value: JSONValue = .null
     @Published var loading = false
     @Published var error: String?
+    private var requestID = UUID()
+    private var filename: String?
     func load(_ path: String, store: AppStore, query: [String:String] = [:]) async {
         guard let owner = store.state?.user.id else { return }
         let filename = "api/"+Disk.hash(path + query.sorted {$0.key<$1.key}.description)+".json"
-        if let cached = Disk.read(JSONValue.self,owner:owner,name:filename) { value = cached }
-        guard store.online, !loading else { return }; loading = true; defer { loading = false }
+        guard !loading || self.filename != filename else { return }
+        let token = UUID(); requestID = token; self.filename = filename
+        value = Disk.read(JSONValue.self,owner:owner,name:filename) ?? .null
+        error = nil
+        guard store.online else { loading = false; return }; loading = true
+        defer { if requestID == token { loading = false } }
         do {
             let response = try await API.shared.get(path,query:query,as:JSONValue.self)
-            guard store.state?.user.id == owner else { return }
+            guard requestID == token, store.state?.user.id == owner else { return }
             value = response; error = nil; try Disk.save(value,owner:owner,name:filename)
-        } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
+        } catch { if requestID == token, !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
 }
 struct ListsView: View {
@@ -47,7 +53,7 @@ struct ListDetailView: View {
             }
             if let error = page.error { Text(error).foregroundStyle(.orange) }
         }.task { await load() }.refreshable { await load() }
-        .sheet(isPresented:$adding) { NavigationStack { List(store.stories.values.sorted {$0.title<$1.title}) { story in Button(story.title) { Task { do { try await API.shared.send("/api/lists/"+id+"/items",value:["mangaId":story.key]); adding = false; await load() } catch { store.error = error.localizedDescription } } } }.navigationTitle("إضافة قصة للقائمة").toolbar { Button("إغلاق") { adding = false } } } }
+        .sheet(isPresented:$adding,onDismiss:{ Task { await load() } }) { AddStoriesToListView(id:id) }
     }
     func load() async {
         await page.load("/api/lists/"+id,store:store)
@@ -126,33 +132,54 @@ struct ActivityView: View {
 struct SettingsView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var downloads: Downloads
-    @State private var wifiOnly = false
+    @State private var editingName = false
     @State private var name = ""
-    @State private var privateProfile = false
     @State private var logout = false
+    @State private var compress = false
     var body: some View {
-        Form {
-            Section("التنزيلات") {
-                Toggle("تحميل عبر Wi-Fi فقط",isOn:$wifiOnly).onChange(of:wifiOnly) { _,value in downloads.wifiOnly = value }
-                LabeledContent("المساحة المستخدمة",value:byteLabel(downloads.jobs.reduce(0){$0+$1.bytes}))
-                Text("يمكن إيقاف التحميل واستكماله من صفحة التنزيلات. عند إغلاق التطبيق بالقوة يتوقف عمل الخلفية حتى فتحه مجددًا.").font(.caption).foregroundStyle(.secondary)
-            }
-            Section("الحساب") {
-                TextField("الاسم الظاهر",text:$name)
-                Button("حفظ الاسم") { Task { do { try await API.shared.send("/api/profile/name",method:"PUT",value:["name":name]); await store.refresh() } catch { store.error = error.localizedDescription } } }.disabled(!store.online)
-                NavigationLink("الصورة الشخصية") { AvatarPickerView() }
-                Toggle("حساب خاص",isOn:$privateProfile).onChange(of:privateProfile) { _,value in if (store.state?.user.profileVisibility == "private") != value { Task { do { try await API.shared.send("/api/profile/visibility",method:"PUT",value:["visibility":value ? "private" : "public"]); await store.refresh() } catch { store.error = error.localizedDescription; privateProfile = store.state?.user.profileVisibility == "private" } } } }.disabled(!store.online)
-            }
-            Section("المزامنة") {
-                LabeledContent("التحديثات المعلقة",value:String(store.state?.pending.count ?? 0))
-                if let date = store.state?.lastSynced { LabeledContent("آخر مزامنة",value:date.formatted(date:.abbreviated,time:.shortened)) }
-                Button("مزامنة الآن") { Task { await store.refresh() } }.disabled(!store.online || store.syncing)
-            }
-            Section { Button("تسجيل الخروج",role:.destructive) { logout = true } }
-            Section { HStack { Image("Logo").resizable().frame(width:32,height:32).clipShape(RoundedRectangle(cornerRadius:8)); Text(AppVersion.display); Spacer() }; NavigationLink("سجل التحديثات") { UpdatesView() }; Text("قصصك وتقدمك محفوظة داخل التطبيق. النسخة الأولى للآيفون.").font(.caption).foregroundStyle(.secondary) }
-        }.navigationTitle("الإعدادات")
-        .onAppear { wifiOnly = downloads.wifiOnly; name = store.state?.user.name ?? ""; privateProfile = store.state?.user.profileVisibility == "private" }
-        .confirmationDialog("تسجيل الخروج؟ تبقى التنزيلات والتحديثات المعلقة محفوظة لهذا الحساب حتى تسجيل دخوله مجددًا.",isPresented:$logout) { Button("تسجيل الخروج",role:.destructive) { Task { await store.logout() } } }
+        WanyScroll {
+            VStack(alignment:.leading,spacing:16) {
+                Text("الحساب").font(.headline)
+                Button { name = store.state?.user.name ?? ""; editingName = true } label: { settingsRow("الاسم الظاهر",value:store.state?.user.name ?? "",icon:"pencil") }.disabled(!store.online)
+                Divider()
+                NavigationLink { AvatarPickerView() } label: { settingsRow("الصورة الشخصية",icon:"person.crop.circle") }
+                Divider()
+                Toggle("حساب خاص",isOn:Binding(get:{store.state?.user.profileVisibility == "private"},set:{ value in Task { do { try await API.shared.send("/api/profile/visibility",method:"PUT",value:["visibility":value ? "private" : "public"]); await store.refresh() } catch { if !isRequestCancellation(error) { store.error = error.localizedDescription } } } })).disabled(!store.online)
+            }.card()
+            VStack(alignment:.leading,spacing:16) {
+                Text("التنزيلات والمساحة").font(.headline)
+                Toggle("التنزيل عبر Wi-Fi فقط",isOn:Binding(get:{downloads.wifiOnly},set:{downloads.wifiOnly = $0}))
+                Divider()
+                Picker("جودة الصور",selection:Binding(get:{downloads.quality},set:{downloads.quality = $0})) { ForEach(ImageQuality.allCases) { quality in Text(quality.label).tag(quality) } }
+                Text("المتوازنة تقلل الحجم مع وضوح مناسب للقراءة. تؤثر الجودة على الصور الجديدة؛ استخدم الزر أدناه لتقليل التنزيلات الموجودة.").font(.caption).foregroundStyle(.secondary)
+                settingsRow("التنزيلات المحفوظة",value:byteLabel(downloads.savedJobs.reduce(0){$0+$1.bytes}))
+                settingsRow("صور القراءة المؤقتة",value:byteLabel(downloads.temporaryBytes))
+                Text("صور القراءة العادية تُحذف بعد 3 دقائق من مغادرة الفصل، أو عند فتح التطبيق مجددًا إذا كان مغلقًا. تقدمك يبقى محفوظًا.").font(.caption).foregroundStyle(.secondary)
+                Button { compress = true } label: { settingsRow(downloads.compacting ? downloads.compactProgress : "تقليل حجم التنزيلات الموجودة",icon:"arrow.down.right.and.arrow.up.left") }.disabled(downloads.compacting || downloads.savedJobs.isEmpty)
+                Button { downloads.cleanTemporary(all:true) } label: { settingsRow("مسح الصور المؤقتة الآن",icon:"trash") }.disabled(downloads.temporaryBytes == 0)
+            }.card()
+            VStack(alignment:.leading,spacing:16) {
+                Text("المزامنة").font(.headline)
+                settingsRow("التحديثات المعلقة",value:String(store.state?.pending.count ?? 0))
+                if let date = store.state?.lastSynced { Text("آخر مزامنة: " + date.formatted(date:.abbreviated,time:.shortened)).font(.caption).foregroundStyle(.secondary) }
+                Button { Task { await store.refresh() } } label: { settingsRow(store.syncing ? "جاري المزامنة…" : "مزامنة الآن",icon:"arrow.clockwise") }.disabled(!store.online || store.syncing)
+            }.card()
+            VStack(alignment:.leading,spacing:16) {
+                Text(AppVersion.display).font(.subheadline)
+                NavigationLink { UpdatesView() } label: { settingsRow("سجل التحديثات",icon:"clock.arrow.circlepath") }
+            }.card()
+            Button(role:.destructive) { logout = true } label: { Text("تسجيل الخروج").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }.card()
+        }.buttonStyle(.plain).navigationTitle("الإعدادات")
+        .alert("الاسم الظاهر",isPresented:$editingName) {
+            TextField("اسمك",text:$name)
+            Button("حفظ") { Task { do { try await API.shared.send("/api/profile/name",method:"PUT",value:["name":name]); await store.refresh() } catch { if !isRequestCancellation(error) { store.error = error.localizedDescription } } } }
+            Button("إلغاء",role:.cancel) {}
+        }
+        .confirmationDialog("تقليل الحجم بجودة متوازنة أو الجودة المحددة؟ لا يمكن استعادة الصورة الأصلية إلا بإعادة تنزيلها.",isPresented:$compress) { Button("تقليل الحجم") { Task { await downloads.compactSaved() } } }
+        .confirmationDialog("تسجيل الخروج؟ تبقى التنزيلات والتقدم محفوظة لحسابك.",isPresented:$logout) { Button("تسجيل الخروج",role:.destructive) { Task { await store.logout() } } }
+    }
+    func settingsRow(_ title: String, value: String = "", icon: String? = nil) -> some View {
+        HStack(spacing:12) { Text(title).foregroundStyle(.primary); Spacer(minLength:10); if !value.isEmpty { Text(value).font(.subheadline).foregroundStyle(.secondary) }; if let icon { Image(systemName:icon).foregroundStyle(Theme.accent) } }.frame(minHeight:44).contentShape(Rectangle())
     }
 }
 struct AvatarPickerView: View {

@@ -1,7 +1,71 @@
 import XCTest
+import UIKit
 @testable import Wany
 
 final class WanyTests: XCTestCase {
+    @MainActor func testTemporaryReadingExpiresWithoutTouchingSavedChaptersOrProgress() throws {
+        let downloads = Downloads.shared; let oldOwner = downloads.owner; let online = downloads.online
+        let owner = "test-"+UUID().uuidString; downloads.online = false
+        defer { downloads.attach(oldOwner); downloads.online = online; try? FileManager.default.removeItem(at:Disk.folder(owner)) }
+        let work = story()
+        let saved = ChapterPayload(item:work,number:1,title:"1",pages:["a"])
+        let temporary = ChapterPayload(item:work,number:2,title:"2",pages:["b"])
+        for payload in [saved,temporary] {
+            let file = Disk.file(owner,Disk.imageName(payload.id,0))
+            try FileManager.default.createDirectory(at:file.deletingLastPathComponent(),withIntermediateDirectories:true)
+            try Data([1,2,3]).write(to:file)
+            try Disk.save(payload,owner:owner,name:Disk.chapterName(payload.id))
+        }
+        let chapters = [ChapterDownload(chapter:Chapter(number:1,title:"1"),payload:saved,images:[ImageRecord(remote:"a",file:Disk.imageName(saved.id,0),bytes:3,done:true)]),ChapterDownload(chapter:Chapter(number:2,title:"2"),payload:temporary,images:[ImageRecord(remote:"b",file:Disk.imageName(temporary.id,0),bytes:3,done:true)],keepOffline:false,expiresAt:Date().addingTimeInterval(1000))]
+        try Disk.save([DownloadJob(id:work.key,story:work,chapters:chapters,wholeStory:false,chapterListComplete:true)],owner:owner,name:"downloads.json")
+        var state = AccountState(user:Account(id:owner,name:"U",username:"u")); state.positions[temporary.id] = 4
+        try Disk.save(state,owner:owner,name:"account.json")
+        downloads.attach(owner); downloads.usePayload(temporary)
+        downloads.cleanTemporary(now:Date().addingTimeInterval(2000))
+        XCTAssertNotNil(downloads.pageURL(temporary,index:0)) // Active chapter stays available.
+        downloads.leaveChapter(temporary.id)
+        downloads.cleanTemporary(now:Date().addingTimeInterval(120))
+        XCTAssertNotNil(downloads.pageURL(temporary,index:0))
+        downloads.cleanTemporary(now:Date().addingTimeInterval(200))
+        XCTAssertNil(downloads.pageURL(temporary,index:0)); XCTAssertNotNil(downloads.pageURL(saved,index:0))
+        XCTAssertNil(Disk.read(ChapterPayload.self,owner:owner,name:Disk.chapterName(temporary.id)))
+        XCTAssertEqual(Disk.read(AccountState.self,owner:owner,name:"account.json")?.positions[temporary.id],4)
+        XCTAssertEqual(downloads.savedJobs.first?.chapters.count,1)
+    }
+    @MainActor func testExplicitDownloadPromotesTemporaryFilesWithoutRedownloading() async throws {
+        let downloads = Downloads.shared; let oldOwner = downloads.owner; let online = downloads.online
+        let owner = "test-"+UUID().uuidString; downloads.online = false; downloads.attach(owner)
+        defer { downloads.attach(oldOwner); downloads.online = online; try? FileManager.default.removeItem(at:Disk.folder(owner)) }
+        let work = story(); let chapter = Chapter(number:1,title:"1")
+        let payload = ChapterPayload(item:work,number:1,title:"1",pages:["a"])
+        let file = Disk.file(owner,Disk.imageName(payload.id,0))
+        try FileManager.default.createDirectory(at:file.deletingLastPathComponent(),withIntermediateDirectories:true); try Data([1,2,3]).write(to:file)
+        downloads.usePayload(payload); XCTAssertTrue(downloads.savedJobs.isEmpty)
+        await downloads.enqueue(work,chapters:[chapter])
+        downloads.leaveChapter(payload.id); downloads.cleanTemporary(now:Date().addingTimeInterval(1000),all:true)
+        XCTAssertTrue(downloads.savedJobs.first?.complete == true); XCTAssertNotNil(downloads.pageURL(payload,index:0))
+        XCTAssertEqual(downloads.savedJobs.first?.bytes,3)
+    }
+    func testTemporaryImagesDoNotInflateDownloadCounters() {
+        let work = story(); let payload = ChapterPayload(item:work,number:1,title:"1",pages:["a"])
+        let temp = ChapterDownload(chapter:Chapter(number:1,title:"1"),payload:payload,images:[ImageRecord(remote:"a",file:"a",bytes:500,done:true)],keepOffline:false)
+        let job = DownloadJob(id:work.key,story:work,chapters:[temp],wholeStory:false,chapterListComplete:true)
+        XCTAssertEqual(job.bytes,0); XCTAssertEqual(job.completedChapters,0); XCTAssertFalse(job.complete)
+    }
+    func testCompressionReducesLargeJPEGAndPreservesReadableDimensions() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString+".jpg")
+        defer { try? FileManager.default.removeItem(at:url) }
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size:CGSize(width:2000,height:3000),format:format)
+        let image = renderer.image { context in UIColor.white.setFill(); context.fill(CGRect(x:0,y:0,width:2000,height:3000)); UIColor.black.setFill(); context.fill(CGRect(x:100,y:100,width:1800,height:50)) }
+        try XCTUnwrap(image.jpegData(compressionQuality:1)).write(to:url)
+        let before = Int64(try url.resourceValues(forKeys:[.fileSizeKey]).fileSize!)
+        let after = try ImageStorage.compact(url,quality:.balanced)
+        XCTAssertLessThan(after,before)
+        let decoded = try XCTUnwrap(UIImage(contentsOfFile:url.path))
+        XCTAssertEqual(decoded.size.width,1440,accuracy:1); XCTAssertEqual(decoded.size.height/decoded.size.width,1.5,accuracy:0.01)
+        XCTAssertEqual(try ImageStorage.compact(url,quality:.original),after)
+    }
     func testCancellationIsSilentButRealNetworkErrorsAreNot() {
         XCTAssertTrue(isRequestCancellation(CancellationError()))
         XCTAssertTrue(isRequestCancellation(URLError(.cancelled)))
@@ -149,9 +213,9 @@ final class WanyTests: XCTestCase {
             let file = Disk.file(owner,Disk.imageName(payload.id,i)); try FileManager.default.createDirectory(at:file.deletingLastPathComponent(),withIntermediateDirectories:true); try Data([1,2,3]).write(to:file)
         }
         downloads.usePayload(payload)
-        XCTAssertEqual(downloads.jobs.first?.completedChapters,1)
+        XCTAssertTrue(downloads.jobs.first?.chapters.first?.complete == true)
         downloads.invalidatePage(payload,index:1)
-        XCTAssertNotNil(downloads.pageURL(payload,index:0)); XCTAssertNil(downloads.pageURL(payload,index:1)); XCTAssertEqual(downloads.jobs.first?.completedChapters,0)
+        XCTAssertNotNil(downloads.pageURL(payload,index:0)); XCTAssertNil(downloads.pageURL(payload,index:1)); XCTAssertFalse(downloads.jobs.first?.chapters.first?.complete == true)
         XCTAssertTrue(downloads.jobs.first?.chapters.first?.images.first?.done == true)
     }
 

@@ -26,7 +26,7 @@ struct WanyScroll<Content: View>: View {
             VStack(spacing:18) {
                 GeometryReader { proxy in Color.clear.preference(key:OffsetKey.self,value:proxy.frame(in:.named("page")).minY) }.frame(height:0)
                 content
-            }.padding(.horizontal,18).padding(.bottom,100)
+            }.padding(.horizontal,18).padding(.bottom,24)
         }.coordinateSpace(name:"page")
         .onPreferenceChange(OffsetKey.self) { value in
             let delta = last-value; last = value
@@ -55,27 +55,31 @@ struct StoryCard: View {
     let story: Story
     var showReadingProgress = false
     var body: some View {
-        NavigationLink { StoryView(initial:story) } label: {
-            VStack(alignment:.leading,spacing:7) {
-                CoverView(story:story).frame(height:205).clipShape(RoundedRectangle(cornerRadius:15))
-                Text(story.title).font(.subheadline.weight(.semibold)).lineLimit(2).frame(height:40,alignment:.topLeading)
-                HStack { Text(sourceLabel(story.source)); Spacer(); if let latest = story.latest { Text(chapterNumber(latest)) } }.font(.caption2).foregroundStyle(.secondary)
-                if showReadingProgress, let state = store.state {
-                    let summary = state.readingSummary(for:store.stories[story.key] ?? story)
-                    VStack(alignment:.leading,spacing:5) {
-                        Text(summary.chapter.map { "وصلت للفصل " + chapterNumber($0) } ?? "لم تبدأ القراءة").font(.caption).foregroundStyle(Theme.accent)
-                        if let percent = summary.percent {
-                            HStack { Text("تقدم القصة"); Spacer(); Text(percent.formatted(.number.precision(.fractionLength(1))) + "٪").monospacedDigit() }.font(.caption2).foregroundStyle(.secondary)
-                            ProgressView(value:percent,total:100).tint(Theme.accent)
-                        } else {
-                            Text("\(summary.completedCount) فصل مقروء · النسبة بانتظار تحديث الفصول").font(.caption2).foregroundStyle(.secondary)
-                        }
-                    }.frame(maxWidth:.infinity,alignment:.leading)
-                }
-            }.foregroundStyle(.primary)
-        }.buttonStyle(.plain)
+        VStack(alignment:.leading,spacing:8) {
+            NavigationLink { StoryView(initial:story) } label: {
+                VStack(alignment:.leading,spacing:7) {
+                    CoverView(story:story).frame(height:205).clipShape(RoundedRectangle(cornerRadius:15))
+                    Text(story.title).font(.subheadline.weight(.semibold)).lineLimit(2).frame(height:40,alignment:.topLeading)
+                    HStack { Text(sourceLabel(story.source)); Spacer(); if let latest = story.latest { Text(chapterNumber(latest)) } }.font(.caption2).foregroundStyle(.secondary)
+                }.contentShape(Rectangle()).foregroundStyle(.primary)
+            }.buttonStyle(.plain)
+            if showReadingProgress, let state = store.state {
+                let full = store.stories[story.key] ?? story
+                let summary = state.readingSummary(for:full)
+                if let number = summary.chapter {
+                    NavigationLink { ReaderView(story:full,chapter:full.chapters?.first(where:{$0.number == number}) ?? Chapter(number:number,title:"الفصل \(chapterNumber(number))")) } label: {
+                        Label("وصلت للفصل \(chapterNumber(number))",systemImage:"play.fill").font(.caption).frame(maxWidth:.infinity,minHeight:44,alignment:.leading).contentShape(Rectangle())
+                    }.buttonStyle(.plain).foregroundStyle(Theme.accent)
+                } else { Text("لم تبدأ القراءة").font(.caption).foregroundStyle(.secondary).frame(minHeight:44) }
+                if let percent = summary.percent {
+                    HStack { Text("تقدم القصة"); Spacer(); Text(percent.formatted(.number.precision(.fractionLength(1))) + "٪").monospacedDigit() }.font(.caption2).foregroundStyle(.secondary)
+                    ProgressView(value:percent,total:100).tint(Theme.accent)
+                } else { Text("\(summary.completedCount) فصل مقروء · بانتظار تحديث الفصول").font(.caption2).foregroundStyle(.secondary) }
+            }
+        }
     }
 }
+
 struct StoryGrid: View {
     let stories: [Story]
     var showReadingProgress = false

@@ -34,10 +34,10 @@ struct DownloadsView: View {
     @State private var filter = "الكل"
     var body: some View {
         WanyScroll {
-            HStack { Text("تنزيلاتي").font(.largeTitle.bold()); Spacer(); Text(byteLabel(downloads.jobs.reduce(0){$0+$1.bytes})).font(.caption).foregroundStyle(.secondary) }
+            HStack { Text("تنزيلاتي").font(.largeTitle.bold()); Spacer(); Text(byteLabel(downloads.savedJobs.reduce(0){$0+$1.bytes})).font(.caption).foregroundStyle(.secondary) }
             Picker("التنزيلات",selection:$filter) { Text("الكل").tag("الكل"); Text("مكتمل").tag("مكتمل"); Text("غير مكتمل").tag("غير مكتمل") }.pickerStyle(.segmented)
-            if downloads.jobs.isEmpty { EmptyState(icon:"arrow.down.circle",title:"مكتبتك بدون إنترنت",detail:"افتح قصة واضغط تحميل القصة كاملة، أو حمّل الفصول التي تختارها.") }
-            ForEach(downloads.jobs.filter { filter == "الكل" || (filter == "مكتمل" ? $0.complete : !$0.complete) }) { job in
+            if downloads.savedJobs.isEmpty { EmptyState(icon:"arrow.down.circle",title:"مكتبتك بدون إنترنت",detail:"افتح قصة واضغط تحميل القصة كاملة، أو حمّل الفصول التي تختارها.") }
+            ForEach(downloads.savedJobs.filter { filter == "الكل" || (filter == "مكتمل" ? $0.complete : !$0.complete) }) { job in
                 VStack(alignment:.leading,spacing:15) {
                     HStack {
                         NavigationLink { StoryView(initial:job.story) } label: {

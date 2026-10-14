@@ -157,6 +157,9 @@ struct ChapterDownload: Codable, Identifiable {
     var payload: ChapterPayload?
     var images: [ImageRecord] = []
     var error: String?
+    var keepOffline: Bool?
+    var expiresAt: Date?
+    var saved: Bool { keepOffline != false }
     var id: String { chapter.id }
     var complete: Bool { payload != nil && !images.isEmpty && images.allSatisfy(\.done) }
 }
@@ -172,15 +175,15 @@ struct DownloadJob: Codable, Identifiable {
     var createdAt = Date()
     var error: String?
     var requestedChapters: [ChapterDownload] {
-        guard let activeChapterIDs else { return chapters }
+        guard let activeChapterIDs else { return chapters.filter(\.saved) }
         let targets = Set(activeChapterIDs)
-        return chapters.filter { targets.contains($0.id) }
+        return chapters.filter { $0.saved && targets.contains($0.id) }
     }
     func includes(_ chapterID: String) -> Bool { activeChapterIDs?.contains(chapterID) ?? true }
     var completedChapters: Int { requestedChapters.filter(\.complete).count }
     var remainingChapters: Int { requestedChapters.count - completedChapters }
     var downloadedBytes: Int64 { requestedChapters.flatMap(\.images).reduce(0) { $0 + $1.bytes } }
-    var bytes: Int64 { chapters.flatMap(\.images).reduce(0) { $0 + $1.bytes } }
+    var bytes: Int64 { chapters.filter(\.saved).flatMap(\.images).reduce(0) { $0 + $1.bytes } }
     var total: Int64? {
         let images = requestedChapters.flatMap(\.images)
         guard chapterListComplete, requestedChapters.allSatisfy({ $0.payload != nil }), !images.isEmpty,
@@ -189,7 +192,7 @@ struct DownloadJob: Codable, Identifiable {
     }
     var complete: Bool { chapterListComplete && !requestedChapters.isEmpty && requestedChapters.allSatisfy(\.complete) }
 }
-struct TransferTag: Codable { var owner: String; var job: String; var chapter: String; var image: String }
+struct TransferTag: Codable { var owner: String; var job: String; var chapter: String; var image: String; var quality: String? }
 
 // The local reading ledger retains both an offline completion and a newer reread.
 // Merge uses event timestamps; page indices from an older device position are discarded.

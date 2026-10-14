@@ -13,6 +13,7 @@ import UIKit
     @Published var loadingFeed = false
     @Published var feedProgress = ""
     @Published var chromeHidden = false
+    @Published var readerActive = false
     let downloads = Downloads.shared
     private let monitor = NWPathMonitor()
     private var metadataTask: Task<Void,Never>?

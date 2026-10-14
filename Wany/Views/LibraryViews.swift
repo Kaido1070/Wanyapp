@@ -85,10 +85,18 @@ struct SourceChapterDestination: View {
 struct ProfileView: View {
     @EnvironmentObject var store: AppStore
     @State private var tab = "reading"
+    @StateObject private var lists = CachedPage()
+    @StateObject private var selectedList = CachedPage()
+    @State private var listID = ""
+    @State private var creating = false
+    @State private var newName = ""
+    @State private var adding = false
+    @State private var busy = false
     var keys: [String] {
         guard let state = store.state else { return [] }
         if tab == "favorites" { return state.data.favorites }
-        return state.data.library.filter { tab == "all" || $0.status == tab }.sorted { ($0.lastReadAt ?? $0.updatedAt) > ($1.lastReadAt ?? $1.updatedAt) }.map(\.mangaId)
+        if tab == "lists" { return selectedList.value["items"].array.map { $0["mangaId"].string } }
+        return state.data.library.filter { $0.status == "reading" }.sorted { ($0.lastReadAt ?? $0.updatedAt) > ($1.lastReadAt ?? $1.updatedAt) }.map(\.mangaId)
     }
     var body: some View {
         WanyScroll {
@@ -110,20 +118,66 @@ struct ProfileView: View {
                     stat("مكتمل",state.data.completed.count)
                     stat("مفضلة",state.data.favorites.count)
                 }
-                HStack {
-                    NavigationLink { ListsView() } label: { Label("قوائمي",systemImage:"list.bullet.rectangle") }
-                    Spacer()
-                    NavigationLink { FriendsView() } label: { Label("الأصدقاء",systemImage:"person.2") }
-                    Spacer()
-                    NavigationLink { ActivityView() } label: { Label("النشاط",systemImage:"clock") }
-                }.font(.caption).padding(.vertical,6)
-                ScrollView(.horizontal,showsIndicators:false) { HStack { ForEach([("reading","أقرأ حاليًا"),("favorites","المفضلة"),("completed","مكتمل"),("planned","لاحقًا"),("paused","متوقف"),("all","الكل")],id:\.0) { pair in Button(pair.1) { tab = pair.0 }.buttonStyle(.bordered).tint(tab == pair.0 ? Theme.accent : .gray) } } }
+                HStack(spacing:16) {
+                    NavigationLink { FriendsView() } label: { Label("الأصدقاء",systemImage:"person.2").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }
+                    NavigationLink { ActivityView() } label: { Label("النشاط",systemImage:"clock").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }
+                }.font(.subheadline).buttonStyle(.plain)
+                HStack(spacing:8) {
+                    ForEach([("reading","أقرأ حاليًا"),("favorites","المفضلة"),("lists","القوائم")],id:\.0) { pair in
+                        Button { tab = pair.0 } label: { Text(pair.1).font(.subheadline).frame(maxWidth:.infinity,minHeight:48).background(tab == pair.0 ? Theme.accent.opacity(0.25) : Theme.surface,in:RoundedRectangle(cornerRadius:12)).contentShape(Rectangle()) }.buttonStyle(.plain)
+                    }
+                    Button { newName = ""; creating = true } label: { Image(systemName:"plus").frame(width:48,height:48).background(Theme.surface,in:RoundedRectangle(cornerRadius:12)).contentShape(Rectangle()) }.buttonStyle(.plain).accessibilityLabel("إنشاء قائمة").disabled(!store.online)
+                }
+                if tab == "lists" {
+                    ScrollView(.horizontal,showsIndicators:false) {
+                        HStack(spacing:12) { ForEach(Array(lists.value["lists"].array.enumerated()),id:\.offset) { _,list in
+                            Button { listID = list["id"].string } label: { Text(list["name"].string).font(.subheadline).padding(.horizontal,16).frame(minHeight:48).background(listID == list["id"].string ? Theme.accent.opacity(0.25) : Theme.surface,in:Capsule()).contentShape(Capsule()) }.buttonStyle(.plain)
+                        } }
+                    }
+                    if !listID.isEmpty {
+                        HStack(spacing:16) {
+                            Button { adding = true } label: { Label("إضافة قصص",systemImage:"plus").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }.disabled(!store.online)
+                            NavigationLink { ListDetailView(id:listID,title:lists.value["lists"].array.first(where:{$0["id"].string == listID})?["name"].string ?? "القائمة") } label: { Label("إدارة القائمة",systemImage:"slider.horizontal.3").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }
+                        }.font(.caption).buttonStyle(.plain)
+                    } else { Text("أنشئ قائمتك من زر + وأضف لها القصص التي تختارها.").font(.subheadline).foregroundStyle(.secondary) }
+                }
                 StoryGrid(stories:keys.compactMap { store.stories[$0] },showReadingProgress:true)
                 let missing = keys.filter { store.stories[$0] == nil }.count
                 if missing > 0 { Text("\(missing) قصة بانتظار حفظ تفاصيلها عند الاتصال").font(.caption).foregroundStyle(.secondary) }
                 if keys.isEmpty { EmptyState(icon:"books.vertical",title:"لا توجد قصص هنا",detail:"أضف قصة من صفحة الاستكشاف لتظهر في مكتبتك.") }
             }
-        }.refreshable { await store.refresh() }
+        }.task { await loadLists(); await loadSelectedList() }
+        .refreshable { await store.refresh(); await loadLists(); await loadSelectedList() }
+        .onChange(of:tab) { _,value in if value == "lists" { Task { await loadLists(); await loadSelectedList() } } }
+        .onChange(of:listID) { _,_ in Task { await loadSelectedList() } }
+        .sheet(isPresented:$adding,onDismiss:{ Task { await loadSelectedList(); await loadLists() } }) { AddStoriesToListView(id:listID) }
+        .alert("قائمة جديدة",isPresented:$creating) {
+            TextField("اسم القائمة",text:$newName)
+            Button("إنشاء") { Task { await createList() } }.disabled(busy)
+            Button("إلغاء",role:.cancel) {}
+        }
+    }
+    func loadLists() async {
+        await lists.load("/api/lists",store:store)
+        if listID.isEmpty { listID = lists.value["lists"].array.first?["id"].string ?? "" }
+    }
+    func loadSelectedList() async {
+        guard !listID.isEmpty else { return }
+        await selectedList.load("/api/lists/"+listID,store:store)
+        guard store.online else { return }
+        let keys = selectedList.value["items"].array.map { $0["mangaId"].string }.filter { store.stories[$0] == nil }
+        for start in stride(from:0,to:keys.count,by:40) {
+            if let response = try? await API.shared.get("/api/source/resolve",query:["keys":keys[start..<min(start+40,keys.count)].joined(separator:",")],as:ResolveResponse.self) { for story in response.items { store.remember(story) } }
+        }
+    }
+    func createList() async {
+        let name = newName.trimmingCharacters(in:.whitespacesAndNewlines)
+        guard !name.isEmpty, !busy else { return }; busy = true; defer { busy = false }
+        do {
+            let data = try await API.shared.raw("/api/lists",method:"POST",body:JSONEncoder().encode(["name":name,"description":"","iconKey":"lists"]))
+            let result = try JSONDecoder().decode(JSONValue.self,from:data)
+            await loadLists(); listID = result["list"]["id"].string; tab = "lists"; await loadSelectedList()
+        } catch { if !isRequestCancellation(error) { store.error = error.localizedDescription } }
     }
     func stat(_ title: String,_ value: Int) -> some View { VStack(spacing:6) { Text("\(value)").font(.title2.bold()).foregroundStyle(Theme.accent); Text(title).font(.caption).foregroundStyle(.secondary) }.frame(maxWidth:.infinity).card() }
 }

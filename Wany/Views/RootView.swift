@@ -32,13 +32,14 @@ struct RootView: View {
                     }
                 }
                 .id(selected)
-                .overlay(alignment:.bottom) {
-                    HStack(spacing:0) {
+                .safeAreaInset(edge:.bottom,spacing:0) {
+                    if !store.readerActive { HStack(spacing:0) {
                         ForEach(0..<5) { i in Button { selected = i; store.chromeHidden = false } label: {
                             VStack(spacing:5) { Image(systemName:icons[i]).font(.system(size:21)); Text(titles[i]).font(.system(size:10,weight:.medium)) }.foregroundStyle(selected == i ? Theme.accent : .secondary).frame(maxWidth:.infinity).padding(.vertical,12)
                         } }
-                    }.background(.ultraThinMaterial,in:RoundedRectangle(cornerRadius:24)).padding(.horizontal,14).padding(.bottom,6)
-                        .offset(y:store.chromeHidden ? 140 : 0).animation(.easeInOut(duration:0.22),value:store.chromeHidden)
+                    }.buttonStyle(.plain).background(.ultraThinMaterial,in:RoundedRectangle(cornerRadius:24)).padding(.horizontal,14).padding(.bottom,6)
+                        .offset(y:store.chromeHidden ? 140 : 0).opacity(store.chromeHidden ? 0 : 1).allowsHitTesting(!store.chromeHidden).animation(.easeInOut(duration:0.22),value:store.chromeHidden)
+                    }
                 }
             }
         }

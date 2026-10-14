@@ -47,7 +47,7 @@ struct StoryView: View {
                 }.frame(maxWidth:.infinity).padding(9)
             }.buttonStyle(.bordered).disabled(preparingUnread || downloads.preparing.contains(story.key) || !store.online)
             Text("يتجاوز الفصول التي أكملتها، ويشمل الفصل الذي لم تكمل قراءته.").font(.caption).foregroundStyle(.secondary).frame(maxWidth:.infinity,alignment:.leading)
-            if let job = downloads.jobs.first(where:{$0.id == story.key}) { DownloadSummary(job:job).card() }
+            if let job = downloads.savedJobs.first(where:{$0.id == story.key}) { DownloadSummary(job:job).card() }
             HStack { Text("الفصول · \(story.chapters?.count ?? 0)").font(.title3.bold()); Spacer(); if loading { ProgressView() }; Button { ascending.toggle() } label: { Image(systemName:"arrow.up.arrow.down") }; Button(selecting ? "إلغاء" : "تحديد") { selecting.toggle(); selected.removeAll() } }
             if let error { Text(error).font(.caption).foregroundStyle(.orange); Button("إعادة جلب قائمة الفصول") { Task { await refresh() } } }
             if !store.online { Text("التفاصيل محفوظة. الفصول بعلامة ✓ متاحة بدون إنترنت؛ الفصول الناقصة تحتاج اتصالًا لاستكمال الصور.").font(.caption).foregroundStyle(.secondary) }
@@ -62,7 +62,7 @@ struct StoryView: View {
                         NavigationLink { ReaderView(story:story,chapter:chapter) } label: {
                             VStack(alignment:.leading,spacing:5) { Text(chapter.title).font(.subheadline); if store.state?.data.completed.contains(story.key+":"+chapter.id) == true { Text("مقروء").font(.caption2).foregroundStyle(Theme.accent) } }.frame(maxWidth:.infinity,alignment:.leading).foregroundStyle(.primary)
                         }
-                        if downloads.jobs.first(where:{$0.id == story.key})?.chapters.first(where:{$0.id == chapter.id})?.complete == true { Image(systemName:"checkmark.circle.fill").foregroundStyle(.green) }
+                        if downloads.savedJobs.first(where:{$0.id == story.key})?.chapters.first(where:{$0.id == chapter.id})?.complete == true { Image(systemName:"checkmark.circle.fill").foregroundStyle(.green) }
                         else { Button { Task { await downloads.enqueue(story,chapters:[chapter]) } } label: { Image(systemName:"arrow.down.circle").font(.title3) }.disabled(!store.online) }
                     }.padding(14).background(Theme.surface,in:RoundedRectangle(cornerRadius:12))
                 }
