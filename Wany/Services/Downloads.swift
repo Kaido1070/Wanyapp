@@ -61,6 +61,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     }()
     private var active: [String: URLSessionDownloadTask] = [:]
     private var workers: [String: Task<Void,Never>] = [:]
+    private var workerTokens: [String:UUID] = [:]
     private var speedSamples: [(Date,Int64,String)] = []
     var readerPriority: String?
     private var lastSaved = Date.distantPast
@@ -75,12 +76,15 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     }
     private func restoreTasks() async {
         for task in await session.allTasks {
-            if let d = task as? URLSessionDownloadTask, let tag = delegate.tag(task) { active[tag.owner + ":" + tag.image] = d }
+            if let d = task as? URLSessionDownloadTask, let tag = delegate.tag(task) {
+                active[tag.owner + ":" + tag.image] = d
+                if tag.owner != owner { d.suspend() }
+            }
         }
-        restored = true; pump()
+        restored = true; updateNetwork()
     }
     func attach(_ userID: String?) {
-        workers.values.forEach { $0.cancel() }; workers.removeAll(); preparing.removeAll()
+        workers.values.forEach { $0.cancel() }; workers.removeAll(); workerTokens.removeAll(); preparing.removeAll()
         // Logout suspends existing transfers. Their account-tagged files cannot enter another account.
         for (key, task) in active where !key.hasPrefix((userID ?? "<none>") + ":") { task.suspend() }
         owner = userID; speedSamples.removeAll(); speed = 0
@@ -151,9 +155,10 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     }
     private func prepare(_ key: String) {
         guard workers[key] == nil, let owner, online, !wifiOnly || onWiFi else { return }
+        let token = UUID(); workerTokens[key] = token
         workers[key] = Task { [weak self] in
             guard let self else { return }
-            defer { self.workers[key] = nil }
+            defer { if self.workerTokens[key] == token { self.workers[key] = nil; self.workerTokens[key] = nil } }
             while !Task.isCancelled, self.owner == owner, self.online {
                 guard let j = self.jobs.firstIndex(where:{$0.id == key}), !self.jobs[j].paused,
                       let c = self.jobs[j].chapters.firstIndex(where:{$0.payload == nil && $0.error == nil}) else { break }
@@ -188,7 +193,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     }
     func pause(_ key: String) {
         guard let j = jobs.firstIndex(where:{$0.id == key}) else { return }
-        jobs[j].paused = true; workers[key]?.cancel(); workers[key] = nil
+        jobs[j].paused = true; workers[key]?.cancel(); workers[key] = nil; workerTokens[key] = nil
         for task in active.values where delegate.tag(task)?.job == key && delegate.tag(task)?.owner == owner { task.suspend() }
         persist(); pump()
     }
@@ -219,6 +224,20 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
             }
             jobs.removeAll { $0.id == key }; persist(); revision += 1
         } catch { notice = error.localizedDescription }
+    }
+    func invalidatePage(_ payload: ChapterPayload, index: Int) {
+        guard let owner, let j = jobs.firstIndex(where: { $0.id == payload.item.key }),
+              let c = jobs[j].chapters.firstIndex(where: { $0.id == chapterNumber(payload.number) }),
+              jobs[j].chapters[c].images.indices.contains(index) else { return }
+        let path = jobs[j].chapters[c].images[index].file
+        do { if FileManager.default.fileExists(atPath:Disk.file(owner,path).path) { try FileManager.default.removeItem(at:Disk.file(owner,path)) } }
+        catch { notice = error.localizedDescription; return }
+        jobs[j].chapters[c].images[index].done = false
+        jobs[j].chapters[c].images[index].bytes = 0
+        jobs[j].chapters[c].images[index].expected = nil
+        jobs[j].chapters[c].images[index].attempts = 0
+        jobs[j].chapters[c].images[index].failure = "الصورة المحلية تالفة؛ أعد تحميل الناقص"
+        persist(); revision += 1
     }
     func pageURL(_ payload: ChapterPayload, index: Int) -> URL? {
         guard let owner else { return nil }

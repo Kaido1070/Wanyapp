@@ -30,6 +30,18 @@ jobs:
           echo "SIMULATOR_ID=$DEVICE" >> "$GITHUB_ENV"
       - name: Run persistence and download tests
         run: xcodebuild test -project Wany.xcodeproj -scheme Wany -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath build-simulator -resultBundlePath TestResults CODE_SIGNING_ALLOWED=NO
+      - name: Capture native login screen
+        run: |
+          mkdir -p screenshots
+          xcrun simctl terminate "$SIMULATOR_ID" site.wany.reader || true
+          xcrun simctl launch "$SIMULATOR_ID" site.wany.reader
+          sleep 3
+          xcrun simctl io "$SIMULATOR_ID" screenshot screenshots/Wany-login.png
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Wany-native-preview
+          path: screenshots/Wany-login.png
+          retention-days: 7
       - name: Build iPhone app
         run: xcodebuild build -project Wany.xcodeproj -scheme Wany -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO
       - name: Package unsigned IPA for sideload signing

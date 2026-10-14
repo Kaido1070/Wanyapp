@@ -16,9 +16,11 @@ import UIKit
     let downloads = Downloads.shared
     private let monitor = NWPathMonitor()
     private var metadataTask: Task<Void,Never>?
+    private var metadataToken: UUID?
     private var syncTask: Task<Void,Never>?
     private var engine: FeedEngine?
     private var coverRequests: Set<String> = []
+    private var metadataRefreshed: [String: Date] = [:]
     init() {
         if let owner = UserDefaults.standard.string(forKey:"lastAccount") {
             state = Disk.read(AccountState.self,owner:owner,name:"account.json")
@@ -53,6 +55,7 @@ import UIKit
     func login(username: String, password: String) async {
         guard online else { error = "تسجيل الدخول لأول مرة يحتاج إنترنت"; return }
         do {
+            metadataTask?.cancel(); metadataTask = nil; metadataToken = nil
             API.shared.generation = UUID(); engine = nil
             let body = try JSONEncoder().encode(["username":username.precomposedStringWithCompatibilityMapping.trimmingCharacters(in:.whitespacesAndNewlines).lowercased(),"password":password])
             let response = try JSONDecoder().decode(SessionResponse.self,from:await API.shared.raw("/api/login",method:"POST",body:body))
@@ -65,7 +68,7 @@ import UIKit
         } catch { self.error = error.localizedDescription }
     }
     func logout() async {
-        persist(); metadataTask?.cancel(); syncTask?.cancel()
+        persist(); metadataTask?.cancel(); metadataTask = nil; metadataToken = nil; syncTask?.cancel()
         if online { _ = try? await API.shared.raw("/api/logout",method:"POST") }
         API.shared.clear(); downloads.attach(nil); state = nil; stories = [:]; engine = nil
         UserDefaults.standard.removeObject(forKey:"lastAccount"); loginRequired = false
@@ -89,34 +92,32 @@ import UIKit
     }
     private func merge(_ remote: AccountData) {
         guard var current = state else { return }
-        current.data = remote
-        for pending in current.pending.values {
-            let server = current.data.progress[pending.id]
-            if server == nil || pending.updatedAt >= server!.updatedAt { current.data.progress[pending.id] = pending }
-        }
-        if let latest = current.pending.values.max(by:{$0.updatedAt < $1.updatedAt}), latest.updatedAt >= (remote.library.compactMap(\.lastReadAt).max() ?? 0) { current.data.lastOpened = LastOpened(mangaId:latest.mangaId,chapter:latest.chapter) }
-        state = current
+        current.mergeReadingData(remote); state = current
     }
     private func mergeAndPush(owner: String) async throws {
         let remote = try await API.shared.get("/api/data",as:DataResponse.self).data
         guard state?.user.id == owner else { throw CancellationError() }
         merge(remote)
-        let pending = (state?.pending.values.map { $0 } ?? []).sorted { $0.updatedAt < $1.updatedAt }
+        let completions = state?.completedPending?.values.map { $0 } ?? []
+        let progress = state?.pending.values.map { $0 } ?? []
+        let pending = (completions + progress.filter { !completions.contains($0) }).sorted { $0.updatedAt < $1.updatedAt }
         for record in pending {
             guard state?.user.id == owner else { throw CancellationError() }
             if let server = remote.progress[record.id], server.updatedAt > record.updatedAt {
                 if state?.pending[record.id] == record { state?.pending.removeValue(forKey:record.id) }
+                if state?.completedPending?[record.id] == record { state?.completedPending?.removeValue(forKey:record.id) }
                 continue
             }
             try await API.shared.send("/api/progress",method:"PUT",value:record)
             guard state?.user.id == owner else { throw CancellationError() }
             // Do not remove a newer local edit made while this request was in flight.
             if state?.pending[record.id] == record { state?.pending.removeValue(forKey:record.id) }
+            if state?.completedPending?[record.id] == record { state?.completedPending?.removeValue(forKey:record.id) }
             persist()
         }
     }
     func syncProgress() async {
-        guard online, !loginRequired, !syncing, let owner = state?.user.id, state?.pending.isEmpty == false else { return }
+        guard online, !loginRequired, !syncing, let owner = state?.user.id, (state?.pending.isEmpty == false || state?.completedPending?.isEmpty == false) else { return }
         syncing = true; defer { syncing = false }
         do { try await mergeAndPush(owner:owner); state?.lastSynced = Date(); persist() }
         catch { if (error as? APIError)?.status == 401 { loginRequired = true } }
@@ -131,7 +132,13 @@ import UIKit
             current.data.library[i].lastReadAt = record.updatedAt; current.data.library[i].lastReadChapter = payload.number
             current.data.library[i].highestReachedChapter = max(current.data.library[i].highestReachedChapter ?? 0,payload.number)
         } else { current.data.library.append(LibraryEntry(mangaId:payload.item.key,status:"reading",addedAt:record.updatedAt,updatedAt:record.updatedAt,lastReadAt:record.updatedAt,lastReadChapter:payload.number,highestReachedChapter:payload.number)) }
-        if percent >= 98 && !current.data.completed.contains(record.id) { current.data.completed.append(record.id) }
+        if percent >= 98 {
+            if !current.data.completed.contains(record.id) { current.data.completed.append(record.id) }
+            if current.completedPending?[record.id] == nil {
+                if current.completedPending == nil { current.completedPending = [:] }
+                current.completedPending?[record.id] = record
+            }
+        }
         state = current; persist()
     }
     func toggleFavorite(_ story: Story) async {
@@ -156,8 +163,9 @@ import UIKit
         guard metadataTask == nil, let current = state, online else { return }
         let owner = current.user.id
         let keys = Array(Set(current.data.favorites + current.data.library.map(\.mangaId)))
+        let token = UUID(); metadataToken = token
         metadataTask = Task { [weak self] in
-            guard let self else { return }; defer { self.metadataTask = nil }
+            guard let self else { return }; defer { if self.metadataToken == token { self.metadataTask = nil; self.metadataToken = nil } }
             // Resolve lightweight cards first so a slow source never holds up the profile.
             for start in stride(from:0,to:keys.count,by:40) {
                 if Task.isCancelled || self.state?.user.id != owner { return }
@@ -169,7 +177,8 @@ import UIKit
             for key in keys {
                 if Task.isCancelled || self.state?.user.id != owner || !self.online { return }
                 if let story = self.stories[key] { await self.cacheCover(story) }
-                if let story = try? await API.shared.fullSeries(key) { guard self.state?.user.id == owner else { return }; self.remember(story); await self.cacheCover(story) }
+                if let updated = self.metadataRefreshed[owner+key], Date().timeIntervalSince(updated) < 1800 { continue }
+                if let story = try? await API.shared.fullSeries(key) { guard self.state?.user.id == owner else { return }; self.remember(story); self.metadataRefreshed[owner+key] = Date(); await self.cacheCover(story) }
             }
         }
     }
@@ -177,13 +186,16 @@ import UIKit
         guard let owner = state?.user.id, online else { return }
         let key = owner+story.key
         let file = Disk.file(owner,Disk.coverName(story.key))
-        guard !FileManager.default.fileExists(atPath:file.path), !coverRequests.contains(key), !story.cover.isEmpty else { return }
+        let versionName = "covers/"+Disk.hash(story.key)+".json"
+        let oldURL = Disk.read(String.self,owner:owner,name:versionName)
+        guard (!FileManager.default.fileExists(atPath:file.path) || (oldURL != nil && oldURL != story.cover)), !coverRequests.contains(key), !story.cover.isEmpty else { return }
         coverRequests.insert(key); defer { coverRequests.remove(key) }
         do {
             let (data,response) = try await URLSession.shared.data(for:API.shared.imageRequest(source:story.source,url:story.cover,referer:story.url))
             guard state?.user.id == owner, (response as? HTTPURLResponse)?.statusCode == 200, UIImage(data:data) != nil else { return }
             try FileManager.default.createDirectory(at:file.deletingLastPathComponent(),withIntermediateDirectories:true)
-            try data.write(to:file,options:.atomic)
+            try data.write(to:file,options:[.atomic,.completeFileProtectionUntilFirstUserAuthentication])
+            try Disk.save(story.cover,owner:owner,name:versionName)
             objectWillChange.send()
         } catch { /* A failed cover remains retryable and never clears a saved cover. */ }
     }

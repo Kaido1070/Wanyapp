@@ -86,6 +86,7 @@ struct AccountState: Codable {
     var user: Account
     var data = AccountData()
     var pending: [String: ProgressRecord] = [:]
+    var completedPending: [String:ProgressRecord]?
     var positions: [String: Int] = [:]
     var stats: [String: JSONValue] = [:]
     var profile: JSONValue?
@@ -180,3 +181,36 @@ struct DownloadJob: Codable, Identifiable {
     var complete: Bool { chapterListComplete && !chapters.isEmpty && chapters.allSatisfy(\.complete) }
 }
 struct TransferTag: Codable { var owner: String; var job: String; var chapter: String; var image: String }
+
+// The local reading ledger retains both an offline completion and a newer reread.
+// Merge uses event timestamps; page indices from an older device position are discarded.
+extension AccountState {
+    mutating func mergeReadingData(_ remote: AccountData) {
+        let previouslyCompleted = Set(data.completed)
+        for (key, progress) in remote.progress {
+            if progress.updatedAt > (data.progress[key]?.updatedAt ?? 0),
+               progress.updatedAt > (pending[key]?.updatedAt ?? 0) { positions.removeValue(forKey:key) }
+        }
+        data = remote
+        for record in pending.values {
+            let server = data.progress[record.id]
+            guard server == nil || record.updatedAt >= server!.updatedAt else { continue }
+            data.progress[record.id] = record
+            if (record.percent >= 98 || previouslyCompleted.contains(record.id)) && !data.completed.contains(record.id) { data.completed.append(record.id) }
+            if let i = data.library.firstIndex(where: { $0.mangaId == record.mangaId }) {
+                if record.updatedAt >= (data.library[i].lastReadAt ?? 0) {
+                    data.library[i].lastReadAt = record.updatedAt; data.library[i].lastReadChapter = record.chapter
+                }
+                data.library[i].highestReachedChapter = max(data.library[i].highestReachedChapter ?? 0,record.chapter)
+            } else {
+                data.library.append(LibraryEntry(mangaId:record.mangaId,status:"reading",addedAt:record.updatedAt,updatedAt:record.updatedAt,lastReadAt:record.updatedAt,lastReadChapter:record.chapter,highestReachedChapter:record.chapter))
+            }
+        }
+        for record in completedPending?.values.map({ $0 }) ?? [] {
+            if !data.completed.contains(record.id) { data.completed.append(record.id) }
+        }
+        if let latest = pending.values.max(by: { $0.updatedAt < $1.updatedAt }), latest.updatedAt >= (remote.library.compactMap(\.lastReadAt).max() ?? 0) {
+            data.lastOpened = LastOpened(mangaId:latest.mangaId,chapter:latest.chapter)
+        }
+    }
+}

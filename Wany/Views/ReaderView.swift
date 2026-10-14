@@ -39,7 +39,7 @@ struct ReaderPage: View {
             guard let cg = CGImageSourceCreateThumbnailAtIndex(source,0,options as CFDictionary) else { return nil }
             return UIImage(cgImage:cg).pngData()
         }.value
-        if let loaded { image = UIImage(data:loaded) } else { failedDecode = true }
+        if let loaded { image = UIImage(data:loaded) } else { failedDecode = true; downloads.invalidatePage(payload,index:index) }
     }
 }
 struct ReaderView: View {
