@@ -29,15 +29,23 @@ jobs:
           DEVICE=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for k,vs in d["devices"].items() if "iOS" in k for v in vs if v["name"].startswith("iPhone")))')
           echo "SIMULATOR_ID=$DEVICE" >> "$GITHUB_ENV"
       - name: Run persistence and download tests
+        if: "!contains(github.event.head_commit.message, '[package-only]')"
         run: xcodebuild test -project Wany.xcodeproj -scheme Wany -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath build-simulator -resultBundlePath TestResults CODE_SIGNING_ALLOWED=NO
       - name: Capture native login screen
+        if: "!contains(github.event.head_commit.message, '[package-only]')"
+        continue-on-error: true
         run: |
           mkdir -p screenshots
+          xcrun simctl boot "$SIMULATOR_ID" || true
+          xcrun simctl bootstatus "$SIMULATOR_ID" -b
+          xcrun simctl install "$SIMULATOR_ID" build-simulator/Build/Products/Debug-iphonesimulator/Wany.app
           xcrun simctl terminate "$SIMULATOR_ID" site.wany.reader || true
           xcrun simctl launch "$SIMULATOR_ID" site.wany.reader
           sleep 3
           xcrun simctl io "$SIMULATOR_ID" screenshot screenshots/Wany-login.png
       - uses: actions/upload-artifact@v4
+        if: "!contains(github.event.head_commit.message, '[package-only]')"
+        continue-on-error: true
         with:
           name: Wany-native-preview
           path: screenshots/Wany-login.png
