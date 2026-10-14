@@ -66,10 +66,6 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     private var active: [String: URLSessionDownloadTask] = [:]
     private var workers: [String: Task<Void,Never>] = [:]
     private var workerTokens: [String:UUID] = [:]
-    private let ledger = DownloadLedgerWriter()
-    private var pendingStarts: Set<String> = []
-    private var pendingProgress: [String:(TransferTag,Int64,Int64)] = [:]
-    private var progressFlush: Task<Void,Never>?
     private var speedSamples: [(Date,Int64,String)] = []
     var readerPriority: String?
     var quality: ImageQuality {
@@ -91,7 +87,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     private init() {
         delegate.progress = { tag,delta,total,expected in Task { @MainActor in self.didProgress(tag,delta:delta,total:total,expected:expected) } }
         delegate.finished = { tag,bytes,error,optimized in Task { @MainActor in self.didFinish(tag,bytes:bytes,error:error,optimized:optimized) } }
-        delegate.backgroundFinished = { Task { @MainActor in await self.ledger.flush(); self.backgroundCompletion?(); self.backgroundCompletion = nil } }
+        delegate.backgroundFinished = { Task { @MainActor in self.backgroundCompletion?(); self.backgroundCompletion = nil } }
         Task { await restoreTasks() }
         Timer.scheduledTimer(withTimeInterval:30,repeats:true) { _ in Task { @MainActor in self.cleanTemporary() } }
         Timer.scheduledTimer(withTimeInterval:1,repeats:true) { _ in Task { @MainActor in self.updateSpeed() } }
@@ -111,7 +107,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         for (key, task) in active where !key.hasPrefix((userID ?? "<none>") + ":") { task.suspend() }
         readerPriority = nil
         owner = userID; speedSamples.removeAll(); speed = 0
-        jobs = userID.flatMap { ledger.latest[$0] ?? Disk.read([DownloadJob].self,owner:$0,name:"downloads.json") } ?? []
+        jobs = userID.flatMap { Disk.read([DownloadJob].self,owner:$0,name:"downloads.json") } ?? []
         if let userID {
             for j in jobs.indices { for c in jobs[j].chapters.indices { for i in jobs[j].chapters[c].images.indices {
                 let page = jobs[j].chapters[c].images[i]
@@ -125,12 +121,9 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         } }
         cleanTemporary(); persist(); resumePreparations(); pump()
     }
-    func persist(completion: ((Error?) -> Void)? = nil) {
+    func persist() {
         guard let owner else { return }
-        ledger.save(jobs,owner:owner) { [weak self] error in
-            if let error { self?.notice = "تعذر حفظ قائمة التنزيل: " + error.localizedDescription }
-            completion?(error)
-        }
+        do { try Disk.save(jobs,owner:owner,name:"downloads.json") } catch { notice = "تعذر حفظ قائمة التنزيل: " + error.localizedDescription }
         lastSaved = Date()
     }
     func enqueue(_ story: Story, chapters: [Chapter]? = nil, unreadOnly: Bool = false) async {
@@ -235,7 +228,6 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     func updateNetwork() {
         for (_, task) in active {
             guard let t = delegate.tag(task), t.owner == owner else { continue }
-            task.priority = readerPriority == t.job+":"+t.chapter ? URLSessionTask.highPriority : URLSessionTask.lowPriority
             let job = jobs.first(where:{$0.id == t.job})
             let part = job?.chapters.first(where:{$0.id == t.chapter})
             let temporary = part?.saved == false
@@ -344,7 +336,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     }
     private func pump() {
         guard restored, online, let owner else { return }
-        var count = active.filter { ($0.value.state == .running || pendingStarts.contains($0.key)) && delegate.tag($0.value)?.owner == owner }.count
+        var count = active.values.filter { $0.state == .running && delegate.tag($0)?.owner == owner }.count
         let jobOrder = jobs.indices.sorted { (readerPriority?.hasPrefix(jobs[$0].id+":") == true ? 0 : 1) < (readerPriority?.hasPrefix(jobs[$1].id+":") == true ? 0 : 1) }
         for j in jobOrder {
             let chapterOrder = jobs[j].chapters.indices.sorted { (jobs[j].id+":"+jobs[j].chapters[$0].id == readerPriority ? 0 : 1) < (jobs[j].id+":"+jobs[j].chapters[$1].id == readerPriority ? 0 : 1) }
@@ -364,21 +356,11 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
                         let req = try API.shared.imageRequest(source:payload.item.source,url:image.remote,referer:payload.chapterUrl ?? payload.item.url,quality:quality)
                         let tag = TransferTag(owner:owner,job:jobs[j].id,chapter:jobs[j].chapters[c].id,image:image.file,quality:quality.rawValue)
                         let task = session.downloadTask(with:req)
-                        task.priority = readerPriority == tag.job+":"+tag.chapter ? URLSessionTask.highPriority : URLSessionTask.lowPriority
                         task.taskDescription = String(data:try JSONEncoder().encode(tag),encoding:.utf8)
                         jobs[j].chapters[c].images[i].attempts += 1
                         jobs[j].chapters[c].images[i].failure = nil
-                        let transfer = owner+":"+image.file
-                        active[transfer] = task; pendingStarts.insert(transfer); count += 1
-                        // The task cannot finish before its durable manifest includes this image.
-                        persist { [weak self] error in
-                            guard let self else { return }; self.pendingStarts.remove(transfer)
-                            guard error == nil else { task.cancel(); return }
-                            guard self.owner == owner, let job = self.jobs.first(where:{$0.id == tag.job}),
-                                  let part = job.chapters.first(where:{$0.id == tag.chapter}),
-                                  (part.saved ? (!job.paused && job.includes(part.id) && (!self.wifiOnly || self.onWiFi)) : self.readerPriority == tag.job+":"+tag.chapter) else { return }
-                            task.resume()
-                        }
+                        active[owner+":"+image.file] = task; count += 1
+                        persist(); task.resume()
                     } catch { jobs[j].error = error.localizedDescription }
                 }
             }
@@ -394,35 +376,22 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         speed = Int64(Double(speedSamples.reduce(0) { $0 + $1.1 }) / duration)
     }
     private func didProgress(_ tag: TransferTag, delta: Int64, total: Int64, expected: Int64) {
-        guard tag.owner == owner else { return }
-        pendingProgress[tag.owner+":"+tag.image] = (tag,total,expected)
-        speedSamples.append((Date(),delta,tag.job))
-        guard progressFlush == nil else { return }
-        progressFlush = Task { [weak self] in
-            try? await Task.sleep(for:.milliseconds(250))
-            guard let self else { return }; self.progressFlush = nil
-            let values = self.pendingProgress.values; self.pendingProgress = [:]
-            for (tag,total,expected) in values {
-                guard tag.owner == self.owner, let j = self.jobs.firstIndex(where:{$0.id == tag.job}),
-                      let c = self.jobs[j].chapters.firstIndex(where:{$0.id == tag.chapter}),
-                      let i = self.jobs[j].chapters[c].images.firstIndex(where:{$0.file == tag.image}),
-                      !self.jobs[j].chapters[c].images[i].done else { continue }
-                self.jobs[j].chapters[c].images[i].bytes = total
-                if expected > 0 { self.jobs[j].chapters[c].images[i].expected = expected }
-            }
-            self.updateSpeed()
-        }
+        guard tag.owner == owner, let j = jobs.firstIndex(where:{$0.id == tag.job}), let c = jobs[j].chapters.firstIndex(where:{$0.id == tag.chapter}), let i = jobs[j].chapters[c].images.firstIndex(where:{$0.file == tag.image}) else { return }
+        jobs[j].chapters[c].images[i].bytes = total
+        if expected > 0 { jobs[j].chapters[c].images[i].expected = expected }
+        speedSamples.append((Date(),delta,tag.job)); updateSpeed()
+        if Date().timeIntervalSince(lastSaved) > 2 { persist() }
     }
     private func didFinish(_ tag: TransferTag, bytes: Int64, error: String?, optimized: Bool) {
-        active.removeValue(forKey:tag.owner+":"+tag.image); pendingStarts.remove(tag.owner+":"+tag.image); pendingProgress.removeValue(forKey:tag.owner+":"+tag.image)
+        active.removeValue(forKey:tag.owner+":"+tag.image)
         if tag.owner != owner {
             // A suspended account may receive one last callback. Persist it only in its own directory.
-            var other = ledger.latest[tag.owner] ?? Disk.read([DownloadJob].self,owner:tag.owner,name:"downloads.json") ?? []
+            var other = Disk.read([DownloadJob].self,owner:tag.owner,name:"downloads.json") ?? []
             if let j = other.firstIndex(where:{$0.id == tag.job}), let c = other[j].chapters.firstIndex(where:{$0.id == tag.chapter}), let i = other[j].chapters[c].images.firstIndex(where:{$0.file == tag.image}) {
                 other[j].chapters[c].images[i].done = error == nil; other[j].chapters[c].images[i].bytes = bytes
                 other[j].chapters[c].images[i].failure = error
                 other[j].chapters[c].images[i].edgeOptimized = optimized
-                ledger.save(other,owner:tag.owner)
+                try? Disk.save(other,owner:tag.owner,name:"downloads.json")
             }
             return
         }
