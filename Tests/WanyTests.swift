@@ -3,6 +3,52 @@ import UIKit
 @testable import Wany
 
 final class WanyTests: XCTestCase {
+    @MainActor func testDownloadLedgerCoalescesWritesAndFinishesWithLatestSnapshot() async throws {
+        let owner = "ledger-"+UUID().uuidString
+        let writer = DownloadLedgerWriter()
+        defer { try? FileManager.default.removeItem(at:Disk.folder(owner)) }
+        let finished = expectation(description:"Every durable-save callback completes")
+        finished.expectedFulfillmentCount = 3
+        for title in ["first","second","latest"] {
+            var work = story(); work.title = title
+            writer.save([DownloadJob(id:work.key,story:work,chapters:[],wholeStory:true,chapterListComplete:true)],owner:owner) { error in
+                XCTAssertNil(error); finished.fulfill()
+            }
+        }
+        await fulfillment(of:[finished],timeout:5)
+        await writer.flush()
+        XCTAssertEqual(Disk.read([DownloadJob].self,owner:owner,name:"downloads.json")?.first?.story.title,"latest")
+    }
+
+    @MainActor func testNativeReaderDoesNotRestoreOldPageOnEveryUpdate() {
+        let payload = ChapterPayload(item:story(),number:1,title:"1",pages:["a","b","c"])
+        let input = ReaderCanvas(payload:payload,files:[nil,nil,nil],restoredPage:1,online:false,nextTitle:nil,onScroll:{_,_,_,_ in},onRetry:{},onInvalidImage:{_ in},onNext:{},onBack:{})
+        let canvas = ReaderCanvas.Canvas(frame:CGRect(x:0,y:0,width:300,height:300))
+        canvas.configure(input); canvas.layoutIfNeeded()
+        XCTAssertEqual(canvas.contentOffset.y,480,accuracy:1)
+        canvas.setContentOffset(CGPoint(x:0,y:700),animated:false)
+        canvas.configure(input); canvas.layoutIfNeeded()
+        XCTAssertEqual(canvas.contentOffset.y,700,accuracy:1)
+        canvas.shutdown()
+    }
+
+    func testReaderHeightChangesKeepTheSamePlaceWithinTheVisiblePage() {
+        let old = ReaderLayout(heights:[100,200,300])
+        let updated = ReaderLayout(heights:[400,400,300])
+        let offset = updated.preservingPosition(from:old,offset:150)
+        XCTAssertEqual(offset,500)
+        XCTAssertEqual(updated.page(at:offset),1)
+        XCTAssertEqual(updated.preservingPosition(from:old,offset:0),0)
+    }
+    func testReaderPageBoundariesAndEmptyLayoutAreSafe() {
+        let layout = ReaderLayout(heights:[100,200,300])
+        XCTAssertEqual(layout.page(at:99),0)
+        XCTAssertEqual(layout.page(at:100),1)
+        XCTAssertEqual(layout.page(at:500),2)
+        XCTAssertEqual(layout.top(of:2),300)
+        XCTAssertEqual(ReaderLayout(heights:[]).preservingPosition(from:layout,offset:150),0)
+    }
+
     func testDiscoverCarouselOnlyUsesLandscapeArtwork() {
         XCTAssertTrue(DiscoverResults.isWideCover(width:1200,height:500))
         XCTAssertFalse(DiscoverResults.isWideCover(width:400,height:600))
