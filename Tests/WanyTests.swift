@@ -3,7 +3,7 @@ import UIKit
 @testable import Wany
 
 final class WanyTests: XCTestCase {
-    func testDownloadQualityIsSentToServerWithoutChangingSourceURL() throws {
+    @MainActor func testDownloadQualityIsSentToServerWithoutChangingSourceURL() throws {
         let remote = "https://olympustaff.com/wp-content/uploads/chapter/page.jpg"
         let request = try API.shared.imageRequest(source:"teamx",url:remote,referer:"https://olympustaff.com/series/test",quality:.high)
         let query = URLComponents(url:try XCTUnwrap(request.url),resolvingAgainstBaseURL:false)?.queryItems ?? []
