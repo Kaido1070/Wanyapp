@@ -52,12 +52,18 @@ final class WanyTests: XCTestCase {
     }
     func testReaderChromeFollowsSlowScrollAndReversal() {
         var direction = ReaderScrollDirection()
-        XCTAssertNil(direction.update(offset:100,userScrolling:false))
-        XCTAssertNil(direction.update(offset:106,userScrolling:true))
-        XCTAssertNil(direction.update(offset:112,userScrolling:true))
-        XCTAssertEqual(direction.update(offset:118,userScrolling:true),false)
-        XCTAssertNil(direction.update(offset:113,userScrolling:true))
-        XCTAssertEqual(direction.update(offset:103,userScrolling:true),true)
+        XCTAssertNil(direction.update(offset:500,userScrolling:false))
+        XCTAssertNil(direction.update(offset:506,userScrolling:true))
+        XCTAssertNil(direction.update(offset:512,userScrolling:true))
+        XCTAssertEqual(direction.update(offset:518,userScrolling:true),false)
+        // Small upward touches must not reveal the header.
+        XCTAssertNil(direction.update(offset:503,userScrolling:true))
+        XCTAssertNil(direction.update(offset:460,userScrolling:true))
+        // Reversing down resets upward travel; separate corrections do not accumulate.
+        XCTAssertNil(direction.update(offset:465,userScrolling:true))
+        XCTAssertNil(direction.update(offset:420,userScrolling:true))
+        XCTAssertNil(direction.update(offset:380,userScrolling:true))
+        XCTAssertEqual(direction.update(offset:369,userScrolling:true),true)
     }
     func testReaderChromeIgnoresRestorationAndRevealsAtTop() {
         var direction = ReaderScrollDirection()

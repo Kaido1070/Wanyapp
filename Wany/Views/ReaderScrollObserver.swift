@@ -13,7 +13,9 @@ struct ReaderScrollDirection {
         if delta == 0 { return nil }
         if (delta > 0) != (travel > 0) { travel = 0 }
         travel += delta
-        guard abs(travel) >= 14 else { return nil }
+        // Require a deliberate upward scroll before revealing the header.
+        let threshold: CGFloat = travel < 0 ? 96 : 14
+        guard abs(travel) >= threshold else { return nil }
         let visible = travel < 0
         travel = 0
         return visible
