@@ -104,7 +104,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         do { try Disk.save(jobs,owner:owner,name:"downloads.json") } catch { notice = "تعذر حفظ قائمة التنزيل: " + error.localizedDescription }
         lastSaved = Date()
     }
-    func enqueue(_ story: Story, chapters: [Chapter]? = nil) async {
+    func enqueue(_ story: Story, chapters: [Chapter]? = nil, unreadOnly: Bool = false) async {
         guard let owner else { return }
         let account = owner
         if preparing.contains(story.key) { return }
@@ -121,10 +121,23 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
                 jobs[index].chapters += selected.filter { !existing.contains($0.id) }.map { ChapterDownload(chapter:$0) }
                 jobs[index].chapters.sort { $0.chapter.number < $1.chapter.number }
                 jobs[index].story = full; jobs[index].paused = false; jobs[index].error = nil
-                jobs[index].wholeStory = jobs[index].wholeStory || chapters == nil
+                if unreadOnly {
+                    // Preserve cached chapters, but stop downloading read chapters from an older full-story queue.
+                    jobs[index].activeChapterIDs = selected.map(\.id)
+                    jobs[index].selectionMode = "unread"; jobs[index].wholeStory = false
+                    workers[story.key]?.cancel(); workers[story.key] = nil; workerTokens[story.key] = nil
+                    for task in active.values {
+                        if let tag = delegate.tag(task), tag.owner == account, tag.job == story.key, !jobs[index].includes(tag.chapter) { task.cancel() }
+                    }
+                } else if chapters == nil {
+                    jobs[index].activeChapterIDs = nil; jobs[index].selectionMode = nil; jobs[index].wholeStory = true
+                } else if let targets = jobs[index].activeChapterIDs {
+                    jobs[index].activeChapterIDs = Array(Set(targets + selected.map(\.id)))
+                    jobs[index].selectionMode = "selected"
+                }
                 jobs[index].chapterListComplete = true
             } else {
-                jobs.append(DownloadJob(id:story.key,story:full,chapters:selected.map { ChapterDownload(chapter:$0) },wholeStory:chapters == nil,chapterListComplete:true))
+                jobs.append(DownloadJob(id:story.key,story:full,chapters:selected.map { ChapterDownload(chapter:$0) },wholeStory:chapters == nil,chapterListComplete:true,activeChapterIDs:unreadOnly ? selected.map(\.id) : nil,selectionMode:unreadOnly ? "unread" : nil))
             }
             try Disk.save(full,owner:owner,name:"stories/"+Disk.hash(story.key)+".json")
             persist(); prepare(story.key); pump()
@@ -141,6 +154,9 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         guard let j = jobs.firstIndex(where:{$0.id == payload.item.key}) else { return }
         if !jobs[j].chapters.contains(where:{$0.id == chapter.id}) { jobs[j].chapters.append(ChapterDownload(chapter:chapter)) }
         guard let c = jobs[j].chapters.firstIndex(where:{$0.id == chapter.id}) else { return }
+        if let targets = jobs[j].activeChapterIDs, !targets.contains(chapter.id) {
+            jobs[j].activeChapterIDs = targets + [chapter.id]; jobs[j].selectionMode = "selected"
+        }
         if jobs[j].chapters[c].payload == nil { install(payload,job:j,chapter:c,owner:owner) }
         persist(); pump()
     }
@@ -161,7 +177,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
             defer { if self.workerTokens[key] == token { self.workers[key] = nil; self.workerTokens[key] = nil } }
             while !Task.isCancelled, self.owner == owner, self.online {
                 guard let j = self.jobs.firstIndex(where:{$0.id == key}), !self.jobs[j].paused,
-                      let c = self.jobs[j].chapters.firstIndex(where:{$0.payload == nil && $0.error == nil}) else { break }
+                      let c = self.jobs[j].chapters.firstIndex(where:{$0.payload == nil && $0.error == nil && self.jobs[j].includes($0.id)}) else { break }
                 let chapter = self.jobs[j].chapters[c].chapter
                 do {
                     let payload: ChapterPayload
@@ -186,7 +202,8 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     func updateNetwork() {
         for (_, task) in active {
             guard let t = delegate.tag(task), t.owner == owner else { continue }
-            let paused = jobs.first(where:{$0.id == t.job})?.paused ?? true
+            let job = jobs.first(where:{$0.id == t.job})
+            let paused = job?.paused != false || job?.includes(t.chapter) != true
             if paused || (wifiOnly && !onWiFi) { task.suspend() } else { task.resume() }
         }
         if online { for j in jobs.indices { for c in jobs[j].chapters.indices where jobs[j].chapters[c].payload == nil { jobs[j].chapters[c].error = nil } }; resumePreparations(); pump() }
@@ -250,6 +267,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         for j in jobOrder where !jobs[j].paused {
             let chapterOrder = jobs[j].chapters.indices.sorted { (jobs[j].id+":"+jobs[j].chapters[$0].id == readerPriority ? 0 : 1) < (jobs[j].id+":"+jobs[j].chapters[$1].id == readerPriority ? 0 : 1) }
             for c in chapterOrder {
+                guard jobs[j].includes(jobs[j].chapters[c].id) else { continue }
                 guard let payload = jobs[j].chapters[c].payload else { continue }
                 for i in jobs[j].chapters[c].images.indices {
                     if count >= 3 { return }

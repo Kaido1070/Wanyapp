@@ -141,6 +141,22 @@ import UIKit
         }
         state = current; persist()
     }
+    func downloadUnread(_ story: Story) async {
+        guard online, let owner = state?.user.id, !loginRequired else {
+            error = "تحميل الفصول يحتاج اتصالًا وجلسة دخول صالحة"; return
+        }
+        do {
+            let full = try await API.shared.fullSeries(story.key)
+            // Refresh website completions, retaining unsynced local completions and partial progress.
+            let remote = try await API.shared.get("/api/data",as:DataResponse.self).data
+            guard state?.user.id == owner else { return }
+            merge(remote); persist(); remember(full)
+            guard let current = state else { return }
+            let unread = current.unreadChapters(in:full)
+            guard !unread.isEmpty else { downloads.notice = "جميع فصول هذه القصة مقروءة؛ لا توجد فصول غير مقروءة للتحميل"; return }
+            await downloads.enqueue(full,chapters:unread,unreadOnly:true)
+        } catch { self.error = error.localizedDescription }
+    }
     func toggleFavorite(_ story: Story) async {
         guard let state else { return }
         guard online else { error = "تعديل المفضلة يحتاج اتصالًا؛ تقدم القراءة محفوظ أوفلاين"; return }

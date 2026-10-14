@@ -7,16 +7,16 @@ struct DownloadSummary: View {
         VStack(alignment:.leading,spacing:12) {
             HStack { Label(job.complete ? "مكتمل" : job.paused ? "متوقف مؤقتًا" : "\(job.completedChapters) فصل مكتمل",systemImage:job.complete ? "checkmark.circle.fill" : "arrow.down.circle"); Spacer(); Text("متبقي \(job.remainingChapters)").foregroundStyle(.secondary) }.font(.subheadline)
             HStack(alignment:.firstTextBaseline) {
-                Text(byteLabel(job.bytes)).font(.title3.bold()).monospacedDigit()
+                Text(byteLabel(job.downloadedBytes)).font(.title3.bold()).monospacedDigit()
                 Text("/ " + (job.total.map(byteLabel) ?? "جارٍ حساب الحجم الإجمالي")).font(.caption).foregroundStyle(.secondary)
             }.environment(\.layoutDirection,.leftToRight).frame(maxWidth:.infinity,alignment:.leading)
             HStack {
-                Text("\(job.chapters.count) فصل • \(job.chapters.flatMap(\.images).filter(\.done).count) صورة محفوظة").font(.caption)
+                Text("\(job.requestedChapters.count) فصل • \(job.requestedChapters.flatMap(\.images).filter(\.done).count) صورة محفوظة").font(.caption)
                 Spacer()
                 Text(job.paused || job.complete || !downloads.online ? "0 B/s" : byteLabel(downloads.speedFor(job.id))+"/s").font(.caption.monospacedDigit()).foregroundStyle(Theme.accent)
             }
             if let error = job.error { Text(error).font(.caption).foregroundStyle(.orange) }
-            let failures = job.chapters.filter { $0.error != nil || $0.images.contains(where:{$0.failure != nil}) }.count
+            let failures = job.requestedChapters.filter { $0.error != nil || $0.images.contains(where:{$0.failure != nil}) }.count
             if failures > 0 { Text("\(failures) فصل يحتوي على صور ناقصة أو تعذر تجهيزه").font(.caption).foregroundStyle(.orange) }
             if !job.complete {
                 HStack {
@@ -41,7 +41,7 @@ struct DownloadsView: View {
                 VStack(alignment:.leading,spacing:15) {
                     HStack {
                         NavigationLink { StoryView(initial:job.story) } label: {
-                            HStack { CoverView(story:job.story).frame(width:58,height:82).clipShape(RoundedRectangle(cornerRadius:9)); VStack(alignment:.leading,spacing:6) { Text(job.story.title).bold().lineLimit(2); Text(job.wholeStory ? "القصة كاملة" : "فصول محددة").font(.caption).foregroundStyle(.secondary) } }.foregroundStyle(.primary)
+                            HStack { CoverView(story:job.story).frame(width:58,height:82).clipShape(RoundedRectangle(cornerRadius:9)); VStack(alignment:.leading,spacing:6) { Text(job.story.title).bold().lineLimit(2); Text(job.selectionMode == "unread" ? "الفصول غير المقروءة" : job.wholeStory ? "القصة كاملة" : "فصول محددة").font(.caption).foregroundStyle(.secondary) } }.foregroundStyle(.primary)
                         }
                         Spacer(); Button(role:.destructive) { removing = job.id } label: { Image(systemName:"trash") }
                     }

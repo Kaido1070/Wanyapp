@@ -166,19 +166,28 @@ struct DownloadJob: Codable, Identifiable {
     var chapters: [ChapterDownload]
     var wholeStory: Bool
     var chapterListComplete: Bool
+    var activeChapterIDs: [String]?
+    var selectionMode: String?
     var paused = false
     var createdAt = Date()
     var error: String?
-    var completedChapters: Int { chapters.filter(\.complete).count }
-    var remainingChapters: Int { chapters.count - completedChapters }
+    var requestedChapters: [ChapterDownload] {
+        guard let activeChapterIDs else { return chapters }
+        let targets = Set(activeChapterIDs)
+        return chapters.filter { targets.contains($0.id) }
+    }
+    func includes(_ chapterID: String) -> Bool { activeChapterIDs?.contains(chapterID) ?? true }
+    var completedChapters: Int { requestedChapters.filter(\.complete).count }
+    var remainingChapters: Int { requestedChapters.count - completedChapters }
+    var downloadedBytes: Int64 { requestedChapters.flatMap(\.images).reduce(0) { $0 + $1.bytes } }
     var bytes: Int64 { chapters.flatMap(\.images).reduce(0) { $0 + $1.bytes } }
     var total: Int64? {
-        let images = chapters.flatMap(\.images)
-        guard chapterListComplete, chapters.allSatisfy({ $0.payload != nil }), !images.isEmpty,
+        let images = requestedChapters.flatMap(\.images)
+        guard chapterListComplete, requestedChapters.allSatisfy({ $0.payload != nil }), !images.isEmpty,
               images.allSatisfy({ $0.done || $0.expected != nil }) else { return nil }
         return images.reduce(0) { $0 + ($1.done ? $1.bytes : ($1.expected ?? 0)) }
     }
-    var complete: Bool { chapterListComplete && !chapters.isEmpty && chapters.allSatisfy(\.complete) }
+    var complete: Bool { chapterListComplete && !requestedChapters.isEmpty && requestedChapters.allSatisfy(\.complete) }
 }
 struct TransferTag: Codable { var owner: String; var job: String; var chapter: String; var image: String }
 
@@ -211,6 +220,19 @@ extension AccountState {
         }
         if let latest = pending.values.max(by: { $0.updatedAt < $1.updatedAt }), latest.updatedAt >= (remote.library.compactMap(\.lastReadAt).max() ?? 0) {
             data.lastOpened = LastOpened(mangaId:latest.mangaId,chapter:latest.chapter)
+        }
+    }
+}
+
+extension AccountState {
+    func unreadChapters(in story: Story) -> [Chapter] {
+        let completed = Set(data.completed)
+        return story.orderedChapters.filter { chapter in
+            let key = story.key+":"+chapter.id
+            return !completed.contains(key)
+                && (data.progress[key]?.percent ?? 0) < 98
+                && completedPending?[key] == nil
+                && (pending[key]?.percent ?? 0) < 98
         }
     }
 }

@@ -10,6 +10,7 @@ struct StoryView: View {
     @State private var query = ""
     @State private var ascending = true
     @State private var selecting = false
+    @State private var preparingUnread = false
     @State private var selected: Set<String> = []
     var story: Story { detail ?? store.stories[initial.key] ?? initial }
     var chapters: [Chapter] {
@@ -35,7 +36,17 @@ struct StoryView: View {
             }
             Button { Task { await downloads.enqueue(story) } } label: {
                 HStack { if downloads.preparing.contains(story.key) { ProgressView() }; Label(downloads.preparing.contains(story.key) ? "تجهيز جميع الفصول…" : "تحميل القصة كاملة",systemImage:"arrow.down.to.line").bold() }.frame(maxWidth:.infinity).padding(9)
-            }.buttonStyle(.borderedProminent).disabled(downloads.preparing.contains(story.key) || !store.online)
+            }.buttonStyle(.borderedProminent).disabled(preparingUnread || downloads.preparing.contains(story.key) || !store.online)
+            Button {
+                preparingUnread = true
+                Task { await store.downloadUnread(story); preparingUnread = false }
+            } label: {
+                HStack {
+                    if preparingUnread { ProgressView() }
+                    Label(preparingUnread ? "فحص الفصول غير المقروءة…" : "تحميل الفصول غير المقروءة",systemImage:"book.closed").bold()
+                }.frame(maxWidth:.infinity).padding(9)
+            }.buttonStyle(.bordered).disabled(preparingUnread || downloads.preparing.contains(story.key) || !store.online)
+            Text("يتجاوز الفصول التي أكملتها، ويشمل الفصل الذي لم تكمل قراءته.").font(.caption).foregroundStyle(.secondary).frame(maxWidth:.infinity,alignment:.leading)
             if let job = downloads.jobs.first(where:{$0.id == story.key}) { DownloadSummary(job:job).card() }
             HStack { Text("الفصول · \(story.chapters?.count ?? 0)").font(.title3.bold()); Spacer(); if loading { ProgressView() }; Button { ascending.toggle() } label: { Image(systemName:"arrow.up.arrow.down") }; Button(selecting ? "إلغاء" : "تحديد") { selecting.toggle(); selected.removeAll() } }
             if let error { Text(error).font(.caption).foregroundStyle(.orange); Button("إعادة جلب قائمة الفصول") { Task { await refresh() } } }

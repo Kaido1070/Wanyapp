@@ -82,4 +82,56 @@ final class WanyTests: XCTestCase {
         XCTAssertNotNil(downloads.pageURL(payload,index:0)); XCTAssertNil(downloads.pageURL(payload,index:1)); XCTAssertEqual(downloads.jobs.first?.completedChapters,0)
         XCTAssertTrue(downloads.jobs.first?.chapters.first?.images.first?.done == true)
     }
+
+    func testUnreadSelectionKeepsPartialAndSkippedChapters() {
+        var work = story(); work.chapters = [1,2,2.5,3,4,5].map { Chapter(number:$0,title:chapterNumber($0)) }
+        var state = AccountState(user:Account(id:"u",name:"U",username:"u"))
+        state.data.completed = [work.key+":1"]
+        let atThreshold = ProgressRecord(mangaId:work.key,chapter:2,percent:98,updatedAt:1000)
+        state.data.progress[atThreshold.id] = atThreshold
+        let partial = ProgressRecord(mangaId:work.key,chapter:2.5,percent:50,updatedAt:2000)
+        state.data.progress[partial.id] = partial
+        let pending = ProgressRecord(mangaId:work.key,chapter:4,percent:100,updatedAt:3000)
+        state.pending[pending.id] = pending
+        let finishedThenReread = ProgressRecord(mangaId:work.key,chapter:5,percent:100,updatedAt:4000)
+        state.completedPending = [finishedThenReread.id:finishedThenReread]
+        state.pending[finishedThenReread.id] = ProgressRecord(mangaId:work.key,chapter:5,percent:20,updatedAt:5000)
+        state.data.library = [LibraryEntry(mangaId:work.key,status:"reading",addedAt:1,updatedAt:1,highestReachedChapter:5)]
+        XCTAssertEqual(state.unreadChapters(in:work).map(\.number),[2.5,3])
+    }
+    func testUnreadSelectionCombinesWebsiteAndOfflineCompletions() {
+        var work = story(); work.chapters = [1,2,3].map { Chapter(number:Double($0),title:String($0)) }
+        var state = AccountState(user:Account(id:"u",name:"U",username:"u"))
+        let local = ProgressRecord(mangaId:work.key,chapter:1,percent:100,updatedAt:2000)
+        state.completedPending = [local.id:local]; state.pending[local.id] = local
+        var remote = AccountData(); remote.completed = [work.key+":2"]
+        state.mergeReadingData(remote)
+        XCTAssertEqual(state.unreadChapters(in:work).map(\.number),[3])
+        state.data.completed.append(work.key+":3")
+        XCTAssertTrue(state.unreadChapters(in:work).isEmpty)
+    }
+    func testUnreadQueueCountsOnlyRequestedChaptersAndPreservesCachedPages() {
+        let work = story()
+        let readPayload = ChapterPayload(item:work,number:1,title:"1",pages:["read"])
+        let unreadPayload = ChapterPayload(item:work,number:2,title:"2",pages:["unread"])
+        let read = ChapterDownload(chapter:Chapter(number:1,title:"1"),payload:readPayload,images:[ImageRecord(remote:"read",file:"read",bytes:10,done:true)])
+        var unread = ChapterDownload(chapter:Chapter(number:2,title:"2"),payload:unreadPayload,images:[ImageRecord(remote:"unread",file:"unread",expected:20)])
+        var job = DownloadJob(id:work.key,story:work,chapters:[read,unread],wholeStory:false,chapterListComplete:true,activeChapterIDs:["2"],selectionMode:"unread")
+        XCTAssertFalse(job.includes("1")); XCTAssertTrue(job.includes("2"))
+        XCTAssertEqual(job.completedChapters,0); XCTAssertEqual(job.remainingChapters,1)
+        XCTAssertEqual(job.bytes,10); XCTAssertEqual(job.downloadedBytes,0); XCTAssertEqual(job.total,20)
+        unread.images[0].bytes = 20; unread.images[0].done = true; job.chapters[1] = unread
+        XCTAssertTrue(job.complete); XCTAssertEqual(job.completedChapters,1)
+        XCTAssertEqual(job.bytes,30); XCTAssertEqual(job.downloadedBytes,20); XCTAssertTrue(job.chapters[0].complete)
+    }
+
+    func testLegacyDownloadManifestStillSelectsEveryChapter() throws {
+        let job = DownloadJob(id:"tx:test",story:story(),chapters:[ChapterDownload(chapter:Chapter(number:1,title:"1")),ChapterDownload(chapter:Chapter(number:2,title:"2"))],wholeStory:true,chapterListComplete:true)
+        let encoded = try JSONEncoder().encode(job)
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with:encoded) as? [String:Any])
+        legacy.removeValue(forKey:"activeChapterIDs"); legacy.removeValue(forKey:"selectionMode")
+        let restored = try JSONDecoder().decode(DownloadJob.self,from:JSONSerialization.data(withJSONObject:legacy))
+        XCTAssertNil(restored.activeChapterIDs); XCTAssertNil(restored.selectionMode)
+        XCTAssertEqual(restored.requestedChapters.count,2); XCTAssertTrue(restored.includes("1")); XCTAssertTrue(restored.includes("2"))
+    }
 }
