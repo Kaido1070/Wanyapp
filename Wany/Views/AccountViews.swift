@@ -149,7 +149,7 @@ struct SettingsView: View {
                 Button("مزامنة الآن") { Task { await store.refresh() } }.disabled(!store.online || store.syncing)
             }
             Section { Button("تسجيل الخروج",role:.destructive) { logout = true } }
-            Section { HStack { Image("Logo").resizable().frame(width:32,height:32).clipShape(RoundedRectangle(cornerRadius:8)); Text("Wany · 1.0"); Spacer() }; Text("قصصك وتقدمك محفوظة داخل التطبيق. النسخة الأولى للآيفون.").font(.caption).foregroundStyle(.secondary) }
+            Section { HStack { Image("Logo").resizable().frame(width:32,height:32).clipShape(RoundedRectangle(cornerRadius:8)); Text(AppVersion.display); Spacer() }; NavigationLink("سجل التحديثات") { UpdatesView() }; Text("قصصك وتقدمك محفوظة داخل التطبيق. النسخة الأولى للآيفون.").font(.caption).foregroundStyle(.secondary) }
         }.navigationTitle("الإعدادات")
         .onAppear { wifiOnly = downloads.wifiOnly; name = store.state?.user.name ?? ""; privateProfile = store.state?.user.profileVisibility == "private" }
         .confirmationDialog("تسجيل الخروج؟ تبقى التنزيلات والتحديثات المعلقة محفوظة لهذا الحساب حتى تسجيل دخوله مجددًا.",isPresented:$logout) { Button("تسجيل الخروج",role:.destructive) { Task { await store.logout() } } }
