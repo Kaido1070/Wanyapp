@@ -137,6 +137,7 @@ enum JSONValue: Codable {
     }
     subscript(_ key: String) -> JSONValue { if case .object(let o) = self { return o[key] ?? .null }; return .null }
     var string: String { if case .string(let s) = self { return s }; return "" }
+    var boolean: Bool { if case .bool(let value) = self { return value }; return false }
     var number: Double { if case .number(let n) = self { return n }; return 0 }
     var array: [JSONValue] { if case .array(let a) = self { return a }; return [] }
     var object: [String: JSONValue] { if case .object(let a) = self { return a }; return [:] }
@@ -149,6 +150,7 @@ struct ImageRecord: Codable, Identifiable {
     var bytes: Int64 = 0
     var done = false
     var failure: String?
+    var edgeOptimized: Bool?
     var attempts = 0
     var id: String { file }
 }

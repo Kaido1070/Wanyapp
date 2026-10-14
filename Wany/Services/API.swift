@@ -52,14 +52,14 @@ struct APIError: LocalizedError {
     func send<T: Encodable>(_ path: String, method: String = "POST", value: T) async throws {
         _ = try await raw(path,method:method,body:JSONEncoder().encode(value))
     }
-    func imageRequest(source: String, url: String, referer: String? = nil) throws -> URLRequest {
+    func imageRequest(source: String, url: String, referer: String? = nil, quality: ImageQuality? = nil) throws -> URLRequest {
         if url.hasPrefix("/api/work-snapshots/cover") {
             let components = URLComponents(string:url)!
             var q: [String:String] = [:]; components.queryItems?.forEach { q[$0.name] = $0.value }
             var r = try request(components.path,query:q); r.setValue("image/*",forHTTPHeaderField:"Accept"); return r
         }
         let original = source == "teamx" ? url.replacingOccurrences(of:"thumbnail_",with:"") : url
-        var query = ["source":source,"url":original]; query["referer"] = referer
+        var query = ["source":source,"url":original]; query["referer"] = referer; query["quality"] = quality?.rawValue
         var req = try request("/api/source/image",query:query)
         req.setValue("image/*",forHTTPHeaderField:"Accept"); return req
     }

@@ -5,7 +5,7 @@ import Combine
 
 final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     var progress: ((TransferTag, Int64, Int64, Int64) -> Void)?
-    var finished: ((TransferTag, Int64, String?) -> Void)?
+    var finished: ((TransferTag, Int64, String?, Bool) -> Void)?
     var backgroundFinished: (() -> Void)?
     func tag(_ task: URLSessionTask) -> TransferTag? {
         guard let text = task.taskDescription, let data = text.data(using:.utf8) else { return nil }
@@ -21,19 +21,20 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
             guard let source = CGImageSourceCreateWithURL(location as CFURL,nil), CGImageSourceGetCount(source) > 0,
                   CGImageSourceCreateImageAtIndex(source,0,nil) != nil else { throw APIError(message:"الصورة تالفة؛ أعد تحميل الناقص",status:0) }
             let ledger = Disk.read([DownloadJob].self,owner:t.owner,name:"downloads.json") ?? []
-            guard ledger.contains(where: { $0.id == t.job && $0.chapters.contains(where: { $0.id == t.chapter && $0.images.contains(where: { $0.file == t.image }) }) }) else { finished?(t,0,nil); return }
+            guard ledger.contains(where: { $0.id == t.job && $0.chapters.contains(where: { $0.id == t.chapter && $0.images.contains(where: { $0.file == t.image }) }) }) else { finished?(t,0,nil,false); return }
             let destination = Disk.file(t.owner,t.image)
             try FileManager.default.createDirectory(at:destination.deletingLastPathComponent(),withIntermediateDirectories:true)
             if FileManager.default.fileExists(atPath:destination.path) { try FileManager.default.removeItem(at:destination) }
             try FileManager.default.moveItem(at:location,to:destination)
             try FileManager.default.setAttributes([.protectionKey:FileProtectionType.completeUntilFirstUserAuthentication],ofItemAtPath:destination.path)
             let originalBytes = Int64((try destination.resourceValues(forKeys:[.fileSizeKey])).fileSize ?? 0)
-            let bytes = (try? ImageStorage.compact(destination,quality:ImageQuality(rawValue:t.quality ?? "original") ?? .original)) ?? originalBytes
-            finished?(t,bytes,nil)
-        } catch { finished?(t,0,error.localizedDescription) }
+            let optimized = response.value(forHTTPHeaderField:"X-Wany-Image-Mode") == "edge"
+            let bytes = optimized ? originalBytes : ((try? ImageStorage.compact(destination,quality:ImageQuality(rawValue:t.quality ?? "original") ?? .original)) ?? originalBytes)
+            finished?(t,bytes,nil,optimized)
+        } catch { finished?(t,0,error.localizedDescription,false) }
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        if let error, let t = tag(task) { finished?(t,0,error.localizedDescription) }
+        if let error, let t = tag(task) { finished?(t,0,error.localizedDescription,false) }
     }
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) { backgroundFinished?() }
 }
@@ -85,7 +86,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     var backgroundCompletion: (() -> Void)?
     private init() {
         delegate.progress = { tag,delta,total,expected in Task { @MainActor in self.didProgress(tag,delta:delta,total:total,expected:expected) } }
-        delegate.finished = { tag,bytes,error in Task { @MainActor in self.didFinish(tag,bytes:bytes,error:error) } }
+        delegate.finished = { tag,bytes,error,optimized in Task { @MainActor in self.didFinish(tag,bytes:bytes,error:error,optimized:optimized) } }
         delegate.backgroundFinished = { Task { @MainActor in self.backgroundCompletion?(); self.backgroundCompletion = nil } }
         Task { await restoreTasks() }
         Timer.scheduledTimer(withTimeInterval:30,repeats:true) { _ in Task { @MainActor in self.cleanTemporary() } }
@@ -352,7 +353,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
                     do {
                         let free = (try? Disk.root.resourceValues(forKeys:[.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage ?? Int64.max
                         guard free > 80 * 1024 * 1024 else { jobs[j].error = "المساحة المتاحة منخفضة؛ أفرغ مساحة ثم استكمل"; jobs[j].paused = true; persist(); return }
-                        let req = try API.shared.imageRequest(source:payload.item.source,url:image.remote,referer:payload.chapterUrl ?? payload.item.url)
+                        let req = try API.shared.imageRequest(source:payload.item.source,url:image.remote,referer:payload.chapterUrl ?? payload.item.url,quality:quality)
                         let tag = TransferTag(owner:owner,job:jobs[j].id,chapter:jobs[j].chapters[c].id,image:image.file,quality:quality.rawValue)
                         let task = session.downloadTask(with:req)
                         task.taskDescription = String(data:try JSONEncoder().encode(tag),encoding:.utf8)
@@ -381,7 +382,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         speedSamples.append((Date(),delta,tag.job)); updateSpeed()
         if Date().timeIntervalSince(lastSaved) > 2 { persist() }
     }
-    private func didFinish(_ tag: TransferTag, bytes: Int64, error: String?) {
+    private func didFinish(_ tag: TransferTag, bytes: Int64, error: String?, optimized: Bool) {
         active.removeValue(forKey:tag.owner+":"+tag.image)
         if tag.owner != owner {
             // A suspended account may receive one last callback. Persist it only in its own directory.
@@ -389,6 +390,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
             if let j = other.firstIndex(where:{$0.id == tag.job}), let c = other[j].chapters.firstIndex(where:{$0.id == tag.chapter}), let i = other[j].chapters[c].images.firstIndex(where:{$0.file == tag.image}) {
                 other[j].chapters[c].images[i].done = error == nil; other[j].chapters[c].images[i].bytes = bytes
                 other[j].chapters[c].images[i].failure = error
+                other[j].chapters[c].images[i].edgeOptimized = optimized
                 try? Disk.save(other,owner:tag.owner,name:"downloads.json")
             }
             return
@@ -399,6 +401,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         jobs[j].chapters[c].images[i].done = error == nil
         jobs[j].chapters[c].images[i].bytes = bytes
         jobs[j].chapters[c].images[i].failure = error
+        jobs[j].chapters[c].images[i].edgeOptimized = optimized
         if error == nil { jobs[j].chapters[c].images[i].expected = bytes }
         persist(); revision += 1
         if error != nil { Task { try? await Task.sleep(for:.seconds(2)); self.pump() } } else { pump() }

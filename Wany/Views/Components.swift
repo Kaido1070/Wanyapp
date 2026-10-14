@@ -35,10 +35,12 @@ struct CoverView: View {
     @EnvironmentObject var store: AppStore
     let story: Story
     var body: some View {
-        Group {
-            if let owner = store.state?.user.id, let image = UIImage(contentsOfFile:Disk.file(owner,Disk.coverName(story.key)).path) { Image(uiImage:image).resizable().scaledToFill() }
-            else { ZStack { Theme.surface; Image(systemName:"book.closed").font(.largeTitle).foregroundStyle(Theme.accent.opacity(0.6)) } }
-        }.clipped().task(id:story.cover) { await store.cacheCover(story) }
+        GeometryReader { geometry in
+            Group {
+                if let owner = store.state?.user.id, let image = UIImage(contentsOfFile:Disk.file(owner,Disk.coverName(story.key)).path) { Image(uiImage:image).resizable().scaledToFill() }
+                else { ZStack { Theme.surface; Image(systemName:"book.closed").font(.largeTitle).foregroundStyle(Theme.accent.opacity(0.6)) } }
+            }.frame(width:geometry.size.width,height:geometry.size.height).clipped()
+        }.task(id:story.cover) { await store.cacheCover(story) }
     }
 }
 struct StoryCard: View {

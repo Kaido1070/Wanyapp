@@ -15,6 +15,8 @@ struct DownloadSummary: View {
                 Spacer()
                 Text(job.paused || job.complete || !downloads.online ? "0 B/s" : byteLabel(downloads.speedFor(job.id))+"/s").font(.caption.monospacedDigit()).foregroundStyle(Theme.accent)
             }
+            let reduced = job.requestedChapters.flatMap(\.images).filter { $0.done && $0.edgeOptimized == true }.count
+            if reduced > 0 { Label("\(reduced) صورة مصغرة قبل التنزيل",systemImage:"bolt.fill").font(.caption).foregroundStyle(Theme.accent) }
             if let error = job.error { Text(error).font(.caption).foregroundStyle(.orange) }
             let failures = job.requestedChapters.filter { $0.error != nil || $0.images.contains(where:{$0.failure != nil}) }.count
             if failures > 0 { Text("\(failures) فصل يحتوي على صور ناقصة أو تعذر تجهيزه").font(.caption).foregroundStyle(.orange) }

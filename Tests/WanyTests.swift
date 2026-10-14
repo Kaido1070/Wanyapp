@@ -3,6 +3,24 @@ import UIKit
 @testable import Wany
 
 final class WanyTests: XCTestCase {
+    func testDownloadQualityIsSentToServerWithoutChangingSourceURL() throws {
+        let remote = "https://olympustaff.com/wp-content/uploads/chapter/page.jpg"
+        let request = try API.shared.imageRequest(source:"teamx",url:remote,referer:"https://olympustaff.com/series/test",quality:.high)
+        let query = URLComponents(url:try XCTUnwrap(request.url),resolvingAgainstBaseURL:false)?.queryItems ?? []
+        XCTAssertEqual(query.first(where:{$0.name == "quality"})?.value,"high")
+        XCTAssertEqual(query.first(where:{$0.name == "url"})?.value,remote)
+        XCTAssertEqual(query.first(where:{$0.name == "referer"})?.value,"https://olympustaff.com/series/test")
+        let cover = try API.shared.imageRequest(source:"teamx",url:remote)
+        XCTAssertFalse((URLComponents(url:try XCTUnwrap(cover.url),resolvingAgainstBaseURL:false)?.queryItems ?? []).contains(where:{$0.name == "quality"}))
+    }
+    func testLegacyImageRecordsRemainReadableAndOptimizationFlagPersists() throws {
+        let old = Data(#"{"remote":"url","file":"image","bytes":5,"done":true,"attempts":0}"#.utf8)
+        var image = try JSONDecoder().decode(ImageRecord.self,from:old)
+        XCTAssertNil(image.edgeOptimized)
+        image.edgeOptimized = true
+        XCTAssertEqual(try JSONDecoder().decode(ImageRecord.self,from:JSONEncoder().encode(image)).edgeOptimized,true)
+    }
+
     func testBottomBarRequiresDoubleUpwardTravelAndReaderRequiresTriple() {
         var bottom = ReaderScrollDirection(revealDistance:192)
         var reader = ReaderScrollDirection(revealDistance:288)

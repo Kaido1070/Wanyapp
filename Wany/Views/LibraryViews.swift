@@ -3,6 +3,7 @@ import SwiftUI
 struct DiscoverView: View {
     @EnvironmentObject var store: AppStore
     @State private var source = "all"
+    @State private var carouselSource = sources.first ?? "teamx"
     @State private var mode = "latest"
     @State private var query = ""
     @State private var submittedQuery = ""
@@ -20,10 +21,10 @@ struct DiscoverView: View {
         WanyScroll {
             HStack {
                 Text("استكشف").font(.largeTitle.bold()); Spacer()
-                Menu(source == "all" ? "الكل" : sourceLabel(source)) {
+                Menu {
                     Button("الكل") { source = "all" }
                     ForEach(sources,id:\.self) { item in Button(sourceLabel(item)) { source = item } }
-                }.frame(minHeight:44)
+                } label: { Label(source == "all" ? "الكل" : sourceLabel(source),systemImage:"line.3.horizontal.decrease.circle").frame(minHeight:44) }.accessibilityHint("تغيير مصدر القصص")
             }
             HStack {
                 TextField("ابحث عن قصة",text:$query).submitLabel(.search).onSubmit { search() }
@@ -31,7 +32,25 @@ struct DiscoverView: View {
             }.card()
             Picker("ترتيب",selection:$mode) { Text("الأحدث").tag("latest"); Text("الأكثر شعبية").tag("popular") }.pickerStyle(.segmented)
             if let message { Text(message).font(.caption).foregroundStyle(.orange) }
-            StoryGrid(stories:items)
+            if source == "all" {
+                ScrollView(.horizontal,showsIndicators:false) {
+                    HStack(spacing:10) { ForEach(sources,id:\.self) { item in
+                        Button { withAnimation { carouselSource = item } } label: {
+                            Text(sourceLabel(item)).font(.subheadline.weight(.semibold)).padding(.horizontal,16).frame(minHeight:44).background(carouselSource == item ? Theme.accent.opacity(0.25) : Theme.surface,in:Capsule())
+                        }.buttonStyle(.plain)
+                    } }
+                }
+                Text("اسحب يمينًا أو يسارًا لتغيير المصدر").font(.caption).foregroundStyle(.secondary)
+                TabView(selection:$carouselSource) {
+                    ForEach(sources,id:\.self) { item in
+                        VStack(spacing:16) {
+                            StoryGrid(stories:sourceItems[item] ?? [])
+                            if (sourceItems[item] ?? []).isEmpty { EmptyState(icon:failed.contains(item) ? "wifi.exclamationmark" : "books.vertical",title:sourceLabel(item),detail:busy ? "جاري تحميل القصص…" : "لا توجد نتائج متاحة لهذا المصدر") }
+                            Spacer(minLength:0)
+                        }.padding(.horizontal,1).tag(item)
+                    }
+                }.tabViewStyle(.page(indexDisplayMode:.never)).frame(height:CGFloat(max(1,((sourceItems[carouselSource]?.count ?? 0)+1)/2))*310 + 24)
+            } else { StoryGrid(stories:items) }
             if busy { ProgressView("جاري تحميل القصص") }
             if hasMore && !busy { Button("تحميل المزيد") { Task { await load(reset:false) } }.buttonStyle(.bordered) }
         }.task(id:requestKey) { await load(reset:true) }.refreshable { await load(reset:true) }
@@ -47,6 +66,7 @@ struct DiscoverView: View {
         let endpoint = text.isEmpty ? mode : "search"
         guard store.online else {
             items = store.stories.values.filter { (selected == "all" || $0.source == selected) && (text.isEmpty || $0.title.localizedCaseInsensitiveContains(text)) }.sorted { $0.title < $1.title }
+            sourceItems = Dictionary(grouping:items,by:\.source)
             more = []; failed = []; busy = false; message = "تظهر القصص المحفوظة على الجهاز"; return
         }
         busy = true; defer { if requestToken == token { busy = false } }

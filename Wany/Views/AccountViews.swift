@@ -43,12 +43,13 @@ struct ListDetailView: View {
     let id: String; let title: String
     @StateObject private var page = CachedPage()
     @State private var adding = false
+    var canManage: Bool { page.value["list"]["canManage"].boolean }
     var body: some View {
         WanyScroll {
-            HStack { Text(title).font(.largeTitle.bold()); Spacer(); Button { adding = true } label: { Image(systemName:"plus") }.disabled(!store.online) }
+            HStack { Text(title).font(.largeTitle.bold()); Spacer(); if canManage { Button { adding = true } label: { Image(systemName:"plus") }.disabled(!store.online) } }
             ForEach(Array(page.value["items"].array.enumerated()),id:\.offset) { _,item in
                 if let story = store.stories[item["mangaId"].string] {
-                    HStack { WanyLink { StoryView(initial:story) } label: { Text(story.title).foregroundStyle(.primary) }; Spacer(); Button(role:.destructive) { Task { do { _ = try await API.shared.raw("/api/lists/"+id+"/items/"+story.key,method:"DELETE"); await load() } catch { store.error = error.localizedDescription } } } label: { Image(systemName:"minus.circle") }.disabled(!store.online) }.card()
+                    HStack { WanyLink { StoryView(initial:story) } label: { Text(story.title).foregroundStyle(.primary) }; Spacer(); if canManage { Button(role:.destructive) { Task { do { _ = try await API.shared.raw("/api/lists/"+id+"/items/"+story.key,method:"DELETE"); await load() } catch { store.error = error.localizedDescription } } } label: { Image(systemName:"minus.circle") }.disabled(!store.online) } }.card()
                 } else { Text(item["mangaId"].string).font(.caption) }
             }
             if let error = page.error { Text(error).foregroundStyle(.orange) }
@@ -101,10 +102,17 @@ struct PublicProfileView: View {
             else {
                 Text("المفضلة").font(.headline)
                 StoryGrid(stories:page.value["profile"]["favorites"].array.compactMap { store.stories[$0.string] })
+                ForEach(Array(page.value["profile"]["lists"].array.enumerated()),id:\.offset) { _,list in
+                    WanyLink { ListDetailView(id:list["id"].string,title:list["name"].string) } label: {
+                        HStack { Label(list["name"].string,systemImage:"list.bullet.rectangle"); Spacer(); Text("\(Int(list["itemCount"].number))"); Image(systemName:"chevron.left") }.foregroundStyle(.primary).card()
+                    }
+                    StoryGrid(stories:list["previewItems"].array.compactMap { store.stories[$0.string] })
+                }
+                if page.value["profile"]["access"].string == "friends" { Label("نشاط القراءة خاص",systemImage:"lock").font(.caption).foregroundStyle(.secondary) }
             }
         }.task {
             await page.load("/api/profiles/"+id,store:store)
-            let keys = page.value["profile"]["favorites"].array.map(\.string)
+            let keys = Array(Set(page.value["profile"]["favorites"].array.map(\.string) + page.value["profile"]["lists"].array.flatMap { $0["previewItems"].array.map(\.string) }))
             if store.online { for start in stride(from:0,to:keys.count,by:40) { if let r = try? await API.shared.get("/api/source/resolve",query:["keys":keys[start..<min(start+40,keys.count)].joined(separator:",")],as:ResolveResponse.self) { for story in r.items { store.remember(story) } } } }
         }
     }
@@ -151,7 +159,7 @@ struct SettingsView: View {
                 Toggle("التنزيل عبر Wi-Fi فقط",isOn:Binding(get:{downloads.wifiOnly},set:{downloads.wifiOnly = $0}))
                 Divider()
                 Picker("جودة الصور",selection:Binding(get:{downloads.quality},set:{downloads.quality = $0})) { ForEach(ImageQuality.allCases) { quality in Text(quality.label).tag(quality) } }
-                Text("المتوازنة تقلل الحجم مع وضوح مناسب للقراءة. تؤثر الجودة على الصور الجديدة؛ استخدم الزر أدناه لتقليل التنزيلات الموجودة.").font(.caption).foregroundStyle(.secondary)
+                Text("المتوازنة والعالية تطلبان تصغير الصورة على الخادم قبل تنزيلها. يظهر عدد الصور المصغرة في التنزيلات عندما يدعم الخادم المعالجة؛ وإلا تُصغر محليًا. الصور السابقة يمكن تقليلها بالزر أدناه.").font(.caption).foregroundStyle(.secondary)
                 settingsRow("التنزيلات المحفوظة",value:byteLabel(downloads.savedJobs.reduce(0){$0+$1.bytes}))
                 settingsRow("صور القراءة المؤقتة",value:byteLabel(downloads.temporaryBytes))
                 Text("صور القراءة العادية تُحذف بعد 3 دقائق من مغادرة الفصل، أو عند فتح التطبيق مجددًا إذا كان مغلقًا. تقدمك يبقى محفوظًا.").font(.caption).foregroundStyle(.secondary)
