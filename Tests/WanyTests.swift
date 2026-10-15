@@ -11,42 +11,56 @@ final class WanyTests: XCTestCase {
         XCTAssertNil(JSONValue.null.publicAccount)
         XCTAssertNil(JSONValue.object(["id":.string("friend")]).publicAccount?.avatarId)
     }
-    func testInlineZoomKeepsThePointBetweenTheFingers() {
-        let anchor = ReaderZoomAnchor(point:CGPoint(x:150,y:4200),initialScale:1)
-        let focal = CGPoint(x:150,y:200)
-        let offset = anchor.offset(scale:2,focal:focal,size:CGSize(width:600,height:20000),viewport:CGSize(width:300,height:600),inset:.zero)
-        XCTAssertEqual(offset.x + focal.x,300,accuracy:0.001)
-        XCTAssertEqual(offset.y + focal.y,8400,accuracy:0.001)
-        let zoomed = ReaderZoomAnchor(point:CGPoint(x:450,y:12600),initialScale:3)
-        let reduced = zoomed.offset(scale:1,focal:focal,size:CGSize(width:300,height:10000),viewport:CGSize(width:300,height:600),inset:.zero)
-        XCTAssertEqual(reduced.x,0); XCTAssertEqual(reduced.y,4000)
-        XCTAssertEqual(ReaderZoomAnchor.scale(0.2),1); XCTAssertEqual(ReaderZoomAnchor.scale(10),4)
+    @MainActor func testNativeChapterZoomNeverRelayoutsPagesDuringRepeatedZoom() {
+        let scroll = ChapterScroll(frame:CGRect(x:0,y:0,width:300,height:600))
+        scroll.configure(id:"chapter",urls:Array(repeating:nil,count:30),ratios:Dictionary(uniqueKeysWithValues:(0..<30).map { ($0,CGFloat(2)) }),initialPage:10,nextTitle:nil,online:false)
+        scroll.layoutIfNeeded()
+        let frames = scroll.tiles.map(\.frame), size = scroll.canvas.bounds.size, layouts = scroll.geometryUpdates
+        XCTAssertTrue(scroll.viewForZooming(in:scroll) === scroll.canvas)
+        XCTAssertTrue(scroll.pinchGestureRecognizer?.isEnabled == true)
+        XCTAssertEqual(scroll.minimumZoomScale,1); XCTAssertEqual(scroll.maximumZoomScale,4)
+        for step in 0..<120 {
+            let scale = CGFloat(step < 60 ? 60+step : 180-step)/60
+            scroll.setZoomScale(scale,animated:false); scroll.layoutIfNeeded()
+            XCTAssertEqual(scroll.tiles.map(\.frame),frames)
+            XCTAssertEqual(scroll.canvas.bounds.size,size)
+            XCTAssertEqual(scroll.geometryUpdates,layouts)
+        }
+        scroll.stop(); scroll.delegate = nil
     }
-    @MainActor func testInlinePinchWaitsForLayoutAndKeepsZoomDuringReaderUpdates() {
-        let scroll = UIScrollView(frame:CGRect(x:0,y:0,width:300,height:600))
-        scroll.contentSize = CGSize(width:300,height:10000); scroll.contentOffset = CGPoint(x:0,y:4000)
-        let probe = ReaderPinchZoom.Probe(); probe.baseWidth = 300; probe.attach(to:scroll)
-        var changing = false; var requested: CGFloat = 1
-        probe.onPinching = { changing = $0 }; probe.onChange = { requested = $0 }
-        probe.begin(at:CGPoint(x:150,y:4200)); probe.change(factor:2,focal:CGPoint(x:150,y:200))
-        XCTAssertEqual(requested,2); XCTAssertTrue(changing)
-        XCTAssertEqual(scroll.contentOffset.y,4000) // Old layout must not be moved.
-        probe.end(); XCTAssertNotNil(probe.anchor) // Final layout has not landed.
-        scroll.contentSize = CGSize(width:600,height:20000); probe.applyAnchor()
-        XCTAssertEqual(scroll.contentOffset,CGPoint(x:150,y:8200)); XCTAssertFalse(changing)
-        XCTAssertTrue(scroll.panGestureRecognizer.isEnabled)
-        probe.attach(to:scroll); probe.applyAnchor() // Background updates preserve pan/zoom.
-        XCTAssertEqual(probe.scale,2); XCTAssertEqual(scroll.contentOffset.y,8200)
-        probe.begin(at:CGPoint(x:300,y:8400)); probe.change(factor:0.5,focal:CGPoint(x:150,y:200))
-        scroll.contentSize = CGSize(width:300,height:10000); probe.end()
-        XCTAssertEqual(scroll.contentOffset,CGPoint(x:0,y:4000))
-        probe.detach(); XCTAssertFalse(scroll.gestureRecognizers?.contains(where: { $0 === probe.pinch }) ?? false)
+    @MainActor func testDownloadAndHeaderUpdatesPreserveNativeZoomAndOffset() {
+        let scroll = ChapterScroll(frame:CGRect(x:0,y:0,width:300,height:600))
+        let ratios = Dictionary(uniqueKeysWithValues:(0..<8).map { ($0,CGFloat(3)) })
+        scroll.configure(id:"chapter",urls:Array(repeating:nil,count:8),ratios:ratios,initialPage:3,nextTitle:nil,online:false); scroll.layoutIfNeeded()
+        scroll.setZoomScale(2.5,animated:false); scroll.contentOffset = CGPoint(x:250,y:7000)
+        let offset = scroll.contentOffset, layouts = scroll.geometryUpdates
+        for _ in 0..<30 {
+            scroll.configure(id:"chapter",urls:Array(repeating:nil,count:8),ratios:ratios,initialPage:0,nextTitle:"الفصل التالي",online:true)
+            scroll.layoutIfNeeded()
+            XCTAssertEqual(scroll.zoomScale,2.5); XCTAssertEqual(scroll.contentOffset,offset)
+            XCTAssertEqual(scroll.geometryUpdates,layouts)
+        }
+        scroll.stop(); scroll.delegate = nil
     }
-    @MainActor func testLeavingDuringPinchRestoresNativePanAndRemovesObservation() {
-        let scroll = UIScrollView(); let probe = ReaderPinchZoom.Probe(); probe.attach(to:scroll)
-        probe.begin(at:.zero); XCTAssertFalse(scroll.panGestureRecognizer.isEnabled)
-        probe.detach(); XCTAssertTrue(scroll.panGestureRecognizer.isEnabled)
-        XCTAssertNil(probe.scroll); XCTAssertNil(probe.observation); XCTAssertNil(probe.anchor)
+    @MainActor func testNativeChapterRestoresOnceAndNewChapterResetsZoom() {
+        let scroll = ChapterScroll(frame:CGRect(x:0,y:0,width:300,height:600))
+        let ratios: [Int:CGFloat] = [0:2,1:3,2:1.5]
+        scroll.configure(id:"one",urls:[nil,nil,nil],ratios:ratios,initialPage:2,nextTitle:nil,online:false); scroll.layoutIfNeeded()
+        XCTAssertEqual(scroll.contentOffset.y,1500,accuracy:0.01)
+        scroll.setZoomScale(2,animated:false)
+        scroll.configure(id:"two",urls:[nil,nil,nil],ratios:ratios,initialPage:1,nextTitle:nil,online:false); scroll.layoutIfNeeded()
+        XCTAssertEqual(scroll.zoomScale,1); XCTAssertEqual(scroll.contentOffset.y,600,accuracy:0.01)
+        XCTAssertEqual(scroll.tiles.count,3)
+        scroll.stop(); scroll.delegate = nil
+    }
+    @MainActor func testReaderRotationKeepsPageAndZoom() {
+        let scroll = ChapterScroll(frame:CGRect(x:0,y:0,width:300,height:600))
+        scroll.configure(id:"chapter",urls:[nil,nil,nil,nil],ratios:[0:3,1:3,2:3,3:3],initialPage:1,nextTitle:nil,online:false); scroll.layoutIfNeeded()
+        scroll.setZoomScale(2,animated:false); scroll.contentOffset = CGPoint(x:100,y:2100)
+        scroll.frame.size = CGSize(width:400,height:600); scroll.layoutIfNeeded()
+        XCTAssertEqual(scroll.zoomScale,2)
+        XCTAssertEqual(scroll.contentOffset.y,2800,accuracy:1)
+        scroll.stop(); scroll.delegate = nil
     }
 
     func testReaderVisibilityTracksPagesWithoutSettingAScrollAnchor() {
