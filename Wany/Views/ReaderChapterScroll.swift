@@ -75,7 +75,11 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
     var onInvalid: ((Int) -> Void)?
     var onPosition: ((Int,Double,Bool) -> Void)?
     var onScroll: ((CGFloat,Bool) -> Void)?
-    private var busy: Bool { isTracking || isDragging || isDecelerating || isZooming || isZoomBouncing || isZoomAnimating }
+    private var zoomAnimationActive: Bool {
+        if #available(iOS 17.4, *) { return isZoomAnimating }
+        return false
+    }
+    private var busy: Bool { isTracking || isDragging || isDecelerating || isZooming || isZoomBouncing || zoomAnimationActive }
     override init(frame: CGRect) {
         super.init(frame:frame)
         backgroundColor = .black; canvas.backgroundColor = .black
@@ -199,14 +203,14 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
         }
     }
     private func report(force: Bool = false) {
-        guard !applyingLayout, !isZooming, !isZoomBouncing, !isZoomAnimating, !reportPending else { return }
+        guard !applyingLayout, !isZooming, !isZoomBouncing, !zoomAnimationActive, !reportPending else { return }
         let now = Date.timeIntervalSinceReferenceDate
         guard force || now-lastReport > 0.08 else { return }
         lastReport = now; reportPending = true
         let token = generation
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }; self.reportPending = false
-            guard self.generation == token, !self.isZooming, !self.isZoomBouncing, !self.isZoomAnimating else { return }
+            guard self.generation == token, !self.isZooming, !self.isZoomBouncing, !self.zoomAnimationActive else { return }
             let rect = self.visibleRect()
             let percent = min(100,max(0,rect.minY/max(1,self.canvas.bounds.height-rect.height)*100))
             self.onPosition?(self.page(at:rect.minY),Double(percent),self.interacted)
