@@ -267,13 +267,17 @@ struct ProfileAvatar: View {
     let user: Account
     @State private var image: UIImage?
     var body: some View {
-        Group { if let image { Image(uiImage:image).resizable().scaledToFill() } else { Image(systemName:"person.crop.circle.fill").resizable().foregroundStyle(Theme.accent) } }.clipShape(Circle())
-            .task(id:user.avatarId) {
-                guard let id = user.avatarId, let owner = store.state?.user.id else { return }
+        GeometryReader { geometry in
+            Group { if let image { Image(uiImage:image).resizable().scaledToFill() } else { Image(systemName:"person.crop.circle.fill").resizable().foregroundStyle(Theme.accent) } }
+                .frame(width:geometry.size.width,height:geometry.size.height).clipShape(Circle())
+        }
+            .task(id:[store.state?.user.id ?? "",user.avatarId ?? "",store.online ? "online" : "offline"]) {
+                image = nil
+                guard let id = user.avatarId, !id.isEmpty, let owner = store.state?.user.id else { return }
                 let path = Disk.file(owner,"avatars/"+Disk.hash(id)+".image")
                 if let cached = UIImage(contentsOfFile:path.path) { image = cached; return }
                 guard store.online else { return }
-                if let request = try? API.shared.request("/api/avatars/"+id+"/image"), let (data,response) = try? await URLSession.shared.data(for:request), (response as? HTTPURLResponse)?.statusCode == 200, let value = UIImage(data:data) {
+                if let request = try? API.shared.request("/api/avatars/"+id+"/image"), let (data,response) = try? await URLSession.shared.data(for:request), (response as? HTTPURLResponse)?.statusCode == 200, let value = UIImage(data:data), !Task.isCancelled, store.state?.user.id == owner {
                     image = value; try? FileManager.default.createDirectory(at:path.deletingLastPathComponent(),withIntermediateDirectories:true); try? data.write(to:path,options:.atomic)
                 }
             }

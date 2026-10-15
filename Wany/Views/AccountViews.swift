@@ -87,7 +87,7 @@ struct FriendsView: View {
             if let error = page.error { Text(error).foregroundStyle(.orange) }
         }.task { await load() }.refreshable { await load() }
     }
-    func userLabel(_ user: JSONValue) -> some View { HStack { Text(user["name"].string); AccountBadge(kind:user["badgeType"].string) } }
+    func userLabel(_ user: JSONValue) -> some View { PublicAccountIdentity(user:user) }
     func load() async { await page.load("/api/friends",store:store,query:["limit":"100"]); await requests.load("/api/friends/requests",store:store) }
     func action(_ path: String, body: [String:String] = [:]) async { do { try await API.shared.send(path,value:body); await load() } catch { store.error = error.localizedDescription } }
 }
@@ -97,7 +97,7 @@ struct PublicProfileView: View {
     @StateObject private var page = CachedPage()
     var body: some View {
         WanyScroll {
-            HStack { Text(page.value["profile"]["user"]["name"].string).font(.largeTitle.bold()); AccountBadge(kind:page.value["profile"]["user"]["badgeType"].string) }
+            PublicAccountIdentity(user:page.value["profile"]["user"],large:true)
             if page.value["profile"]["access"].string == "private" { EmptyState(icon:"lock",title:"حساب خاص",detail:"صاحب الحساب أخفى تفاصيل مكتبته") }
             else {
                 Text("المفضلة").font(.headline)
@@ -143,7 +143,6 @@ struct SettingsView: View {
     @State private var editingName = false
     @State private var name = ""
     @State private var logout = false
-    @State private var compress = false
     var body: some View {
         WanyScroll {
             VStack(alignment:.leading,spacing:16) {
@@ -159,11 +158,10 @@ struct SettingsView: View {
                 Toggle("التنزيل عبر Wi-Fi فقط",isOn:Binding(get:{downloads.wifiOnly},set:{downloads.wifiOnly = $0}))
                 Divider()
                 Picker("جودة الصور",selection:Binding(get:{downloads.quality},set:{downloads.quality = $0})) { ForEach(ImageQuality.allCases) { quality in Text(quality.label).tag(quality) } }
-                Text("المتوازنة والعالية تطلبان تصغير الصورة على الخادم قبل تنزيلها. يظهر عدد الصور المصغرة في التنزيلات عندما يدعم الخادم المعالجة؛ وإلا تُصغر محليًا. الصور السابقة يمكن تقليلها بالزر أدناه.").font(.caption).foregroundStyle(.secondary)
+                Text("المتوازنة والعالية تطلبان تصغير الصورة على الخادم قبل تنزيلها. يظهر عدد الصور المصغرة في التنزيلات عندما يدعم الخادم المعالجة؛ وإلا تُصغر محليًا.").font(.caption).foregroundStyle(.secondary)
                 settingsRow("التنزيلات المحفوظة",value:byteLabel(downloads.savedJobs.reduce(0){$0+$1.bytes}))
                 settingsRow("صور القراءة المؤقتة",value:byteLabel(downloads.temporaryBytes))
                 Text("صور القراءة العادية تُحذف بعد 3 دقائق من مغادرة الفصل، أو عند فتح التطبيق مجددًا إذا كان مغلقًا. تقدمك يبقى محفوظًا.").font(.caption).foregroundStyle(.secondary)
-                Button { compress = true } label: { settingsRow(downloads.compacting ? downloads.compactProgress : "تقليل حجم التنزيلات الموجودة",icon:"arrow.down.right.and.arrow.up.left") }.disabled(downloads.compacting || downloads.savedJobs.isEmpty)
                 Button { downloads.cleanTemporary(all:true) } label: { settingsRow("مسح الصور المؤقتة الآن",icon:"trash") }.disabled(downloads.temporaryBytes == 0)
             }.card()
             VStack(alignment:.leading,spacing:16) {
@@ -183,7 +181,6 @@ struct SettingsView: View {
             Button("حفظ") { Task { do { try await API.shared.send("/api/profile/name",method:"PUT",value:["name":name]); await store.refresh() } catch { if !isRequestCancellation(error) { store.error = error.localizedDescription } } } }
             Button("إلغاء",role:.cancel) {}
         }
-        .confirmationDialog("تقليل الحجم بجودة متوازنة أو الجودة المحددة؟ لا يمكن استعادة الصورة الأصلية إلا بإعادة تنزيلها.",isPresented:$compress) { Button("تقليل الحجم") { Task { await downloads.compactSaved() } } }
         .confirmationDialog("تسجيل الخروج؟ تبقى التنزيلات والتقدم محفوظة لحسابك.",isPresented:$logout) { Button("تسجيل الخروج",role:.destructive) { Task { await store.logout() } } }
     }
     func settingsRow(_ title: String, value: String = "", icon: String? = nil) -> some View {
@@ -202,5 +199,21 @@ struct AvatarPickerView: View {
                 }.disabled(!store.online)
             } }
         } }.navigationTitle("الصورة الشخصية").task { await page.load("/api/avatars",store:store) }
+    }
+}
+
+struct PublicAccountIdentity: View {
+    let user: JSONValue
+    var large = false
+    var body: some View {
+        HStack(spacing:12) {
+            if let account = user.publicAccount {
+                ProfileAvatar(user:account).frame(width:large ? 72 : 44,height:large ? 72 : 44)
+                VStack(alignment:.leading,spacing:5) {
+                    HStack { Text(account.name).font(large ? .title2.bold() : .body).lineLimit(2); AccountBadge(kind:account.badgeType) }
+                    if !account.username.isEmpty { Text("@"+account.username).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                }
+            }
+        }.frame(maxWidth:.infinity,alignment:.leading)
     }
 }

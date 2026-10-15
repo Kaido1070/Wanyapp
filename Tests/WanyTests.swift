@@ -3,6 +3,29 @@ import UIKit
 @testable import Wany
 
 final class WanyTests: XCTestCase {
+    func testPublicFriendIdentityKeepsAvatarAndBadge() {
+        let user: JSONValue = .object(["id":.string("friend"),"name":.string("Friend"),"username":.string("reader"),"avatarId":.string("avatar-12"),"badgeType":.string("verified")])
+        XCTAssertEqual(user.publicAccount?.avatarId,"avatar-12")
+        XCTAssertEqual(user.publicAccount?.badgeType,"verified")
+        XCTAssertEqual(user.publicAccount?.username,"reader")
+        XCTAssertNil(JSONValue.null.publicAccount)
+        XCTAssertNil(JSONValue.object(["id":.string("friend")]).publicAccount?.avatarId)
+    }
+    @MainActor func testZoomSurvivesReaderUpdatesAndCanBeReset() {
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let image = UIGraphicsImageRenderer(size:CGSize(width:400,height:1200),format:format).image { context in UIColor.white.setFill(); context.fill(CGRect(x:0,y:0,width:400,height:1200)) }
+        let view = ReaderZoomSurface.ZoomScroll(frame:CGRect(x:0,y:0,width:200,height:300))
+        view.show(image,reset:0); view.layoutIfNeeded()
+        XCTAssertEqual(view.zoomScale,0.5,accuracy:0.01)
+        view.setZoomScale(1.25,animated:false)
+        view.show(image,reset:0); view.layoutIfNeeded()
+        XCTAssertEqual(view.zoomScale,1.25,accuracy:0.01)
+        XCTAssertTrue(view.viewForZooming(in:view) === view.photo)
+        view.show(image,reset:1); view.layoutIfNeeded()
+        XCTAssertEqual(view.zoomScale,0.5,accuracy:0.01)
+        view.delegate = nil
+    }
+
     func testReaderVisibilityTracksPagesWithoutSettingAScrollAnchor() {
         let frames = [0:CGRect(x:0,y:-900,width:300,height:800),1:CGRect(x:0,y:-100,width:300,height:600),2:CGRect(x:0,y:500,width:300,height:700)]
         XCTAssertEqual(ReaderPosition.visiblePage(frames:frames),1)

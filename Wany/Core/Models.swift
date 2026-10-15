@@ -57,6 +57,14 @@ struct Account: Codable, Identifiable {
     var avatarId: String?
     var role: String?
 }
+extension JSONValue {
+    var publicAccount: Account? {
+        guard !self["id"].string.isEmpty else { return nil }
+        let avatar = self["avatarId"].string
+        let badge = self["badgeType"].string
+        return Account(id:self["id"].string,name:self["name"].string,username:self["username"].string,badgeType:badge.isEmpty ? nil : badge,avatarId:avatar.isEmpty ? nil : avatar)
+    }
+}
 struct LibraryEntry: Codable {
     var mangaId: String
     var status: String
