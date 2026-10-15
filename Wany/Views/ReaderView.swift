@@ -14,7 +14,6 @@ struct ReaderPage: View {
     @EnvironmentObject var downloads: Downloads
     let payload: ChapterPayload; let index: Int; let width: CGFloat
     var knownRatio: CGFloat? = nil
-    var onZoom: (() -> Void)? = nil
     @State private var image: UIImage?
     @State private var failedDecode = false
     var ratio: CGFloat {
@@ -33,15 +32,7 @@ struct ReaderPage: View {
                     if downloads.online { Button("إعادة المحاولة") { downloads.retryChapter(payload) } }
                 }.frame(maxWidth:.infinity).frame(height:width*ratio).foregroundStyle(.secondary).background(Theme.surface)
             }
-        }.frame(width:width,height:width*ratio)
-        .overlay(alignment:.topTrailing) {
-            if image != nil, let onZoom {
-                Button(action:onZoom) { Image(systemName:"plus.magnifyingglass").font(.body).frame(width:44,height:44).background(.ultraThinMaterial,in:Circle()) }
-                    .padding(8).accessibilityLabel("تكبير الصورة \(index+1)")
-            }
-        }
-        .onTapGesture(count:2) { if image != nil { onZoom?() } }
-        .task(id:downloads.revision) { await load() }
+        }.frame(width:width,height:width*ratio).task(id:downloads.revision) { await load() }
     }
     func load() async {
         guard image == nil, let url = downloads.pageURL(payload,index:index) else { return }
@@ -65,7 +56,8 @@ struct ReaderView: View {
     let chapter: Chapter
     @State private var payload: ChapterPayload?
     @State private var error: String?
-    @State private var zoomPage: Int?
+    @State private var zoom: CGFloat = 1
+    @State private var pinching = false
     @State private var currentPage: Int?
     @State private var interacted = false
     @State private var controls = true
@@ -87,9 +79,9 @@ struct ReaderView: View {
                 Color.black.ignoresSafeArea()
                 if let payload {
                     ScrollViewReader { scroll in
-                    ScrollView {
+                    ScrollView([.vertical,.horizontal]) {
                         LazyVStack(spacing:0) {
-                            ForEach(payload.pages.indices,id:\.self) { index in ReaderPage(payload:payload,index:index,width:screen.size.width,knownRatio:pageRatios[index],onZoom:{ zoomPage = index }).id(index)
+                            ForEach(payload.pages.indices,id:\.self) { index in ReaderPage(payload:payload,index:index,width:screen.size.width * zoom,knownRatio:pageRatios[index]).id(index)
                                 .background(GeometryReader { page in Color.clear.preference(key:ReaderPageFramesKey.self,value:[index:page.frame(in:.named("reader"))]) }) }
                             VStack(spacing:16) {
                                 Text("نهاية الفصل \(chapterNumber(payload.number))").font(.headline)
@@ -97,20 +89,24 @@ struct ReaderView: View {
                                 Button("العودة للفصول") { dismiss() }
                             }.padding(.vertical,36).frame(maxWidth:.infinity)
                         }
+                        .frame(width:screen.size.width * zoom)
+                        .background(ReaderPinchZoom(scale:$zoom,isPinching:$pinching,baseWidth:screen.size.width))
                         .background(ReaderScrollObserver { offset, moving in
-                            if let visible = scrollDirection.update(offset:offset,userScrolling:moving), visible != controls {
+                            if !pinching, let visible = scrollDirection.update(offset:offset,userScrolling:moving), visible != controls {
                                 withAnimation(.easeInOut(duration:0.22)) { controls = visible }
                             }
                         })
                         .background(GeometryReader { proxy in Color.clear.preference(key:ReaderGeometryKey.self,value:ReaderGeometry(y:proxy.frame(in:.named("reader")).minY,height:proxy.size.height)) })
                     }.id(payload.id).coordinateSpace(name:"reader")
+                        .environment(\.layoutDirection,.leftToRight)
                         .transaction { $0.animation = nil }
+                        .scrollBounceBehavior(.basedOnSize,axes:.horizontal)
                         .simultaneousGesture(DragGesture(minimumDistance:3).onChanged { _ in interacted = true })
                         .onPreferenceChange(ReaderGeometryKey.self) { geometry in
                             let offset = max(0,-geometry.y)
                             let actual = min(100,max(0,offset / max(1,geometry.height-screen.size.height) * 100))
                             percent = actual
-                            if interacted { scheduleSave() }
+                            if interacted && !pinching { scheduleSave() }
                         }
                         .onPreferenceChange(ReaderPageFramesKey.self) { frames in
                             if let page = ReaderPosition.visiblePage(frames:frames), page != currentPage { currentPage = page }
@@ -147,11 +143,6 @@ struct ReaderView: View {
                     .opacity(controls ? 1 : 0).allowsHitTesting(controls)
             }
         }.toolbar(.hidden,for:.navigationBar).toolbar(.hidden,for:.tabBar)
-        .overlay {
-            if let index = zoomPage, let payload, let url = downloads.pageURL(payload,index:index) {
-                ReaderImageZoomView(url:url,number:index+1,onClose:{ zoomPage = nil }).id(url)
-            }
-        }
         .sheet(isPresented:$choosingChapter) { chapterPicker }
         .task(id:readingChapter.id) { await load() }
         .task {
@@ -223,8 +214,8 @@ struct ReaderView: View {
         guard target.id != readingChapter.id else { return }
         saveTask?.cancel(); savePosition()
         if let payload { downloads.leaveChapter(payload.id) }
-        zoomPage = nil; payload = nil; error = nil; currentPage = nil; interacted = false
-        percent = 0; pageRatios = [:]; scrollDirection = ReaderScrollDirection(revealDistance:288); controls = true
+        payload = nil; error = nil; currentPage = nil; interacted = false
+        zoom = 1; pinching = false; percent = 0; pageRatios = [:]; scrollDirection = ReaderScrollDirection(revealDistance:288); controls = true
         activeChapter = target
         Task { await store.syncProgress() }
     }

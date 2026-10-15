@@ -11,19 +11,42 @@ final class WanyTests: XCTestCase {
         XCTAssertNil(JSONValue.null.publicAccount)
         XCTAssertNil(JSONValue.object(["id":.string("friend")]).publicAccount?.avatarId)
     }
-    @MainActor func testZoomSurvivesReaderUpdatesAndCanBeReset() {
-        let format = UIGraphicsImageRendererFormat(); format.scale = 1
-        let image = UIGraphicsImageRenderer(size:CGSize(width:400,height:1200),format:format).image { context in UIColor.white.setFill(); context.fill(CGRect(x:0,y:0,width:400,height:1200)) }
-        let view = ReaderZoomSurface.ZoomScroll(frame:CGRect(x:0,y:0,width:200,height:300))
-        view.show(image,reset:0); view.layoutIfNeeded()
-        XCTAssertEqual(view.zoomScale,0.5,accuracy:0.01)
-        view.setZoomScale(1.25,animated:false)
-        view.show(image,reset:0); view.layoutIfNeeded()
-        XCTAssertEqual(view.zoomScale,1.25,accuracy:0.01)
-        XCTAssertTrue(view.viewForZooming(in:view) === view.photo)
-        view.show(image,reset:1); view.layoutIfNeeded()
-        XCTAssertEqual(view.zoomScale,0.5,accuracy:0.01)
-        view.delegate = nil
+    func testInlineZoomKeepsThePointBetweenTheFingers() {
+        let anchor = ReaderZoomAnchor(point:CGPoint(x:150,y:4200),initialScale:1)
+        let focal = CGPoint(x:150,y:200)
+        let offset = anchor.offset(scale:2,focal:focal,size:CGSize(width:600,height:20000),viewport:CGSize(width:300,height:600),inset:.zero)
+        XCTAssertEqual(offset.x + focal.x,300,accuracy:0.001)
+        XCTAssertEqual(offset.y + focal.y,8400,accuracy:0.001)
+        let zoomed = ReaderZoomAnchor(point:CGPoint(x:450,y:12600),initialScale:3)
+        let reduced = zoomed.offset(scale:1,focal:focal,size:CGSize(width:300,height:10000),viewport:CGSize(width:300,height:600),inset:.zero)
+        XCTAssertEqual(reduced.x,0); XCTAssertEqual(reduced.y,4000)
+        XCTAssertEqual(ReaderZoomAnchor.scale(0.2),1); XCTAssertEqual(ReaderZoomAnchor.scale(10),4)
+    }
+    @MainActor func testInlinePinchWaitsForLayoutAndKeepsZoomDuringReaderUpdates() {
+        let scroll = UIScrollView(frame:CGRect(x:0,y:0,width:300,height:600))
+        scroll.contentSize = CGSize(width:300,height:10000); scroll.contentOffset = CGPoint(x:0,y:4000)
+        let probe = ReaderPinchZoom.Probe(); probe.baseWidth = 300; probe.attach(to:scroll)
+        var changing = false; var requested: CGFloat = 1
+        probe.onPinching = { changing = $0 }; probe.onChange = { requested = $0 }
+        probe.begin(at:CGPoint(x:150,y:4200)); probe.change(factor:2,focal:CGPoint(x:150,y:200))
+        XCTAssertEqual(requested,2); XCTAssertTrue(changing)
+        XCTAssertEqual(scroll.contentOffset.y,4000) // Old layout must not be moved.
+        probe.end(); XCTAssertNotNil(probe.anchor) // Final layout has not landed.
+        scroll.contentSize = CGSize(width:600,height:20000); probe.applyAnchor()
+        XCTAssertEqual(scroll.contentOffset,CGPoint(x:150,y:8200)); XCTAssertFalse(changing)
+        XCTAssertTrue(scroll.panGestureRecognizer.isEnabled)
+        probe.attach(to:scroll); probe.applyAnchor() // Background updates preserve pan/zoom.
+        XCTAssertEqual(probe.scale,2); XCTAssertEqual(scroll.contentOffset.y,8200)
+        probe.begin(at:CGPoint(x:300,y:8400)); probe.change(factor:0.5,focal:CGPoint(x:150,y:200))
+        scroll.contentSize = CGSize(width:300,height:10000); probe.end()
+        XCTAssertEqual(scroll.contentOffset,CGPoint(x:0,y:4000))
+        probe.detach(); XCTAssertFalse(scroll.gestureRecognizers?.contains(where: { $0 === probe.pinch }) ?? false)
+    }
+    @MainActor func testLeavingDuringPinchRestoresNativePanAndRemovesObservation() {
+        let scroll = UIScrollView(); let probe = ReaderPinchZoom.Probe(); probe.attach(to:scroll)
+        probe.begin(at:.zero); XCTAssertFalse(scroll.panGestureRecognizer.isEnabled)
+        probe.detach(); XCTAssertTrue(scroll.panGestureRecognizer.isEnabled)
+        XCTAssertNil(probe.scroll); XCTAssertNil(probe.observation); XCTAssertNil(probe.anchor)
     }
 
     func testReaderVisibilityTracksPagesWithoutSettingAScrollAnchor() {
