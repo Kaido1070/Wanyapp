@@ -44,6 +44,7 @@ struct ReaderView: View {
                                 withAnimation(.easeInOut(duration:0.22)) { controls = visible }
                             }
                         }).id(payload.id)
+                        .ignoresSafeArea(.container,edges:.vertical)
                 } else if let error { VStack(spacing:20) { EmptyState(icon:"wifi.slash",title:"تعذر فتح الفصل",detail:error); Button("إعادة المحاولة") { Task { await load() } }; Button("العودة") { dismiss() } }.padding() }
                 else { ProgressView("تجهيز الفصل…").frame(maxWidth:.infinity,maxHeight:.infinity) }
                 VStack(spacing:10) {
