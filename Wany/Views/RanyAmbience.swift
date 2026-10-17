@@ -136,15 +136,16 @@ struct RanyBackdrop: View {
     var reading = false
     var accountID: String?
     var assembly: Double = 1
+    @AppStorage(RanyAppearanceKeys.background) private var enabled = true
     @State private var elapsed: TimeInterval = 0
     @State private var resumedAt = Date()
     @State private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
-    private var paused: Bool { reading || scenePhase != .active || reduceMotion || reduceTransparency || lowPower }
+    private var paused: Bool { !enabled || reading || scenePhase != .active || reduceMotion || reduceTransparency || lowPower }
     var body: some View {
         let visibleImages = ambience.displayImages(accountID:accountID)
         ZStack {
             Theme.background
-            if !reading && !reduceTransparency {
+            if enabled && !reading && !reduceTransparency {
                 TimelineView(.animation(minimumInterval:1.0/24.0,paused:paused)) { timeline in
                     RanyBackdropArtwork(images:visibleImages,time:elapsed + (paused ? 0 : max(0,timeline.date.timeIntervalSince(resumedAt))),assembly:reduceMotion || lowPower ? 1 : assembly)
 
@@ -186,5 +187,28 @@ private struct RanyBackdropArtwork: View, Animatable {
                 layer.draw(Image(uiImage:image),in:CGRect(x:-width/2,y:-height/2,width:width,height:height))
             }
         }
+    }
+}
+
+// A separate, persistent hosting boundary lets glass sample the scene without
+// rebuilding the navigation/content hierarchy at the wallpaper's frame rate.
+struct RanyBackdropHost: UIViewControllerRepresentable {
+    @ObservedObject var ambience: RanyAmbience
+    let reading: Bool
+    let accountID: String?
+    let assembly: Double
+    func makeUIViewController(context: Context) -> UIHostingController<AnyView> {
+        let controller = UIHostingController(rootView:scene(context))
+        controller.view.backgroundColor = .clear
+        controller.view.isUserInteractionEnabled = false
+        controller.view.accessibilityIdentifier = "rany.background.renderer"
+        return controller
+    }
+    func updateUIViewController(_ controller: UIHostingController<AnyView>, context: Context) {
+        withTransaction(context.transaction) { controller.rootView = scene(context) }
+    }
+    private func scene(_ context: Context) -> AnyView {
+        AnyView(RanyBackdrop(ambience:ambience,reading:reading,accountID:accountID,assembly:assembly)
+            .environment(\.self,context.environment))
     }
 }

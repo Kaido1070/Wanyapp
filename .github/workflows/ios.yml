@@ -34,27 +34,14 @@ jobs:
       - name: Run persistence and download tests
         if: "!contains(github.event.head_commit.message, '[package-only]')"
         run: xcodebuild test -project Wany.xcodeproj -scheme Wany -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath build-simulator -resultBundlePath TestResults CODE_SIGNING_ALLOWED=NO
-      - name: Capture native login screen
-        timeout-minutes: 2
+      - name: Export native presentation regression screenshots
         if: "!contains(github.event.head_commit.message, '[package-only]')"
-        continue-on-error: true
-        run: |
-          mkdir -p screenshots
-          BOOTED=$(xcrun simctl list devices booted --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((v["udid"] for k,vs in d["devices"].items() if "iOS" in k for v in vs if "iPhone" in v["name"]),""))')
-          if [ -n "$BOOTED" ]; then SIMULATOR_ID="$BOOTED"; fi
-          xcrun simctl boot "$SIMULATOR_ID" || true
-          xcrun simctl bootstatus "$SIMULATOR_ID" -b
-          xcrun simctl install "$SIMULATOR_ID" build-simulator/Build/Products/Debug-iphonesimulator/Wany.app
-          xcrun simctl terminate "$SIMULATOR_ID" site.wany.reader || true
-          xcrun simctl launch "$SIMULATOR_ID" site.wany.reader
-          sleep 6
-          xcrun simctl io "$SIMULATOR_ID" screenshot screenshots/Rany-login.png
+        run: xcrun xcresulttool export attachments --path TestResults.xcresult --output-path screenshots
       - uses: actions/upload-artifact@v4
         if: "!contains(github.event.head_commit.message, '[package-only]')"
-        continue-on-error: true
         with:
           name: Rany-native-preview
-          path: screenshots/Rany-login.png
+          path: screenshots
           retention-days: 7
       - name: Build iPhone app
         run: xcodebuild build -project Wany.xcodeproj -scheme Wany -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO

@@ -11,7 +11,10 @@ struct WanyLink<Destination: View, Label: View>: View {
     }
     var body: some View {
         NavigationLink {
-            destination().onAppear { store.mainPageVisible = false }
+            destination().environment(\.ranyMainHeader,false)
+                .toolbar(ObjectIdentifier(Destination.self) == ObjectIdentifier(ReaderView.self) ? .hidden : .visible,for:.navigationBar)
+                .ranyClearNavigation()
+                .onAppear { store.mainPageVisible = false }
         } label: { label() }
         .simultaneousGesture(TapGesture().onEnded {
             var transaction = Transaction(); transaction.disablesAnimations = true

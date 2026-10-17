@@ -22,14 +22,10 @@ struct RootView: View {
                         }
                     }
                     .onAppear { store.mainPageVisible = true }
-                    .navigationTitle(RanyIdentity.name).navigationBarTitleDisplayMode(.inline)
-                    .toolbarBackground(.hidden,for:.navigationBar)
-                    .toolbar(store.chromeHidden && store.mainPageVisible ? .hidden : .visible,for:.navigationBar)
-                    .toolbar {
-                        ToolbarItem(placement:.principal) { Text(RanyIdentity.displayName).accessibilityLabel(RanyIdentity.name).font(RanyTypography.script(27)).foregroundStyle(RanyTypography.brandColor) }
-                        ToolbarItem(placement:.topBarLeading) { RanyMark(size:32).reportRanyMarkFrame("header") }
-                        ToolbarItem(placement:.topBarTrailing) { WanyLink { SettingsView() } label: { Image(systemName:"gearshape") } }
-                    }
+                    .environment(\.ranyMainHeader,true)
+                    .navigationTitle("").navigationBarTitleDisplayMode(.inline)
+                    .toolbar(.hidden,for:.navigationBar)
+                    .ranyClearNavigation()
                     .safeAreaInset(edge:.top,spacing:0) {
                         if !store.online { Label("أوفلاين · تقدمك محفوظ على الجهاز",systemImage:"wifi.slash").font(RanyTypography.font(.caption)).frame(maxWidth:.infinity).padding(7).background(Theme.surface) }
                         else if store.loginRequired { Button("انتهت الجلسة · سجل الدخول لمزامنة تقدمك") { loginSheet = true }.font(RanyTypography.font(.caption)).padding(8) }

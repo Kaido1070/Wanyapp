@@ -133,8 +133,8 @@ struct RanyExperience: View {
     @State private var revealed = false
     var body: some View {
         ZStack {
-            RanyBackdrop(ambience:ambience,reading:store.readerActive,accountID:store.state?.user.id,assembly:assembly)
-            RootView().environment(\.ranyMarkCovered,opening || store.enteringAccount).opacity((opening && !revealed) || (store.enteringAccount && !revealed) ? 0 : 1)
+            RanyBackdropHost(ambience:ambience,reading:store.readerActive,accountID:store.state?.user.id,assembly:assembly).frame(maxWidth:.infinity,maxHeight:.infinity).ignoresSafeArea()
+            RootView().environment(\.ranyMeasureMarkFrames,opening || store.enteringAccount).environment(\.ranyMarkCovered,opening || store.enteringAccount).opacity((opening && !revealed) || (store.enteringAccount && !revealed) ? 0 : 1)
                 .animation(.easeOut(duration:reduceMotion ? 0.05 : 0.42),value:revealed)
                 .allowsHitTesting(!opening && !store.enteringAccount)
                 .accessibilityHidden(opening || store.enteringAccount)
@@ -145,7 +145,8 @@ struct RanyExperience: View {
             }
         }.font(RanyTypography.font(.body))
         .onPreferenceChange(RanyMarkFrameKey.self) { frames in
-            for (key,frame) in frames where frame.width > 0 && frame.height > 0 {
+            guard opening || store.enteringAccount else { return }
+            for (key,frame) in frames where frame.width > 0 && frame.height > 0 && markFrames[key] != frame {
                 markFrames[key] = frame
             }
         }

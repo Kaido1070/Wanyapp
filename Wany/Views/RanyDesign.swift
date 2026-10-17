@@ -17,18 +17,32 @@ enum RanyTypography {
 struct RanyGlass: ViewModifier {
     var radius: CGFloat = 22
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @AppStorage(RanyAppearanceKeys.glass) private var enabled = true
+    @AppStorage(RanyAppearanceKeys.blur) private var blur = RanyBlurLevel.balanced.rawValue
+    private var level: RanyBlurLevel { RanyBlurLevel(rawValue:blur) ?? .balanced }
     @ViewBuilder func body(content: Content) -> some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
-            content.glassEffect(.regular.tint(Theme.surface.opacity(0.22)),in:.rect(cornerRadius:radius))
-        } else { fallback(content) }
-        #else
-        fallback(content)
-        #endif
+        if !enabled || reduceTransparency {
+            content.background(Theme.surface,in:RoundedRectangle(cornerRadius:radius,style:.continuous))
+        } else {
+            #if compiler(>=6.2)
+            if #available(iOS 26.0, *), level == .clear || level == .balanced {
+                content.glassEffect((level == .clear ? Glass.clear : Glass.regular).tint(Theme.surface.opacity(0.12)),in:.rect(cornerRadius:radius))
+                    .glassEffectTransition(.identity)
+            } else { material(content) }
+            #else
+            material(content)
+            #endif
+        }
     }
-    private func fallback(_ content: Content) -> some View {
-        content.background(Theme.surface.opacity(reduceTransparency ? 1 : 0.18),in:RoundedRectangle(cornerRadius:radius,style:.continuous))
-            .background(.ultraThinMaterial,in:RoundedRectangle(cornerRadius:radius,style:.continuous))
+    private func material(_ content: Content) -> some View {
+        let fill: AnyShapeStyle
+        switch level {
+        case .clear: fill = AnyShapeStyle(Theme.surface.opacity(0.14))
+        case .light: fill = AnyShapeStyle(.ultraThinMaterial)
+        case .balanced: fill = AnyShapeStyle(.regularMaterial)
+        case .strong: fill = AnyShapeStyle(.thickMaterial)
+        }
+        return content.background(fill,in:RoundedRectangle(cornerRadius:radius,style:.continuous))
             .overlay(RoundedRectangle(cornerRadius:radius,style:.continuous).stroke(LinearGradient(colors:[.white.opacity(0.17),Theme.accent.opacity(0.06),.white.opacity(0.04)],startPoint:.topLeading,endPoint:.bottomTrailing),lineWidth:0.7))
     }
 }
@@ -36,8 +50,10 @@ extension View { func ranyGlass(radius: CGFloat = 22) -> some View { modifier(Ra
 
 struct RanyInsetGlass: ViewModifier {
     var radius: CGFloat = 15
+    @AppStorage(RanyAppearanceKeys.glass) private var enabled = true
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     func body(content: Content) -> some View {
-        content.background(Theme.surface.opacity(0.25),in:RoundedRectangle(cornerRadius:radius,style:.continuous))
+        content.background(Theme.surface.opacity(enabled && !reduceTransparency ? 0.25 : 1),in:RoundedRectangle(cornerRadius:radius,style:.continuous))
             .overlay(RoundedRectangle(cornerRadius:radius,style:.continuous).stroke(.white.opacity(0.075),lineWidth:0.7))
     }
 }
@@ -161,16 +177,32 @@ struct RanyMarkFrameKey: PreferenceKey {
     }
 }
 private struct RanyMarkCoveredKey: EnvironmentKey { static let defaultValue = false }
+private struct RanyMeasureMarkFramesKey: EnvironmentKey { static let defaultValue = false }
 extension EnvironmentValues {
+    var ranyMeasureMarkFrames: Bool {
+        get { self[RanyMeasureMarkFramesKey.self] }
+        set { self[RanyMeasureMarkFramesKey.self] = newValue }
+    }
     var ranyMarkCovered: Bool {
         get { self[RanyMarkCoveredKey.self] }
         set { self[RanyMarkCoveredKey.self] = newValue }
     }
 }
+private struct RanyMarkFrameReporter: ViewModifier {
+    let identity: String
+    @Environment(\.ranyMeasureMarkFrames) private var measuring
+    func body(content: Content) -> some View {
+        content.background {
+            if measuring {
+                GeometryReader { geometry in
+                    Color.clear.preference(key:RanyMarkFrameKey.self,value:[identity:geometry.frame(in:.global)])
+                }
+            }
+        }
+    }
+}
 extension View {
     func reportRanyMarkFrame(_ identity: String) -> some View {
-        background(GeometryReader { geometry in
-            Color.clear.preference(key:RanyMarkFrameKey.self,value:[identity:geometry.frame(in:.global)])
-        })
+        modifier(RanyMarkFrameReporter(identity:identity))
     }
 }

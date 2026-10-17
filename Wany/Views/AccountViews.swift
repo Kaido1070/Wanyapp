@@ -145,6 +145,7 @@ struct SettingsView: View {
     @State private var logout = false
     var body: some View {
         WanyScroll {
+            RanyAppearanceControls()
             VStack(alignment:.leading,spacing:16) {
                 Text("الحساب").font(RanyTypography.font(.headline))
                 Button { name = store.state?.user.name ?? ""; editingName = true } label: { settingsRow("الاسم الظاهر",value:store.state?.user.name ?? "",icon:"pencil") }.disabled(!store.online)
@@ -198,7 +199,7 @@ struct AvatarPickerView: View {
                     HStack { if var account = store.state?.user { let _ = account.avatarId = avatar["id"].string; ProfileAvatar(user:account).frame(width:42,height:42) }; Text(avatar["characterName"].string) }
                 }.disabled(!store.online)
             } }
-        } }.scrollContentBackground(.hidden).navigationTitle("الصورة الشخصية").task { await page.load("/api/avatars",store:store) }
+        } }.scrollContentBackground(.hidden).ranyClearNavigation().navigationTitle("الصورة الشخصية").task { await page.load("/api/avatars",store:store) }
     }
 }
 

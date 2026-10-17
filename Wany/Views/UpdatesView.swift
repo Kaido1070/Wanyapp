@@ -32,6 +32,6 @@ struct UpdatesView: View {
                     }.textCase(nil)
                 }
             }
-        }.scrollContentBackground(.hidden).navigationTitle("سجل التحديثات")
+        }.scrollContentBackground(.hidden).ranyClearNavigation().navigationTitle("سجل التحديثات")
     }
 }

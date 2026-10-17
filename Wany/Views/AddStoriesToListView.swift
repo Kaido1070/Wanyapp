@@ -20,11 +20,11 @@ struct AddStoriesToListView: View {
                         else { Image(systemName:members.contains(story.key) ? "checkmark.circle.fill" : "plus.circle").foregroundStyle(Theme.accent) }
                     }.frame(minHeight:44).contentShape(Rectangle())
                 }.buttonStyle(.plain).disabled(members.contains(story.key) || busy.contains(story.key) || !store.online)
-            }.searchable(text:$query,prompt:"ابحث في قصصك")
+            }.scrollContentBackground(.hidden).ranyClearNavigation().searchable(text:$query,prompt:"ابحث في قصصك")
                 .navigationTitle("إضافة قصص للقائمة")
                 .toolbar { ToolbarItem(placement:.confirmationAction) { Button("تم") { dismiss() } } }
                 .task { await page.load("/api/lists/"+id,store:store) }
-        }.environment(\.layoutDirection,.rightToLeft)
+        }.ranyClearNavigation().environment(\.layoutDirection,.rightToLeft)
     }
     func add(_ story: Story) async {
         guard !busy.contains(story.key) else { return }

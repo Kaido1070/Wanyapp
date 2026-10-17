@@ -27,7 +27,8 @@ import UIKit
     private var engine: FeedEngine?
     private var coverRequests: Set<String> = []
     private var metadataRefreshed: [String: Date] = [:]
-    init() {
+    init(startServices: Bool = true) {
+        guard startServices else { return }
         if let owner = UserDefaults.standard.string(forKey:"lastAccount") {
             state = Disk.read(AccountState.self,owner:owner,name:"account.json")
             if state != nil { loadStories(owner); downloads.attach(owner) }
