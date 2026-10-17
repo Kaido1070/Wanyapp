@@ -1,12 +1,11 @@
-# Wany release requirements
+# Wany development and release requirements
 
-The user explicitly requires a visible, updated version number and a description of every change, both in the app and in the final chat response.
+The user requires efficient incremental development and accurate release identity.
 
-For every change committed/shipped to this repository:
-1. Increase MARKETING_VERSION in project.yml (at least the patch number) and CURRENT_PROJECT_VERSION (at least +1). Never reuse a shipped version or build number.
-2. Prepend the matching version/build/date and clear Arabic change notes to Wany/Resources/Releases.json. Preserve all previous release entries.
-3. Show the installed version via Bundle metadata, never a hard-coded string. Settings and the offline Updates screen use the same installed bundle version.
-4. Run `node scripts/check-release.mjs --base <previous-main-sha>` before publishing. CI must always run this gate; do not skip or weaken it.
-5. Report the exact version/build and what changed in the final chat response. When delivering an IPA, verify its Info.plist matches that version/build and identify it clearly to the user.
-
-These rules also apply to configuration, workflow, asset and documentation changes. A `[package-only]` build may skip previously passed behavioral tests for low-impact changes, but never skips release validation or the native iPhone build.
+1. Logical development commits may retain the current unshipped version/build. Run `node scripts/check-release.mjs --development --base <previous-development-sha>`; never reduce either number or rewrite historical release notes.
+2. When preparing a new testable release candidate, increase MARKETING_VERSION and CURRENT_PROJECT_VERSION together and prepend matching clear Arabic notes in Wany/Resources/Releases.json. Never reuse a shipped version/build.
+3. The strict gate `node scripts/check-release.mjs --base <production-baseline-sha>` remains mandatory before IPA packaging. Application tests and native iPhone compilation cannot be skipped, including through commit-message flags.
+4. Show installed version via Bundle metadata, never a hard-coded string. Verify delivered IPA metadata and identify its tested commit, version and build.
+5. Test the affected area first. Batch related fixes before expensive integration CI. Do not push over a running validation whose result is needed. Diagnose an actual failure before retrying.
+6. Recording uses the already tested simulator artifact in a separate job after IPA upload. If capture alone fails, rerun that job only; retain its failure visibly. Screenshot export is optional and reports its own failure.
+7. Keep the cinematic production flag disabled until user approval. Do not merge main or alter production servers/user data without approval.

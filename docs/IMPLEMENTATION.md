@@ -69,3 +69,29 @@ Candidate 46 compiled and passed all 76 native iOS tests, including the real Sce
 Candidate 48 gives the complete RANY word a 0.4-second hold and the centered R a 0.24-second hold before the official mark wipe; these are distinct stages within the same 4.8-second sequence. Added geometric hold checks. Once production playback is approved/enabled, cover preparation runs after the optional intro rather than delaying entry, and first-account arrival is completed. Normal production playback remains disabled.
 
 Full native recording/Release results are reported through the PR checks/artifacts and final review report after CI completes; these notes do not predeclare success. Physical-device interaction, live-account interoperability, GPU/FPS/memory and strict offline opening idempotency remain the acceptance limits described above.
+
+## Verified continuation — 1.3.29 (57), commit 87344b4
+
+Run 39050496956 completed successfully: all 86 native tests passed, iPhone Release compilation succeeded, and the unsigned IPA's Info.plist was verified as 1.3.29 (57). Both real simulator recordings were inspected: full title, clipped/gathered RANY, retained R, official mark, then the measured login/header destination. These are read-only fixtures, not a live-account end-to-end test. Recordings include simulator launch/preparation before the 4.8-second sequence; 60 FPS, physical-device memory/energy and production-network behavior are not certified.
+
+Later refinements preserve lazy startup, wait for the first textured GPU frame before starting the clock, keep outgoing page poses continuous when recycling leaves, clear preview data on account switches and test Reduced Motion without writing a read-only environment property. Official branding remains unchanged and automatic production playback remains disabled.
+
+### Parity review
+
+| Area | Implemented on this branch | Existing behavior preserved / remaining verification |
+| --- | --- | --- |
+| Cinematic | Dynamic personalized cover pages; complete four-stage typography; measured logo handoff; replay and reduced-motion preview | Original font/logo, auth entry and normal startup; physical-device performance and user visual approval pending |
+| Security | Password/question/recovery-code management; account recovery; logout-all and cookie rotation | Existing server verification and Keychain/session flow; live account/device revocation acceptance pending |
+| Lists/social | Edit/delete/order/visibility/icons/descriptions; same-sheet create/add; outgoing requests, cancellation/removal, relationship refresh; permitted public profile sections | Existing layouts/favorites/friends and server privacy; two-account live acceptance pending |
+| Discovery/reading | Combined filters; existing shared source grouping; source switching; manual chapter/work read/unread; separate opening event; snapshots/offline queues; partial percentage and available publication date | Existing offline reader and download Select all; server's five-minute opening deduplication cannot guarantee indefinite exactly-once delivery after a lost acknowledgment |
+| Activity/statistics/New | Append older activity; batched title recovery; real rank/trophies/next goal/achievements/calendar; append/deduplicate New pagination | Existing server ranking and chronology; remote source availability may limit metadata |
+
+The existing app already supplied authentication/session restoration, reading/download flows, account/profile layout, glass, hotbar, basic favorites/lists/friends, and FYP/New grouping. They were extended where specified rather than replaced. Cancelled Completed/Paused/Later tabs were not restored. Website/server sources were reviewed and their targeted suites passed (security 24; lists/social/privacy 17; reading 13; activity/New 22; suites may overlap). Its broad baseline had 398/399 passing with one existing SQL progress-contract assertion failure; no server code was changed to conceal it.
+
+### Incremental CI and release identity
+
+Development commits may retain this unshipped candidate's version. `--development` allows identical version/build while preserving historical notes; it rejects rollback, mismatched version/build changes and an explicit missing baseline. Five regression cases exercise these rules. Strict candidate validation against the production baseline remains mandatory before IPA packaging. A new candidate increments version and build together when it is actually prepared; version changes are no longer required for every experimental commit.
+
+CI now compiles application/tests first, then runs mandatory tests using that build, then validates and builds/packages the iPhone app. Commit-message test bypasses were removed. IPA upload precedes independent recording. The separate capture job downloads the already tested simulator application; if recording fails, rerun only that failed job from GitHub Actions. The capture failure remains visible and cannot prevent the existing IPA artifact from being produced. Optional screenshot export reports its own step failure. Automatic cancellation is disabled; wait for a relevant run before pushing another change. This workflow change requires one integration run; its result must be reported against its actual new commit, not attributed to 87344b4.
+
+Preview remains Settings → Update history → Play cinematic preview. After explicit approval, change `CinematicConfiguration.production.playback` from `.disabled` to the chosen supported policy in a separate reviewed release. No merge to main, production deployment, live-user writes or physical iPhone test has been performed.

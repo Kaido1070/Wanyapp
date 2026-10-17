@@ -13,6 +13,7 @@ function compareVersions(a,b) {
   for(let i=0;i<3;i++) if(av[i]!==bv[i]) return av[i]>bv[i]?1:-1;
   return 0;
 }
+const development=process.argv.includes('--development');
 const current=parseProject(fs.readFileSync('project.yml','utf8'));
 const notes=JSON.parse(fs.readFileSync('Wany/Resources/Releases.json','utf8'));
 assert.ok(Array.isArray(notes) && notes.length,'Releases.json must include release history.');
@@ -34,13 +35,18 @@ try {previous=parseProject(execFileSync('git',['show',`${base}:project.yml`],{en
 catch(error) {
   // Only a genuine root commit may lack a baseline. Other lookup failures fail closed.
   const parents=execFileSync('git',['rev-list','--parents','-n','1','HEAD'],{encoding:'utf8'}).trim().split(/\s+/);
-  if(parents.length>1) throw error;
+  if(base!=='HEAD^' || parents.length>1) throw error;
 }
 if(previous) {
-  assert.ok(compareVersions(current.version,previous.version)>0,`Every change requires a new app version (previous ${previous.version}, current ${current.version}).`);
-  assert.ok(current.build>previous.build,`Increment the build number (previous ${previous.build}, current ${current.build}).`);
+  const versionChange=compareVersions(current.version,previous.version);
+  if(development && versionChange===0 && current.build===previous.build) {
+    // Logical development commits may retain an unshipped candidate's identity.
+  } else {
+    assert.ok(versionChange>0,`A release candidate requires a higher version (previous ${previous.version}, current ${current.version}).`);
+    assert.ok(current.build>previous.build,`Increment the build number with the version (previous ${previous.build}, current ${current.build}).`);
+  }
   const previousNotesText=(()=>{try{return execFileSync('git',['show',`${base}:Wany/Resources/Releases.json`],{encoding:'utf8',stdio:['ignore','pipe','ignore']});}catch{return '[]';}})();
   const previousNotes=JSON.parse(previousNotesText);
   for(const oldNote of previousNotes) assert.deepEqual(notes.find(n=>n.version===oldNote.version),oldNote,'Keep previous release notes unchanged.');
 }
-console.log(`Release verified: Rany ${current.version} (build ${current.build})`);
+console.log(`${development ? 'Development metadata' : 'Release candidate'} verified: Rany ${current.version} (build ${current.build})`);
