@@ -14,39 +14,81 @@ enum RanyTypography {
     static func script(_ size: CGFloat) -> Font { .custom(RanyIdentity.fontName,size:size,relativeTo:.title) }
 }
 
+private struct RanyGlassProgressKey: EnvironmentKey { static let defaultValue: Double = 1 }
+extension EnvironmentValues {
+    var ranyGlassProgress: Double {
+        get { self[RanyGlassProgressKey.self] }
+        set { self[RanyGlassProgressKey.self] = newValue }
+    }
+}
 struct RanyGlass: ViewModifier {
     var radius: CGFloat = 22
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.ranyGlassProgress) private var progress
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(RanyAppearanceKeys.glass) private var enabled = true
     @AppStorage(RanyAppearanceKeys.blur) private var blur = RanyBlurLevel.balanced.rawValue
-    private var level: RanyBlurLevel { RanyBlurLevel(rawValue:blur) ?? .balanced }
-    @ViewBuilder func body(content: Content) -> some View {
-        if !enabled || reduceTransparency {
-            content.background(Theme.surface,in:RoundedRectangle(cornerRadius:radius,style:.continuous))
-        } else {
-            #if compiler(>=6.2)
-            if #available(iOS 26.0, *), level == .clear || level == .balanced {
-                content.glassEffect((level == .clear ? Glass.clear : Glass.regular).tint(Theme.surface.opacity(0.12)),in:.rect(cornerRadius:radius))
-                    .glassEffectTransition(.identity)
-            } else { material(content) }
-            #else
-            material(content)
-            #endif
+    @State private var intensity: Double = 0
+    private var target: Double {
+        guard enabled && !reduceTransparency else { return 0 }
+        let amount: Double
+        switch RanyBlurLevel(rawValue:blur) ?? .balanced {
+        case .clear: amount = 0
+        case .light: amount = 0.28
+        case .balanced: amount = 0.58
+        case .strong: amount = 1
         }
+        return progress*amount
     }
-    private func material(_ content: Content) -> some View {
-        let fill: AnyShapeStyle
-        switch level {
-        case .clear: fill = AnyShapeStyle(Theme.surface.opacity(0.14))
-        case .light: fill = AnyShapeStyle(.ultraThinMaterial)
-        case .balanced: fill = AnyShapeStyle(.regularMaterial)
-        case .strong: fill = AnyShapeStyle(.thickMaterial)
+    func body(content: Content) -> some View {
+        content.background {
+            ZStack {
+                // Readable protection appears first. Blur then grows continuously.
+                RoundedRectangle(cornerRadius:radius,style:.continuous)
+                    .fill(Theme.surface.opacity(enabled && !reduceTransparency ? 0.48 : 1))
+                RanyProgressiveMaterial(progress:intensity)
+                    .clipShape(RoundedRectangle(cornerRadius:radius,style:.continuous))
+            }
+        }.overlay {
+            RoundedRectangle(cornerRadius:radius,style:.continuous)
+                .stroke(LinearGradient(colors:[.white.opacity(0.16),Theme.accent.opacity(0.06),.white.opacity(0.04)],startPoint:.topLeading,endPoint:.bottomTrailing),lineWidth:0.7)
         }
-        return content.background(fill,in:RoundedRectangle(cornerRadius:radius,style:.continuous))
-            .overlay(RoundedRectangle(cornerRadius:radius,style:.continuous).stroke(LinearGradient(colors:[.white.opacity(0.17),Theme.accent.opacity(0.06),.white.opacity(0.04)],startPoint:.topLeading,endPoint:.bottomTrailing),lineWidth:0.7))
+        .onAppear { setIntensity() }
+        .onChange(of:target) { _,_ in setIntensity() }
+        .animation(reduceMotion ? nil : .easeInOut(duration:0.9),value:blur)
+    }
+    private func setIntensity() {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration:1.15)) { intensity = target }
     }
 }
 extension View { func ranyGlass(radius: CGFloat = 22) -> some View { modifier(RanyGlass(radius:radius)) } }
+
+// Fractional UIKit material avoids inserting a fully blurred layer at the handoff.
+private struct RanyProgressiveMaterial: View, Animatable {
+    var progress: Double
+    var animatableData: Double { get { progress } set { progress = newValue } }
+    var body: some View { RanyFractionalBlur(progress:progress) }
+}
+private struct RanyFractionalBlur: UIViewRepresentable {
+    let progress: Double
+    func makeUIView(context: Context) -> BlurView { BlurView() }
+    func updateUIView(_ view: BlurView, context: Context) { view.update(progress:progress) }
+    static func dismantleUIView(_ view: BlurView, coordinator: ()) { view.animator?.stopAnimation(true) }
+    final class BlurView: UIVisualEffectView {
+        var animator: UIViewPropertyAnimator?
+        init() { super.init(effect:nil); isUserInteractionEnabled = false }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        func update(progress: Double) {
+            if animator == nil {
+                effect = nil
+                let style: UIBlurEffect.Style = .systemThickMaterialDark
+                let animation = UIViewPropertyAnimator(duration:1,curve:.linear) { [weak self] in self?.effect = UIBlurEffect(style:style) }
+                animation.pausesOnCompletion = true; animation.startAnimation(); animation.pauseAnimation(); animator = animation
+            }
+            animator?.fractionComplete = min(0.999,max(0,CGFloat(progress)))
+        }
+    }
+}
 
 struct RanyInsetGlass: ViewModifier {
     var radius: CGFloat = 15
@@ -72,6 +114,7 @@ struct RanyMark: View {
                 LinearGradient(colors:[.clear,.white.opacity(0.18),.clear],startPoint:.leading,endPoint:.trailing)
                     .frame(width:size*0.42,height:size*1.7).rotationEffect(.degrees(23)).offset(x:shine*size)
             }.clipShape(RoundedRectangle(cornerRadius:size*0.25,style:.continuous)).accessibilityLabel(RanyIdentity.name)
+            .environment(\.ranyGlassProgress,1)
             .opacity(covered ? 0 : 1)
             .task(id:illuminated) {
                 guard illuminated, !reduceMotion else { return }
@@ -92,6 +135,7 @@ struct RanyLoginView: View {
     @State private var question = ""
     @State private var answer = ""
     @State private var busy = false
+    init(creatingAccount: Bool = false) { _creating = State(initialValue:creatingAccount) }
     private enum Field: Hashable { case username,password,confirmation,question,answer }
     @FocusState private var focus: Field?
     private var valid: Bool {
@@ -125,7 +169,7 @@ struct RanyLoginView: View {
                                 field("تأكيد كلمة المرور",icon:"lock.shield") { SecureField("أعد كتابة كلمة المرور",text:$confirmation).textContentType(.newPassword).focused($focus,equals:.confirmation).submitLabel(.next).onSubmit { focus = .question } }
                                 field("سؤال الأمان",icon:"questionmark.circle") { TextField("سؤال تتذكر إجابته · ٦ أحرف أو أكثر",text:$question).focused($focus,equals:.question).submitLabel(.next).onSubmit { focus = .answer } }
                                 field("إجابة الأمان",icon:"key") { SecureField("إجابتك لاستعادة الحساب",text:$answer).focused($focus,equals:.answer).submitLabel(.go).onSubmit { submit() } }
-                            }.transition(.asymmetric(insertion:.move(edge:.trailing).combined(with:.opacity),removal:.opacity))
+                            }.transition(.asymmetric(insertion:.offset(y:12).combined(with:.opacity),removal:.opacity))
                         }
                         Button(action:submit) {
                             HStack(spacing:12) { if busy { ProgressView().tint(Theme.accent) }; Text(creating && !created ? "إنشاء مكتبتي" : "الدخول إلى مكتبتي"); Image(systemName:"arrow.left") }
@@ -141,7 +185,7 @@ struct RanyLoginView: View {
     }
     private func modeButton(_ title: String, isCreation: Bool) -> some View {
         Button {
-            guard !busy else { return }; focus = nil
+            guard !busy, creating != isCreation else { return }; focus = nil
             withAnimation(reduceMotion ? .linear(duration:0.05) : .spring(response:0.48,dampingFraction:0.88)) { creating = isCreation }
         } label: {
             Text(title).font(RanyTypography.font(.subheadline)).frame(maxWidth:.infinity,minHeight:42)

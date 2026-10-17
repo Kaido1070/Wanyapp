@@ -56,17 +56,28 @@ final class RanyIdentityTests: XCTestCase {
         a.title = "Solo Leveling"; b.title = "solo-leveling"
         XCTAssertEqual(RanyBackdropPlan.candidates(data:data,stories:[a.key:a,b.key:b]).count,1)
     }
-    func testCircuitMovesRightUpAndLeftDownWithoutDuplicatingSlots() {
-        let right = RanyBackdropMotion.position(index:3,elapsed:0,height:800)
-        let left = RanyBackdropMotion.position(index:10,elapsed:0,height:800)
-        XCTAssertEqual(right.x,0.77,accuracy:0.001)
-        XCTAssertEqual(left.x,0.23,accuracy:0.001)
-        XCTAssertLessThan(RanyBackdropMotion.position(index:3,elapsed:10,height:800).y,right.y)
-        XCTAssertGreaterThan(RanyBackdropMotion.position(index:10,elapsed:10,height:800).y,left.y)
-        for second in stride(from:0,through:1800,by:5) {
+    func testQuietLibraryHasFourteenStableSlotsWithBoundedMotion() {
+        let initial = (0..<14).map { RanyBackdropMotion.position(index:$0,elapsed:0,height:800) }
+        XCTAssertGreaterThan(Set(initial.map { Int($0.x*10) }).count,5)
+        var changed = false
+        for second in stride(from:1,through:180,by:3) {
             let points = (0..<14).map { RanyBackdropMotion.position(index:$0,elapsed:Double(second),height:800) }
-            XCTAssertEqual(Set(points.map { String(format:"%.5f,%.5f",Double($0.x),Double($0.y)) }).count,14)
+            XCTAssertEqual(Set(points.map { "\($0.x),\($0.y)" }).count,14)
+            for i in points.indices {
+                XCTAssertLessThan(abs(points[i].x-initial[i].x),0.045)
+                XCTAssertLessThan(abs(points[i].y-initial[i].y),0.026)
+                changed = changed || points[i] != initial[i]
+            }
         }
+        XCTAssertTrue(changed)
+    }
+    func testProgressDoesNotClaimSyncWithoutServerConfirmation() {
+        XCTAssertEqual(RanyProgressState.resolve(locallySaved:true,confirmed:false,pending:false,syncing:false,sessionValid:true),.local)
+        XCTAssertEqual(RanyProgressState.resolve(locallySaved:true,confirmed:true,pending:true,syncing:false,sessionValid:true),.local)
+        XCTAssertEqual(RanyProgressState.resolve(locallySaved:true,confirmed:true,pending:false,syncing:false,sessionValid:false),.local)
+        XCTAssertEqual(RanyProgressState.resolve(locallySaved:true,confirmed:false,pending:true,syncing:true,sessionValid:true),.syncing)
+        XCTAssertEqual(RanyProgressState.resolve(locallySaved:false,confirmed:true,pending:false,syncing:false,sessionValid:true),.saveFailed)
+        XCTAssertEqual(RanyProgressState.resolve(locallySaved:true,confirmed:true,pending:false,syncing:false,sessionValid:true),.synchronized)
     }
     @MainActor func testFallbackCoversHaveDistinctVisualSignatures() {
         let hashes = (1...14).compactMap { UIImage(named:"RanyDefault\($0)")?.cgImage }.compactMap { RanyCoverQuality.signature($0) }

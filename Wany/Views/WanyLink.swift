@@ -1,7 +1,6 @@
 import SwiftUI
 
-// Keep native navigation, including swipe-back. Hide the main bar on the tap,
-// instead of waiting for the outgoing view's delayed disappearance callback.
+// Native transitions and cancelled back swipes report their final stack state.
 struct WanyLink<Destination: View, Label: View>: View {
     @EnvironmentObject var store: AppStore
     private let destination: () -> Destination
@@ -14,12 +13,9 @@ struct WanyLink<Destination: View, Label: View>: View {
             destination().environment(\.ranyMainHeader,false)
                 .toolbar(ObjectIdentifier(Destination.self) == ObjectIdentifier(ReaderView.self) ? .hidden : .visible,for:.navigationBar)
                 .ranyClearNavigation()
-                .onAppear { store.mainPageVisible = false }
+                .background(RanyNavigationLifecycle(main:false))
         } label: { label() }
-        .simultaneousGesture(TapGesture().onEnded {
-            var transaction = Transaction(); transaction.disablesAnimations = true
-            withTransaction(transaction) { store.mainPageVisible = false }
-        })
+
     }
 }
 

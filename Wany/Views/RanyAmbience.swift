@@ -178,10 +178,10 @@ private struct RanyBackdropArtwork: View, Animatable {
                 let x = size.width*(scattered.x+(target.x-scattered.x)*order)
                 let y = size.height*(scattered.y+(target.y-scattered.y)*order)
                 guard y > -height && y < size.height+height else { continue }
-                var layer = context; layer.opacity = 0.18+Double(order)*0.11
+                var layer = context; layer.opacity = 0.25+Double(order)*0.11
                 layer.translateBy(x:x,y:y)
                 let initialAngle = Double((i*23)%35)-17
-                layer.rotate(by:.degrees(initialAngle+(-6-initialAngle)*Double(order)))
+                layer.rotate(by:.degrees(initialAngle+(RanyBackdropMotion.angle(index:i)-initialAngle)*Double(order)))
                 let scale = 0.88+0.12*order; layer.scaleBy(x:scale,y:scale)
                 layer.clip(to:Path(roundedRect:CGRect(x:-width/2,y:-height/2,width:width,height:height),cornerRadius:12))
                 layer.draw(Image(uiImage:image),in:CGRect(x:-width/2,y:-height/2,width:width,height:height))

@@ -37,6 +37,8 @@ import UIKit
         XCTAssertEqual(descendants(window).filter { $0.accessibilityIdentifier == "rany.background.renderer" }.count,1)
         scroll.setContentOffset(CGPoint(x:0,y:700-scroll.adjustedContentInset.top),animated:false)
         try await Task.sleep(nanoseconds:250_000_000)
+        XCTAssertTrue(store.mainPageVisible,"Scrolling must keep the main navigation visible.")
+        XCTAssertFalse(store.readerActive)
         XCTAssertLessThan(mark.maxY,0,"The header must leave with the page, without changing navigation-bar insets.")
         scroll.setContentOffset(CGPoint(x:0,y:350-scroll.adjustedContentInset.top),animated:false)
         try await Task.sleep(nanoseconds:250_000_000)
@@ -58,6 +60,59 @@ import UIKit
         try await Task.sleep(nanoseconds:1_200_000_000)
         assertBackgroundIsVisible(window)
         snapshot(window,name:"Rany-settings-appearance")
+    }
+    func testAuthScreensRemainReadableWithTheSharedWallpaper() async throws {
+        let store = fixtureStore(), ambience = RanyAmbience()
+        store.state = nil
+        for creating in [false,true] {
+            let root = ZStack {
+                RanyBackdropHost(ambience:ambience,reading:false,accountID:nil,assembly:1).ignoresSafeArea()
+                RanyLoginView(creatingAccount:creating)
+            }.environmentObject(store).environmentObject(store.downloads)
+                .environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark)
+            let (window,previous) = show(root)
+            try await Task.sleep(nanoseconds:1_400_000_000)
+            assertBackgroundIsVisible(window)
+            snapshot(window,name:creating ? "Rany-create-account" : "Rany-login")
+            window.isHidden = true; previous?.makeKeyAndVisible()
+        }
+    }
+    func testCompletedNativePushAndPopRestoreMainBar() async throws {
+        let store = fixtureStore()
+        let root = RootView().environmentObject(store).environmentObject(store.downloads)
+            .environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark)
+        let (window,previous) = show(root)
+        defer { window.isHidden = true; previous?.makeKeyAndVisible() }
+        try await Task.sleep(nanoseconds:700_000_000)
+        func navigation(_ controller: UIViewController) -> UINavigationController? {
+            if let nav = controller as? UINavigationController { return nav }
+            return controller.children.compactMap(navigation).first
+        }
+        let nav = try XCTUnwrap(navigation(window.rootViewController!))
+        XCTAssertTrue(store.mainPageVisible)
+        let child = ActivityView().background(RanyNavigationLifecycle(main:false))
+            .environmentObject(store).environmentObject(store.downloads)
+        nav.pushViewController(UIHostingController(rootView:child),animated:true)
+        try await Task.sleep(nanoseconds:900_000_000)
+        XCTAssertFalse(store.mainPageVisible)
+        snapshot(window,name:"Rany-activity-after-transition")
+        nav.popViewController(animated:true)
+        try await Task.sleep(nanoseconds:900_000_000)
+        XCTAssertTrue(store.mainPageVisible)
+    }
+    func testFirstAccountIntroCompletesItsAssemblyAndHandoff() async throws {
+        var arranged = false, revealed = false, finished = false
+        let root = RanyIntro(accountTransition:true,loginDestination:false,firstAccount:true,
+            onArrange:{ arranged = true },onReveal:{ revealed = true },onFinish:{ finished = true })
+            .preferredColorScheme(.dark)
+        let (window,previous) = show(root)
+        defer { window.isHidden = true; previous?.makeKeyAndVisible() }
+        try await Task.sleep(nanoseconds:1_200_000_000)
+        snapshot(window,name:"Rany-first-account-RANY")
+        try await Task.sleep(nanoseconds:1_500_000_000)
+        snapshot(window,name:"Rany-first-account-mark")
+        try await Task.sleep(nanoseconds:2_000_000_000)
+        XCTAssertTrue(arranged); XCTAssertTrue(revealed); XCTAssertTrue(finished)
     }
     private func show<V: View>(_ root: V) -> (UIWindow,UIWindow?) {
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first!

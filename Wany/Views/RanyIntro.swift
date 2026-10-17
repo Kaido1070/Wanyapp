@@ -131,17 +131,18 @@ struct RanyExperience: View {
     @State private var assembly: Double = 0
     @State private var opening = true
     @State private var revealed = false
+    @State private var glassProgress: Double = 0
     var body: some View {
         ZStack {
             RanyBackdropHost(ambience:ambience,reading:store.readerActive,accountID:store.state?.user.id,assembly:assembly).frame(maxWidth:.infinity,maxHeight:.infinity).ignoresSafeArea()
-            RootView().environment(\.ranyMeasureMarkFrames,opening || store.enteringAccount).environment(\.ranyMarkCovered,opening || store.enteringAccount).opacity((opening && !revealed) || (store.enteringAccount && !revealed) ? 0 : 1)
+            RootView().environment(\.ranyGlassProgress,glassProgress).environment(\.ranyMeasureMarkFrames,opening || store.enteringAccount).environment(\.ranyMarkCovered,opening || store.enteringAccount).opacity((opening && !revealed) || (store.enteringAccount && !revealed) ? 0 : 1)
                 .animation(.easeOut(duration:reduceMotion ? 0.05 : 0.42),value:revealed)
                 .allowsHitTesting(!opening && !store.enteringAccount)
                 .accessibilityHidden(opening || store.enteringAccount)
             if opening {
-                RanyIntro(accountTransition:false,loginDestination:store.state == nil,destinationFrame:markFrames[store.state == nil ? "login" : "header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:{ revealed = true },onFinish:{ opening = false })
+                RanyIntro(accountTransition:false,loginDestination:store.state == nil,firstAccount:store.firstArrival,destinationFrame:markFrames[store.state == nil ? "login" : "header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ opening = false; if store.firstArrival { store.completeAccountArrival() } })
             } else if store.enteringAccount {
-                RanyIntro(accountTransition:true,loginDestination:false,firstAccount:store.firstArrival,destinationFrame:markFrames["header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:{ revealed = true },onFinish:{ store.enteringAccount = false; store.firstArrival = false })
+                RanyIntro(accountTransition:true,loginDestination:false,firstAccount:store.firstArrival,destinationFrame:markFrames["header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ store.completeAccountArrival() })
             }
         }.font(RanyTypography.font(.body))
         .onPreferenceChange(RanyMarkFrameKey.self) { frames in
@@ -157,10 +158,15 @@ struct RanyExperience: View {
         .onReceive(store.objectWillChange.debounce(for:.seconds(3),scheduler:RunLoop.main)) { _ in
             if !store.readerActive { ambience.prepare(state:store.state,stories:store.stories) }
         }
-        .onChange(of:store.enteringAccount) { _,value in if value { revealed = false; assembly = 0 } }
+        .onChange(of:store.enteringAccount) { _,value in if value { revealed = false; assembly = 0; glassProgress = 0 } }
         .onChange(of:phase) { _,value in
             if value == .background { ambience.activateWhileHidden(state:store.state,stories:store.stories) }
         }
+    }
+    private func revealContent() {
+        revealed = true
+        // The protected surface appears with the content; its blur builds afterward.
+        withAnimation(reduceMotion ? nil : .easeInOut(duration:1.15).delay(0.18)) { glassProgress = 1 }
     }
     private func arrangeArtwork() {
         withAnimation(reduceMotion ? nil : .timingCurve(0.22,0.72,0.2,1,duration:1.25)) { assembly = 1 }

@@ -13,7 +13,6 @@ extension View { func card() -> some View { modifier(WanyCard()) } }
 struct WanyScroll<Content: View>: View {
     @EnvironmentObject var store: AppStore
     @Environment(\.ranyMainHeader) private var mainHeader
-    @State private var scrollDirection = ReaderScrollDirection(revealDistance:192)
     let content: Content
     init(@ViewBuilder content: ()->Content) { self.content = content() }
     var body: some View {
@@ -25,14 +24,8 @@ struct WanyScroll<Content: View>: View {
                 .ranyGlassGroup()
                 .padding(.horizontal,18)
                 // Navigation destinations must reserve their own space for the floating bar.
-                .padding(.bottom,store.mainPageVisible ? store.bottomBarHeight + 32 : 32)
-                .background(ReaderScrollObserver { offset, moving in
-                    if let visible = scrollDirection.update(offset:offset,userScrolling:moving), store.chromeHidden == visible {
-                        withAnimation(.easeInOut(duration:0.22)) { store.chromeHidden = !visible }
-                    }
-                })
+                .padding(.bottom,mainHeader ? store.bottomBarHeight + 32 : 32)
         }
-        .onAppear { scrollDirection = ReaderScrollDirection(revealDistance:192); store.chromeHidden = false }
         .background(Color.clear).ranyClearNavigation()
     }
 }
@@ -85,10 +78,20 @@ struct StoryGrid: View {
 }
 struct AccountBadge: View {
     let kind: String?
+    @State private var explaining = false
     var body: some View {
         if kind == "crown" || kind == "verified" {
-            Image(kind == "crown" ? "crown" : "verified").resizable().frame(width:22,height:22)
-                .accessibilityLabel(kind == "crown" ? "Owner" : "Beta Tester")
+            Button { explaining = true } label: {
+                Image(kind == "crown" ? "crown" : "verified").resizable().frame(width:22,height:22)
+                    .padding(5).contentShape(Rectangle())
+            }.buttonStyle(.borderless)
+                .highPriorityGesture(TapGesture().onEnded { explaining = true })
+                .accessibilityLabel(kind == "crown" ? "Owner، مالك التطبيق" : "Beta Tester، مشارك في التجربة المبكرة")
+                .popover(isPresented:$explaining) {
+                    Text(kind == "crown" ? "Owner · مالك التطبيق" : "Beta Tester · مشارك في التجربة المبكرة")
+                        .font(.caption).padding(14).presentationCompactAdaptation(.popover)
+                        .task { try? await Task.sleep(nanoseconds:2_500_000_000); if !Task.isCancelled { explaining = false } }
+                }
         }
     }
 }

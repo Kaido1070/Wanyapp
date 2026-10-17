@@ -3,7 +3,12 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var downloads: Downloads
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selected = 4
+    @State private var requested = 4
+    @State private var selectionTask: Task<Void,Never>?
+    @State private var tabOpacity = 1.0
+    @State private var tabOffset: CGFloat = 0
     @State private var loginSheet = false
     private let titles = ["استكشف","FYP","جديد","التنزيلات","حسابي"]
     private let icons = ["magnifyingglass","sparkles","sparkle","arrow.down.circle","person.crop.circle"]
@@ -21,7 +26,7 @@ struct RootView: View {
                         default: ProfileView()
                         }
                     }
-                    .onAppear { store.mainPageVisible = true }
+                    .background(RanyNavigationLifecycle(main:true))
                     .environment(\.ranyMainHeader,true)
                     .navigationTitle("").navigationBarTitleDisplayMode(.inline)
                     .toolbar(.hidden,for:.navigationBar)
@@ -32,14 +37,15 @@ struct RootView: View {
                     }
                 }
                 .id(selected)
+                .opacity(tabOpacity).offset(y:tabOffset)
                 .overlay(alignment:.bottom) {
                     if store.mainPageVisible && !store.readerActive { HStack(spacing:0) {
-                        ForEach(0..<5) { i in Button { selected = i; store.mainPageVisible = true; store.chromeHidden = false } label: {
-                            VStack(spacing:5) { Image(systemName:icons[i]).font(.system(size:21)); Text(titles[i]).font(.system(.caption2)) }.foregroundStyle(selected == i ? Theme.accent : .secondary).frame(maxWidth:.infinity).padding(.vertical,12)
+                        ForEach(0..<5) { i in Button { select(i) } label: {
+                            VStack(spacing:5) { Image(systemName:icons[i]).font(.system(size:21)); Text(titles[i]).font(.system(.caption2)) }.foregroundStyle(requested == i ? Theme.accent : .secondary).frame(maxWidth:.infinity).padding(.vertical,12)
                         } }
                     }.buttonStyle(.plain).ranyGlass(radius:24).padding(.horizontal,14).padding(.bottom,6)
                         .background(GeometryReader { proxy in Color.clear.preference(key:BottomBarHeightKey.self,value:proxy.size.height) })
-                        .offset(y:store.chromeHidden ? 140 : 0).opacity(store.chromeHidden ? 0 : 1).allowsHitTesting(!store.chromeHidden).animation(.easeInOut(duration:0.22),value:store.chromeHidden)
+                        .accessibilityIdentifier("main.bottom-bar")
                     }
                 }
             }
@@ -48,6 +54,26 @@ struct RootView: View {
         .sheet(isPresented:$loginSheet) { LoginView().onChange(of:store.loginRequired) { _,needed in if !needed { loginSheet = false } } }
         .alert(RanyIdentity.name,isPresented:Binding(get:{store.error != nil || downloads.notice != nil},set:{if !$0 { store.error = nil; downloads.notice = nil }})) { Button("حسنًا") { store.error = nil; downloads.notice = nil } } message: { Text(store.error ?? downloads.notice ?? "") }
     }
+    private func select(_ index: Int) {
+        guard requested != index else { return }
+        requested = index; selectionTask?.cancel()
+        if reduceMotion {
+            selected = index; tabOpacity = 1; tabOffset = 0
+            store.mainPageVisible = true; return
+        }
+        selectionTask = Task { @MainActor in
+            withAnimation(.easeIn(duration:0.085)) { tabOpacity = 0; tabOffset = -3 }
+            do { try await Task.sleep(nanoseconds:85_000_000) } catch { return }
+            guard !Task.isCancelled else { return }
+            var transaction = Transaction(); transaction.disablesAnimations = true
+            withTransaction(transaction) { selected = index; tabOpacity = 0; tabOffset = 4; store.mainPageVisible = true; store.chromeHidden = false }
+            // Let the new tree lay out while hidden; outgoing text has already left.
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration:0.145)) { tabOpacity = 1; tabOffset = 0 }
+        }
+    }
+
 }
 struct LoginView: View { var body: some View { RanyLoginView() } }
 

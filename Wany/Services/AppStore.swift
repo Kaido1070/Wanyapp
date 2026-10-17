@@ -9,6 +9,7 @@ import UIKit
     @Published var state: AccountState?
     @Published var stories: [String:Story] = [:]
     @Published var online = true
+    @Published var localSaveFailed = false
     @Published var syncing = false
     @Published var loginRequired = false
     @Published var error: String?
@@ -31,7 +32,7 @@ import UIKit
         guard startServices else { return }
         if let owner = UserDefaults.standard.string(forKey:"lastAccount") {
             state = Disk.read(AccountState.self,owner:owner,name:"account.json")
-            if state != nil { loadStories(owner); downloads.attach(owner) }
+            if state != nil { loadStories(owner); downloads.attach(owner); firstArrival = UserDefaults.standard.bool(forKey:"rany.firstArrival."+owner) }
         }
         monitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor in
@@ -48,7 +49,7 @@ import UIKit
     }
     func persist() {
         guard let state else { return }
-        do { try Disk.save(state,owner:state.user.id,name:"account.json") } catch { self.error = "تعذر حفظ التقدم على الجهاز: " + error.localizedDescription }
+        do { try Disk.save(state,owner:state.user.id,name:"account.json"); if localSaveFailed { localSaveFailed = false } } catch { localSaveFailed = true; self.error = "تعذر حفظ التقدم على الجهاز: " + error.localizedDescription }
     }
     private func loadStories(_ owner: String) { stories = Disk.read([String:Story].self,owner:owner,name:"stories.json") ?? [:] }
     func remember(_ story: Story) {
@@ -68,7 +69,8 @@ import UIKit
             let body = try JSONEncoder().encode(["username":username.precomposedStringWithCompatibilityMapping.trimmingCharacters(in:.whitespacesAndNewlines).lowercased(),"password":password])
             let response = try JSONDecoder().decode(SessionResponse.self,from:await API.shared.raw("/api/login",method:"POST",body:body))
             guard let user = response.user else { throw APIError(message:"بيانات الدخول غير صحيحة",status:401) }
-            firstArrival = freshAccount
+            firstArrival = freshAccount || UserDefaults.standard.bool(forKey:"rany.newAccount."+username.precomposedStringWithCompatibilityMapping.trimmingCharacters(in:.whitespacesAndNewlines).lowercased()) || UserDefaults.standard.bool(forKey:"rany.firstArrival."+user.id)
+            if firstArrival { UserDefaults.standard.set(true,forKey:"rany.firstArrival."+user.id) }
             enteringAccount = true
             state = Disk.read(AccountState.self,owner:user.id,name:"account.json") ?? AccountState(user:user)
             state?.user = user; loginRequired = false
@@ -82,8 +84,16 @@ import UIKit
         do {
             let value = ["username":username.precomposedStringWithCompatibilityMapping.trimmingCharacters(in:.whitespacesAndNewlines).lowercased(),"password":password,"confirmPassword":confirmation,"securityQuestion":question,"securityAnswer":answer]
             try await API.shared.send("/api/register",value:value)
+            UserDefaults.standard.set(true,forKey:"rany.newAccount."+value["username"]!)
             return true
         } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription }; return false }
+    }
+    func completeAccountArrival() {
+        if let user = state?.user {
+            UserDefaults.standard.removeObject(forKey:"rany.firstArrival."+user.id)
+            UserDefaults.standard.removeObject(forKey:"rany.newAccount."+user.username.lowercased())
+        }
+        firstArrival = false; enteringAccount = false
     }
     func logout() async {
         persist(); refreshTask?.cancel(); metadataTask?.cancel(); metadataTask = nil; metadataToken = nil; syncTask?.cancel()

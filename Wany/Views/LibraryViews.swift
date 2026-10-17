@@ -182,32 +182,83 @@ struct ProfileView: View {
     var body: some View {
         WanyScroll {
             if let state = store.state {
-                HStack(spacing:15) {
-                    ProfileAvatar(user:state.user).frame(width:66,height:66)
-                    VStack(alignment:.leading,spacing:6) { HStack { Text(state.user.name).font(RanyTypography.font(.title2).bold()); AccountBadge(kind:state.user.badgeType) }; Text("@"+state.user.username).font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
-                    Spacer()
-                    WanyLink { StatsView() } label: { Image(systemName:"chart.bar.xaxis").font(RanyTypography.font(.title2)) }
-                }.frame(maxWidth:.infinity,alignment:.leading)
-                HStack { Label(store.syncing ? "جاري المزامنة…" : state.pending.isEmpty ? "التقدم متزامن" : "\(state.pending.count) تحديث بانتظار الاتصال",systemImage:state.pending.isEmpty ? "checkmark.icloud" : "icloud.and.arrow.up").font(RanyTypography.font(.caption)).foregroundStyle(.secondary); Spacer(); Button { Task { await store.refresh() } } label: { Image(systemName:"arrow.clockwise") }.disabled(!store.online || store.syncing) }
-                if let last = state.data.lastOpened, let story = store.stories[last.mangaId] {
-                    WanyLink { ReaderView(story:story,chapter:story.chapters?.first(where:{$0.number == last.chapter}) ?? Chapter(number:last.chapter,title:"الفصل \(chapterNumber(last.chapter))")) } label: {
-                        HStack { CoverView(story:story).frame(width:60,height:84).clipShape(RoundedRectangle(cornerRadius:10)); VStack(alignment:.leading,spacing:6) { Text("أكمل من حيث توقفت").font(RanyTypography.font(.caption)).foregroundStyle(Theme.accent); Text(story.title).bold().lineLimit(1); Text("الفصل \(chapterNumber(last.chapter))").font(RanyTypography.font(.caption)) }; Spacer(); Image(systemName:"play.fill") }.foregroundStyle(.primary).card()
+                identity(state)
+                accountDetails(state)
+                continueReading(state)
+                library(state)
+
+            }
+        }.task { await loadLists(); await loadSelectedList() }
+        .refreshable { await store.refresh(); await loadLists(); await loadSelectedList() }
+        .onChange(of:tab) { _,value in if value == "lists" { Task { await loadLists(); await loadSelectedList() } } }
+        .onChange(of:listID) { _,_ in Task { await loadSelectedList() } }
+        .sheet(isPresented:$adding,onDismiss:{ Task { await loadSelectedList(); await loadLists() } }) { AddStoriesToListView(id:listID) }
+        .alert("قائمة جديدة",isPresented:$creating) {
+            TextField("اسم القائمة",text:$newName)
+            Button("إنشاء") { Task { await createList() } }.disabled(busy)
+            Button("إلغاء",role:.cancel) {}
+        }
+    }
+    private func identity(_ state: AccountState) -> some View {
+                HStack(spacing:12) {
+                    ProfileAvatar(user:state.user).frame(width:54,height:54)
+                    VStack(alignment:.leading,spacing:5) {
+                        HStack(spacing:4) { Text(state.user.name).font(.title3.weight(.medium)).lineLimit(2); AccountBadge(kind:state.user.badgeType) }
+                        Text("@"+state.user.username).font(.caption).foregroundStyle(.secondary)
                     }
-                }
-                HStack {
-                    stat("قصص",state.data.library.count)
-                    stat("مكتمل",state.data.completed.count)
-                    stat("مفضلة",state.data.favorites.count)
-                }
-                HStack(spacing:16) {
-                    WanyLink { FriendsView() } label: { Label("الأصدقاء",systemImage:"person.2").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }
-                    WanyLink { ActivityView() } label: { Label("النشاط",systemImage:"clock").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }
-                }.font(RanyTypography.font(.subheadline)).buttonStyle(.plain)
+                    Spacer(minLength:16)
+                    WanyLink { ProfileEditView() } label: {
+                        VStack(spacing:5) { Image(systemName:"pencil").font(.system(size:12)); Text("تعديل").font(.caption2) }
+                            .foregroundStyle(.secondary).frame(width:44,height:44).contentShape(Rectangle())
+                    }.accessibilityLabel("تعديل الملف الشخصي")
+                }.frame(maxWidth:.infinity,alignment:.leading).card().accessibilityIdentifier("profile.identity")
+
+    }
+    private func accountDetails(_ state: AccountState) -> some View {
+                VStack(spacing:12) {
+                    HStack(spacing:6) {
+                        WanyLink { StatsView() } label: { accountTool("الإحصائيات","chart.xyaxis.line") }
+                        WanyLink { FriendsView() } label: { accountTool("الأصدقاء","person.2") }
+                        WanyLink { ActivityView() } label: { accountTool("النشاط","clock") }
+                    }.buttonStyle(.plain)
+                    HStack {
+                        stat("قصة في مكتبتي",state.data.library.count)
+                        Divider().frame(height:32)
+                        stat("فصل مكتمل",state.data.completed.count)
+                        Divider().frame(height:32)
+                        stat("مفضلة",state.data.favorites.count)
+                    }
+                }.card().accessibilityIdentifier("profile.details")
+
+    }
+    private func continueReading(_ state: AccountState) -> some View {
+                VStack(spacing:10) {
+                    if let last = state.data.lastOpened, let story = store.stories[last.mangaId] {
+                        WanyLink { ReaderView(story:story,chapter:story.chapters?.first(where:{$0.number == last.chapter}) ?? Chapter(number:last.chapter,title:"الفصل \(chapterNumber(last.chapter))")) } label: {
+                            HStack(spacing:12) {
+                                CoverView(story:story).frame(width:48,height:70).clipShape(RoundedRectangle(cornerRadius:10))
+                                VStack(alignment:.leading,spacing:6) {
+                                    Text("أكمل من حيث توقفت").font(.caption).foregroundStyle(Theme.accent)
+                                    Text(story.title).font(.subheadline.weight(.medium)).lineLimit(2)
+                                    Text("الفصل \(chapterNumber(last.chapter))").font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength:0)
+                                Image(systemName:"play.fill").foregroundStyle(Theme.accent).frame(width:32,height:32)
+                            }.foregroundStyle(.primary)
+                        }
+                        Divider()
+                    }
+                    RanyProgressStatus()
+                }.card()
+
+    }
+    private func library(_ state: AccountState) -> some View {
+                VStack(alignment:.leading,spacing:14) {
+                    HStack { Text("مكتبتي").font(.headline); Spacer(); Text("\(state.data.library.count) قصة").font(.caption).foregroundStyle(.secondary); Button { newName = ""; creating = true } label: { Image(systemName:"plus").frame(width:44,height:44).ranyInsetGlass(radius:12).contentShape(Rectangle()) }.buttonStyle(.plain).accessibilityLabel("إنشاء قائمة").disabled(!store.online) }
                 HStack(spacing:8) {
                     ForEach([("reading","أقرأ حاليًا"),("favorites","المفضلة"),("lists","القوائم")],id:\.0) { pair in
-                        Button { tab = pair.0 } label: { Text(pair.1).font(RanyTypography.font(.subheadline)).frame(maxWidth:.infinity,minHeight:48).background(tab == pair.0 ? Theme.accent.opacity(0.25) : Theme.surface.opacity(0.22),in:RoundedRectangle(cornerRadius:12)).contentShape(Rectangle()) }.buttonStyle(.plain)
+                        Button { tab = pair.0 } label: { Text(pair.1).font(RanyTypography.font(.caption)).frame(maxWidth:.infinity,minHeight:44).background(tab == pair.0 ? Theme.accent.opacity(0.25) : Theme.surface.opacity(0.22),in:RoundedRectangle(cornerRadius:12)).contentShape(Rectangle()) }.buttonStyle(.plain)
                     }
-                    Button { newName = ""; creating = true } label: { Image(systemName:"plus").frame(width:48,height:48).ranyInsetGlass(radius:12).contentShape(Rectangle()) }.buttonStyle(.plain).accessibilityLabel("إنشاء قائمة").disabled(!store.online)
                 }
                 if tab == "lists" {
                     ScrollView(.horizontal,showsIndicators:false) {
@@ -226,17 +277,7 @@ struct ProfileView: View {
                 let missing = keys.filter { store.stories[$0] == nil }.count
                 if missing > 0 { Text("\(missing) قصة بانتظار حفظ تفاصيلها عند الاتصال").font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
                 if keys.isEmpty { EmptyState(icon:"books.vertical",title:"لا توجد قصص هنا",detail:"أضف قصة من صفحة الاستكشاف لتظهر في مكتبتك.") }
-            }
-        }.task { await loadLists(); await loadSelectedList() }
-        .refreshable { await store.refresh(); await loadLists(); await loadSelectedList() }
-        .onChange(of:tab) { _,value in if value == "lists" { Task { await loadLists(); await loadSelectedList() } } }
-        .onChange(of:listID) { _,_ in Task { await loadSelectedList() } }
-        .sheet(isPresented:$adding,onDismiss:{ Task { await loadSelectedList(); await loadLists() } }) { AddStoriesToListView(id:listID) }
-        .alert("قائمة جديدة",isPresented:$creating) {
-            TextField("اسم القائمة",text:$newName)
-            Button("إنشاء") { Task { await createList() } }.disabled(busy)
-            Button("إلغاء",role:.cancel) {}
-        }
+                }.card()
     }
     func loadLists() async {
         await lists.load("/api/lists",store:store)
@@ -260,7 +301,8 @@ struct ProfileView: View {
             await loadLists(); listID = result["list"]["id"].string; tab = "lists"; await loadSelectedList()
         } catch { if !isRequestCancellation(error) { store.error = error.localizedDescription } }
     }
-    func stat(_ title: String,_ value: Int) -> some View { VStack(spacing:6) { Text("\(value)").font(RanyTypography.font(.title2).bold()).foregroundStyle(Theme.accent); Text(title).font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }.frame(maxWidth:.infinity).card() }
+    func stat(_ title: String,_ value: Int) -> some View { VStack(spacing:6) { Text("\(value)").font(RanyTypography.font(.title2).bold()).foregroundStyle(Theme.accent); Text(title).font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }.frame(maxWidth:.infinity) }
+    private func accountTool(_ title: String,_ icon: String) -> some View { Label(title,systemImage:icon).font(.caption).foregroundStyle(Theme.accent).frame(maxWidth:.infinity,minHeight:44).ranyInsetGlass(radius:10).contentShape(Rectangle()) }
 }
 struct ProfileAvatar: View {
     @EnvironmentObject var store: AppStore
