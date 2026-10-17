@@ -70,8 +70,8 @@ private struct CinematicFrame: View {
         }
     }
     private var officialLogo: some View {
-        RanyMark(size:layout.logoSize(t),illuminated:t>3.45 && t<3.8)
-            .mask(alignment:.leading) { Rectangle().scaleEffect(x:CinematicConfiguration.p(t,3.14,3.48),y:1,anchor:.leading) }
+        RanyMark(size:layout.logoSize(t),illuminated:t>3.76 && t<3.95)
+            .mask(alignment:.leading) { Rectangle().scaleEffect(x:CinematicConfiguration.p(t,3.4,3.76),y:1,anchor:.leading) }
             .position(layout.logoPoint(t))
     }
     @ViewBuilder private var paperEdges: some View {
@@ -107,9 +107,9 @@ private struct CinematicLetter: View {
             .position(layout.point(index:index,t:t))
             .opacity(visible ? 1 : 0)
             .mask(alignment:.leading) {
-                if index == 0 && t >= 3.14 {
+                if index == 0 && t >= 3.4 {
                     GeometryReader { box in
-                        let edge: CGFloat=layout.size.width/2-84+168*CGFloat(CinematicConfiguration.p(t,3.14,3.48))
+                        let edge: CGFloat=layout.size.width/2-84+168*CGFloat(CinematicConfiguration.p(t,3.4,3.76))
                         Rectangle().frame(width:max(0,box.size.width-edge)).offset(x:edge)
                     }
                 } else { Rectangle() }
@@ -120,7 +120,7 @@ private struct CinematicPaperEdge: View {
     let pass: Int
     let t: Double
     let size: CGSize
-    private var begin: Double { [1.10,1.58,2.62][pass] }
+    private var begin: Double { [1.10,1.58,2.70][pass] }
     var body: some View {
         if t>begin && t<begin+0.45 {
             let sweep=CinematicConfiguration.p(t,begin,begin+0.45)
@@ -157,8 +157,8 @@ struct CinematicLayout {
         CinematicConfiguration.mix(168,destination?.width ?? 168,CinematicConfiguration.ease(t,4,4.8))
     }
     func scale(index: Int,t: Double) -> CGFloat {
-        let gathered=CinematicConfiguration.mix(titleScale,0.68,CinematicConfiguration.ease(t,2.05,2.55))
-        return index == 0 ? CinematicConfiguration.mix(gathered,0.94,CinematicConfiguration.ease(t,2.65,3.14)) : (configuration.retained.contains(index) ? gathered : titleScale)
+        let gathered=CinematicConfiguration.mix(titleScale,0.68,CinematicConfiguration.ease(t,2.0,2.3))
+        return index == 0 ? CinematicConfiguration.mix(gathered,0.94,CinematicConfiguration.ease(t,3.02,3.16)) : (configuration.retained.contains(index) ? gathered : titleScale)
     }
     func point(index: Int,t: Double) -> CGPoint {
         let row=rows.first { $0.contains(index) } ?? [index]
@@ -169,16 +169,16 @@ struct CinematicLayout {
         let retainedWidth=configuration.retained.reduce(CGFloat(0)) { $0+width($1) }
         let prefix=configuration.retained.prefix(position).reduce(CGFloat(0)) { $0+width($1) }
         let target=CGPoint(x:center.x+(prefix+width(index)/2-retainedWidth/2)*0.68,y:center.y)
-        let gather=CinematicConfiguration.ease(t,2.05,2.55)
+        let gather=CinematicConfiguration.ease(t,2.0,2.3)
         var result=CGPoint(x:CinematicConfiguration.mix(initial.x,target.x,gather),y:CinematicConfiguration.mix(initial.y,target.y,gather))
         if index == 0 {
-            result.x=CinematicConfiguration.mix(result.x,center.x,CinematicConfiguration.ease(t,2.65,3.14))
+            result.x=CinematicConfiguration.mix(result.x,center.x,CinematicConfiguration.ease(t,3.02,3.16))
         }
         return result
     }
     func cut(index: Int,t: Double) -> Double {
         if index == 0 { return 0 }
-        if configuration.retained.contains(index) { return CinematicConfiguration.p(t,2.65+Double(configuration.retained.firstIndex(of:index) ?? 0)*0.035,3.1) }
+        if configuration.retained.contains(index) { return CinematicConfiguration.p(t,2.7+Double(configuration.retained.firstIndex(of:index) ?? 0)*0.035,3.02) }
         let row=index<4 ? 0 : 1
         let start=(row == 0 ? 1.1 : 1.58)+Double(row == 0 ? index : index-5)*0.045
         return CinematicConfiguration.p(t,start,start+0.18)

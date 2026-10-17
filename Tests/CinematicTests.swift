@@ -29,6 +29,18 @@ import UIKit
             }
         }
     }
+    func testRanyAndRHaveDistinctReadableHoldsBeforeOfficialWipe() {
+        let config=CinematicConfiguration()
+        let layout=CinematicLayout(size:CGSize(width:393,height:852),origin:.zero,destination:nil,configuration:config)
+        for t in [2.3,2.4,2.5,2.6,2.7] {
+            for index in config.retained { XCTAssertEqual(layout.cut(index:index,t:t),0) }
+            XCTAssertEqual(layout.point(index:0,t:t),layout.point(index:0,t:2.3))
+        }
+        for t in [3.16,3.2,3.3,3.4] {
+            for index in config.retained.dropFirst() { XCTAssertEqual(layout.cut(index:index,t:t),1) }
+            XCTAssertEqual(layout.point(index:0,t:t).x,196.5,accuracy:0.01)
+        }
+    }
     func testInterestsAndRecencyOutrankPopularFillerWithoutDuplicates() {
         func story(_ key: String,_ genre: String) -> Story { Story(key:key,source:"teamx",slug:key,type:"manhwa",url:"",title:key,cover:"https://example.invalid/cover.jpg",genres:[genre]) }
         let catalog=["reading":story("reading","action"),"favorite":story("favorite","fantasy"),"popular":story("popular","action"),"other":story("other","romance")]

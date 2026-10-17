@@ -144,6 +144,8 @@ struct RanyExperience: View {
                 if cinematicConfiguration.shouldPlay() && store.error == nil && !store.loginRequired {
                     CinematicIntro(configuration:cinematicConfiguration,state:store.state,stories:store.stories,destination:markFrames[store.state == nil ? "login" : "header"],onReveal:{ arrangeArtwork(); revealContent() },onFinish:{
                         opening=false; UserDefaults.standard.set(true,forKey:"rany.cinematic.approved.v2")
+                        if store.firstArrival { store.completeAccountArrival() }
+                        Task { await CinematicCovers.prefetch(store:store) }
                     })
                 } else {
                 RanyIntro(accountTransition:false,loginDestination:store.state == nil,firstAccount:store.firstArrival,destinationFrame:markFrames[store.state == nil ? "login" : "header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ opening = false; if store.firstArrival { store.completeAccountArrival() } })
