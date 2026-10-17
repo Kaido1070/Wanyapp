@@ -202,7 +202,7 @@ struct ProfileView: View {
         .sheet(isPresented:$adding,onDismiss:{ Task { await loadSelectedList(); await loadLists() } }) { AddStoriesToListView(id:listID) }
         .sheet(isPresented:$pickingAvatar) {
             NavigationStack {
-                AvatarPickerView(onSelect:{ avatarID in draftAvatarID = avatarID })
+                AvatarPickerView(onSelect:{ avatarID in draftAvatarID = avatarID },initialAvatarID:draftAvatarID)
                     .environmentObject(store)
                     .environmentObject(store.downloads)
                     .toolbar { ToolbarItem(placement:.topBarLeading) { Button("إغلاق") { pickingAvatar = false } } }

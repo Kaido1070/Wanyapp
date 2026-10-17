@@ -4,6 +4,7 @@ struct RootView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var downloads: Downloads
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @StateObject private var navigator = RanyNavigator()
     @State private var selected = 4
     @State private var requested = 4
     @State private var selectionTask: Task<Void,Never>?
@@ -16,7 +17,7 @@ struct RootView: View {
         Group {
             if store.state == nil { LoginView() }
             else {
-                NavigationStack {
+                NavigationStack(path:Binding(get:{ navigator.path },set:{ navigator.restore($0) })) {
                     Group {
                         switch selected {
                         case 0: DiscoverView()
@@ -54,15 +55,22 @@ struct RootView: View {
                         }
                     }
                     .onAppear { store.mainPageVisible = true; store.chromeHidden = false }
+                    .navigationDestination(for:RanyRoute.self) { route in RanySequentialDestination(navigator:navigator,route:route) }
                 }
+                .environment(\.ranyNavigator,navigator)
+                .opacity(navigator.opacity)
+                .allowsHitTesting(!navigator.transitioning)
+                .onAppear { navigator.reduceMotion = reduceMotion }
+                .onChange(of:reduceMotion) { _,value in navigator.reduceMotion = value }
             }
         }
+        .onChange(of:store.state?.user.id) { _,_ in navigator.reset() }
         .onPreferenceChange(BottomBarHeightKey.self) { store.bottomBarHeight = max(90,$0) }
         .sheet(isPresented:$loginSheet) { LoginView().onChange(of:store.loginRequired) { _,needed in if !needed { loginSheet = false } } }
         .alert(RanyIdentity.name,isPresented:Binding(get:{store.error != nil || downloads.notice != nil},set:{if !$0 { store.error = nil; downloads.notice = nil }})) { Button("حسنًا") { store.error = nil; downloads.notice = nil } } message: { Text(store.error ?? downloads.notice ?? "") }
     }
     private func select(_ index: Int) {
-        guard requested != index else { return }
+        guard !navigator.transitioning, requested != index else { return }
         requested = index; selectionTask?.cancel()
         if reduceMotion {
             selected = index; tabOpacity = 1; tabOffset = 0

@@ -190,30 +190,117 @@ struct SettingsView: View {
 }
 struct AvatarPickerView: View {
     var onSelect: ((String)->Void)? = nil
+    var initialAvatarID: String? = nil
     @EnvironmentObject var store: AppStore
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.ranyNavigator) private var navigator
     @StateObject private var page = CachedPage()
+    @State private var query = ""
+    @State private var selectedID = ""
+    @State private var saving = false
+    @State private var saveError: String?
     var body: some View {
-        List { ForEach(Array(page.value["series"].array.enumerated()),id:\.offset) { _,series in
-            Section(series["name"].string) { ForEach(Array(series["avatars"].array.enumerated()),id:\.offset) { _,avatar in
-                Button {
-                    if let onSelect {
-                        onSelect(avatar["id"].string)
-                        dismiss()
-                    } else {
-                        Task {
-                            do {
-                                try await API.shared.send("/api/profile/avatar",method:"PUT",value:["avatarId":avatar["id"].string])
-                                await store.refresh()
-                                dismiss()
-                            } catch { store.error = error.localizedDescription }
-                        }
+        ScrollView {
+            VStack(alignment:.leading,spacing:20) {
+                if page.value["series"].array.isEmpty {
+                    if store.online { ProgressView("تحميل الصور…").frame(maxWidth:.infinity).padding() }
+                    else { Text("اتصل بالإنترنت لتحميل الصور الشخصية.").foregroundStyle(.secondary).padding() }
+                } else {
+                    RanyAvatarGrid(series:page.value["series"].array,query:query,selectedID:selectedID) { selectedID = $0 }
+                }
+            }.padding(16)
+        }
+        .searchable(text:$query,prompt:"ابحث باسم الشخصية أو العمل")
+        .safeAreaInset(edge:.bottom,spacing:0) {
+            HStack(spacing:12) {
+                if let user = previewAccount {
+                    ProfileAvatar(user:user).frame(width:48,height:48)
+                }
+                Text(selectedName.isEmpty ? "اختر صورة من الشبكة" : selectedName).font(.subheadline).lineLimit(2)
+                Spacer(minLength:0)
+                Button { saveSelection() } label: {
+                    if saving { ProgressView() } else { Text(onSelect == nil ? "حفظ الصورة" : "استخدام الصورة") }
+                }.buttonStyle(.borderedProminent)
+                    .disabled(selectedID.isEmpty || !store.online || saving)
+            }.padding(12).background(.regularMaterial)
+        }
+        .disabled(saving)
+        .ranyClearNavigation().navigationTitle("الصورة الشخصية")
+        .alert("تعذر حفظ الصورة",isPresented:Binding(get:{saveError != nil},set:{if !$0 { saveError = nil }})) {
+            Button("حسنًا",role:.cancel) {}
+        } message: { Text(saveError ?? "") }
+        .task {
+            if selectedID.isEmpty { selectedID = initialAvatarID ?? store.state?.user.avatarId ?? "" }
+            await page.load("/api/avatars",store:store)
+        }
+    }
+    private var selectedName: String {
+        page.value["series"].array.flatMap { $0["avatars"].array }.first { $0["id"].string == selectedID }?["characterName"].string ?? ""
+    }
+    private var previewAccount: Account? {
+        guard !selectedID.isEmpty, var account = store.state?.user else { return nil }
+        account.avatarId = selectedID; return account
+    }
+    private func saveSelection() {
+        guard !saving, !selectedID.isEmpty, store.online else { return }
+        if let onSelect { onSelect(selectedID); dismiss(); return }
+        saving = true
+        Task { @MainActor in
+            defer { saving = false }
+            do {
+                try await API.shared.send("/api/profile/avatar",method:"PUT",value:["avatarId":selectedID])
+                await store.refresh()
+                if let navigator { navigator.pop() } else { dismiss() }
+            } catch { if !isRequestCancellation(error) { saveError = error.localizedDescription } }
+        }
+    }
+}
+
+struct RanyAvatarGrid: View {
+    let series: [JSONValue]
+    let query: String
+    let selectedID: String
+    let select: (String)->Void
+    @EnvironmentObject private var store: AppStore
+    static func matches(_ value:String,query:String) -> Bool {
+        query.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || value.localizedStandardContains(query.trimmingCharacters(in:.whitespacesAndNewlines))
+    }
+    private var filtered: [(name:String,avatars:[JSONValue])] {
+        series.compactMap { group in
+            let name = group["name"].string
+            let avatars = group["avatars"].array.filter { Self.matches(name,query:query) || Self.matches($0["characterName"].string,query:query) }
+            return avatars.isEmpty ? nil : (name,avatars)
+        }
+    }
+    var body: some View {
+        if filtered.isEmpty {
+            Text("لا توجد صور مطابقة لبحثك").foregroundStyle(.secondary).frame(maxWidth:.infinity).padding()
+        }
+        ForEach(Array(filtered.enumerated()),id:\.offset) { _,group in
+            VStack(alignment:.leading,spacing:12) {
+                Text(group.name).font(.subheadline.bold()).foregroundStyle(.secondary)
+                LazyVGrid(columns:[GridItem(.adaptive(minimum:80),spacing:10)],alignment:.center,spacing:16) {
+                    ForEach(Array(group.avatars.enumerated()),id:\.offset) { _,avatar in
+                        let id = avatar["id"].string
+                        Button { select(id) } label: {
+                            VStack(spacing:6) {
+                                ZStack(alignment:.bottomTrailing) {
+                                    if var account = store.state?.user {
+                                        let _ = account.avatarId = id
+                                        ProfileAvatar(user:account).frame(width:64,height:64)
+                                            .overlay(Circle().stroke(selectedID == id ? Theme.accent : .clear,lineWidth:3))
+                                    }
+                                    if selectedID == id { Image(systemName:"checkmark.circle.fill").foregroundStyle(Theme.accent).background(Circle().fill(.black)).font(.body) }
+                                }.frame(height:68)
+                                Text(avatar["characterName"].string).font(.caption).lineLimit(2).multilineTextAlignment(.center).frame(height:32,alignment:.top)
+                            }.frame(maxWidth:.infinity).contentShape(Rectangle())
+                        }.buttonStyle(.plain).foregroundStyle(.primary)
+                            .accessibilityLabel(avatar["characterName"].string)
+                            .accessibilityAddTraits(selectedID == id ? .isSelected : [])
                     }
-                } label: {
-                    HStack { if var account = store.state?.user { let _ = account.avatarId = avatar["id"].string; ProfileAvatar(user:account).frame(width:42,height:42) }; Text(avatar["characterName"].string) }
-                }.disabled(!store.online)
-            } }
-        } }.scrollContentBackground(.hidden).ranyClearNavigation().navigationTitle("الصورة الشخصية").task { await page.load("/api/avatars",store:store) }
+                }
+            }
+        }
     }
 }
 

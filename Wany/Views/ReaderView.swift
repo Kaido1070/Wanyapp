@@ -5,6 +5,7 @@ struct ReaderView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var downloads: Downloads
     @Environment(\.dismiss) var dismiss
+    @Environment(\.ranyNavigator) private var navigator
     let story: Story
     let chapter: Chapter
     @State private var payload: ChapterPayload?
@@ -20,6 +21,7 @@ struct ReaderView: View {
     @State private var saveTask: Task<Void,Never>?
     @State private var pageRatios: [Int:CGFloat] = [:]
     @State private var percent: CGFloat = 0
+    private func leaveReader() { if let navigator { navigator.pop() } else { dismiss() } }
     var readingChapter: Chapter { activeChapter ?? chapter }
     var chapters: [Chapter] { (store.stories[story.key] ?? story).orderedChapters }
     var previousChapter: Chapter? { neighbor(forward:false) }
@@ -33,7 +35,7 @@ struct ReaderView: View {
                         urls:payload.pages.indices.map { downloads.pageURL(payload,index:$0) },
                         ratios:pageRatios,initialPage:restoredPage(payload),
                         nextTitle:nextChapter.map { "الفصل التالي \($0.id)" },online:store.online,
-                        onNext:{ if let next = nextChapter { open(next) } },onBack:{ dismiss() },
+                        onNext:{ if let next = nextChapter { open(next) } },onBack:{ leaveReader() },
                         onRetry:{ downloads.retryChapter(payload) },
                         onInvalid:{ downloads.invalidatePage(payload,index:$0) },
                         onPosition:{ page,value,moved in
@@ -45,11 +47,11 @@ struct ReaderView: View {
                             }
                         }).id(payload.id)
                         .ignoresSafeArea(.container,edges:.vertical)
-                } else if let error { VStack(spacing:20) { EmptyState(icon:"wifi.slash",title:"تعذر فتح الفصل",detail:error); Button("إعادة المحاولة") { Task { await load() } }; Button("العودة") { dismiss() } }.padding() }
+                } else if let error { VStack(spacing:20) { EmptyState(icon:"wifi.slash",title:"تعذر فتح الفصل",detail:error); Button("إعادة المحاولة") { Task { await load() } }; Button("العودة") { leaveReader() } }.padding() }
                 else { ProgressView("تجهيز الفصل…").frame(maxWidth:.infinity,maxHeight:.infinity) }
                 VStack(spacing:10) {
                     HStack {
-                        Button { dismiss() } label: { Image(systemName:"chevron.right").padding(10) }.accessibilityLabel("العودة للفصول")
+                        Button { leaveReader() } label: { Image(systemName:"chevron.right").padding(10) }.accessibilityLabel("العودة للفصول")
                         VStack(alignment:.leading,spacing:3) {
                             Text(readingChapter.title).font(RanyTypography.font(.subheadline).bold()).lineLimit(1)
                             if let payload { Text("\((currentPage ?? 0)+1) / \(payload.pages.count)").font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }

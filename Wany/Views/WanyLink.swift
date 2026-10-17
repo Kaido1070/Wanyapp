@@ -1,20 +1,25 @@
 import SwiftUI
 
-// NavigationLink owns the interactive push/pop. Do not insert a UIKit lifecycle
-// observer or snapshot layer inside its transparent destination; those layers
-// can leave the outgoing page painted over the incoming one.
 struct WanyLink<Destination: View, Label: View>: View {
+    @Environment(\.ranyNavigator) private var navigator
     private let destination: () -> Destination
     private let label: () -> Label
     init(@ViewBuilder destination: @escaping () -> Destination, @ViewBuilder label: @escaping () -> Label) {
         self.destination = destination; self.label = label
     }
     var body: some View {
-        NavigationLink {
-            destination().environment(\.ranyMainHeader,false)
-                .toolbar(ObjectIdentifier(Destination.self) == ObjectIdentifier(ReaderView.self) ? .hidden : .visible,for:.navigationBar)
-                .ranyClearNavigation()
-        } label: { label() }
+        Group {
+            if let navigator {
+                Button { navigator.push(AnyView(target)) } label: { label() }
+            } else {
+                NavigationLink { target } label: { label() }
+            }
+        }
+    }
+    private var target: some View {
+        destination().environment(\.ranyMainHeader,false)
+            .toolbar(ObjectIdentifier(Destination.self) == ObjectIdentifier(ReaderView.self) ? .hidden : .visible,for:.navigationBar)
+            .ranyClearNavigation()
 
     }
 }
