@@ -10,25 +10,20 @@ import UIKit
             .object(["id":.string("fixture-\(index)"),"characterName":.string("Character \(index)")])
         }
         let series: [JSONValue] = [.object(["name":.string("ONE PIECE"),"avatars":.array(avatars)])]
-        var gridSize = CGSize.zero
-        let root = ScrollView {
-            VStack(alignment:.leading) {
-                RanyAvatarGrid(series:series,query:"",selectedID:"fixture-0",select:{ _ in })
-            }.padding(16).background(GeometryReader { proxy in Color.clear.preference(key:AvatarGridSizeKey.self,value:proxy.size) })
-        }.environmentObject(store).environment(\.layoutDirection,.rightToLeft)
-            .onPreferenceChange(AvatarGridSizeKey.self) { gridSize = $0 }
-        let (window,previous) = show(root)
-        defer { window.isHidden = true; previous?.makeKeyAndVisible() }
-        window.frame = CGRect(x:0,y:0,width:320,height:700)
-        window.rootViewController?.view.frame = window.bounds
-        window.layoutIfNeeded()
-        try await Task.sleep(for:.milliseconds(350))
-        XCTAssertGreaterThan(gridSize.width,0)
-        XCTAssertLessThanOrEqual(gridSize.width,321)
-        XCTAssertGreaterThan(gridSize.height,500)
-        XCTAssertLessThan(gridSize.height,900,"Six compact grid rows should replace sixteen full-width rows.")
-        snapshot(window,name:"Rany-avatar-grid-320")
+        let grid = VStack(alignment:.leading) {
+            RanyAvatarGrid(series:series,query:"",selectedID:"fixture-0",select:{ _ in })
+        }.padding(16).frame(width:320).fixedSize(horizontal:false,vertical:true)
+            .environmentObject(store).environment(\.layoutDirection,.rightToLeft)
+        let renderer = ImageRenderer(content:grid)
+        renderer.proposedSize = ProposedViewSize(width:320,height:nil)
+        let rendered = try XCTUnwrap(renderer.uiImage)
+        XCTAssertEqual(rendered.size.width,320,accuracy:1)
+        XCTAssertGreaterThan(rendered.size.height,500)
+        XCTAssertLessThan(rendered.size.height,900,"Six compact grid rows should replace sixteen full-width rows.")
+        let attachment = XCTAttachment(image:rendered)
+        attachment.name = "Rany-avatar-grid-320"; attachment.lifetime = .keepAlways; add(attachment)
     }
+
     private func fixtureStore() -> AppStore {
         let store = AppStore(startServices:false)
         store.online = false
@@ -171,7 +166,3 @@ import UIKit
     }
 }
 
-private struct AvatarGridSizeKey: PreferenceKey {
-    static var defaultValue = CGSize.zero
-    static func reduce(value:inout CGSize,nextValue:()->CGSize) { value = nextValue() }
-}

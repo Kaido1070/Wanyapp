@@ -203,8 +203,13 @@ struct AvatarPickerView: View {
         ScrollView {
             VStack(alignment:.leading,spacing:20) {
                 if page.value["series"].array.isEmpty {
-                    if store.online { ProgressView("تحميل الصور…").frame(maxWidth:.infinity).padding() }
-                    else { Text("اتصل بالإنترنت لتحميل الصور الشخصية.").foregroundStyle(.secondary).padding() }
+                    if page.loading { ProgressView("تحميل الصور…").frame(maxWidth:.infinity).padding() }
+                    else if let error = page.error {
+                        Text(error).foregroundStyle(.secondary)
+                        Button("إعادة المحاولة") { Task { await page.load("/api/avatars",store:store) } }.disabled(!store.online)
+                    } else {
+                        Text(store.online ? "لا توجد صور متاحة حاليًا." : "اتصل بالإنترنت لتحميل الصور الشخصية.").foregroundStyle(.secondary).padding()
+                    }
                 } else {
                     RanyAvatarGrid(series:page.value["series"].array,query:query,selectedID:selectedID) { selectedID = $0 }
                 }
@@ -225,6 +230,7 @@ struct AvatarPickerView: View {
             }.padding(12).background(.regularMaterial)
         }
         .disabled(saving)
+        .onChange(of:store.online) { _,online in if online { Task { await page.load("/api/avatars",store:store) } } }
         .ranyClearNavigation().navigationTitle("الصورة الشخصية")
         .alert("تعذر حفظ الصورة",isPresented:Binding(get:{saveError != nil},set:{if !$0 { saveError = nil }})) {
             Button("حسنًا",role:.cancel) {}

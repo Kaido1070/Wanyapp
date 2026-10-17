@@ -39,6 +39,12 @@ struct RanyRoute: Hashable { let id = UUID() }
     private func transition(_ change: @escaping () -> Void) {
         transitioning = true
         transitionTask = Task { @MainActor in
+            guard !Task.isCancelled else { return }
+            if reduceMotion {
+                var transaction = Transaction(animation:nil); transaction.disablesAnimations = true
+                withTransaction(transaction) { change(); opacity = 1; transitioning = false }
+                return
+            }
             if !reduceMotion {
                 withAnimation(.easeOut(duration:0.12)) { opacity = 0 }
                 do { try await Task.sleep(for:.milliseconds(140)) } catch { return }
