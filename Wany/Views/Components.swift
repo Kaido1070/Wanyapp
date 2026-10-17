@@ -13,6 +13,7 @@ extension View { func card() -> some View { modifier(WanyCard()) } }
 struct WanyScroll<Content: View>: View {
     @EnvironmentObject var store: AppStore
     @Environment(\.ranyMainHeader) private var mainHeader
+    @State private var scrollDirection = ReaderScrollDirection(revealDistance:192)
     let content: Content
     init(@ViewBuilder content: ()->Content) { self.content = content() }
     var body: some View {
@@ -25,6 +26,16 @@ struct WanyScroll<Content: View>: View {
                 .padding(.horizontal,18)
                 // Navigation destinations must reserve their own space for the floating bar.
                 .padding(.bottom,mainHeader ? store.bottomBarHeight + 32 : 32)
+                .background(ReaderScrollObserver { offset, moving in
+                    guard mainHeader, store.mainPageVisible else { return }
+                    if let visible = scrollDirection.update(offset:offset,userScrolling:moving), store.chromeHidden == visible {
+                        withAnimation(.easeInOut(duration:0.22)) { store.chromeHidden = !visible }
+                    }
+                })
+        }
+        .onAppear {
+            scrollDirection = ReaderScrollDirection(revealDistance:192)
+            if mainHeader { store.chromeHidden = false }
         }
         .background(Color.clear).ranyClearNavigation()
     }

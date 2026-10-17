@@ -24,41 +24,44 @@ extension EnvironmentValues {
 struct RanyGlass: ViewModifier {
     var radius: CGFloat = 22
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.ranyGlassProgress) private var progress
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.ranyGlassProgress) private var progress
     @AppStorage(RanyAppearanceKeys.glass) private var enabled = true
     @AppStorage(RanyAppearanceKeys.blur) private var blur = RanyBlurLevel.balanced.rawValue
-    @State private var intensity: Double = 0
-    private var target: Double {
-        guard enabled && !reduceTransparency else { return 0 }
-        let amount: Double
-        switch RanyBlurLevel(rawValue:blur) ?? .balanced {
-        case .clear: amount = 0
-        case .light: amount = 0.28
-        case .balanced: amount = 0.58
-        case .strong: amount = 1
+    @State private var revealed: Double = 0
+    private var level: RanyBlurLevel { RanyBlurLevel(rawValue:blur) ?? .balanced }
+    // The real iOS materials from 1.3.3. Animate their opacity, not a paused
+    // UIVisualEffectView animator (which rendered opaque surfaces on device).
+    private var material: AnyShapeStyle {
+        switch level {
+        case .clear: return AnyShapeStyle(Theme.surface.opacity(0.14))
+        case .light: return AnyShapeStyle(.ultraThinMaterial)
+        case .balanced: return AnyShapeStyle(.regularMaterial)
+        case .strong: return AnyShapeStyle(.thickMaterial)
         }
-        return progress*amount
     }
-    func body(content: Content) -> some View {
-        content.background {
-            ZStack {
-                // Readable protection appears first. Blur then grows continuously.
+    @ViewBuilder func body(content: Content) -> some View {
+        if !enabled || reduceTransparency {
+            content.background(Theme.surface,in:RoundedRectangle(cornerRadius:radius,style:.continuous))
+        } else {
+            content.background {
                 RoundedRectangle(cornerRadius:radius,style:.continuous)
-                    .fill(Theme.surface.opacity(enabled && !reduceTransparency ? 0.48 : 1))
-                RanyProgressiveMaterial(progress:intensity)
-                    .clipShape(RoundedRectangle(cornerRadius:radius,style:.continuous))
+                    .fill(material)
+                    .opacity(revealed)
+            }.overlay {
+                RoundedRectangle(cornerRadius:radius,style:.continuous)
+                    .stroke(LinearGradient(colors:[.white.opacity(0.17),Theme.accent.opacity(0.06),.white.opacity(0.04)],
+                                           startPoint:.topLeading,endPoint:.bottomTrailing),lineWidth:0.7)
             }
-        }.overlay {
-            RoundedRectangle(cornerRadius:radius,style:.continuous)
-                .stroke(LinearGradient(colors:[.white.opacity(0.16),Theme.accent.opacity(0.06),.white.opacity(0.04)],startPoint:.topLeading,endPoint:.bottomTrailing),lineWidth:0.7)
+            .onAppear { updateReveal() }
+            .onChange(of:progress) { _,_ in updateReveal() }
+            .onChange(of:blur) { _,_ in updateReveal() }
         }
-        .onAppear { setIntensity() }
-        .onChange(of:target) { _,_ in setIntensity() }
-        .animation(reduceMotion ? nil : .easeInOut(duration:0.9),value:blur)
     }
-    private func setIntensity() {
-        withAnimation(reduceMotion ? nil : .easeInOut(duration:1.15)) { intensity = target }
+    private func updateReveal() {
+        let value = min(1,max(0,progress))
+        if reduceMotion { revealed = value }
+        else { withAnimation(.easeInOut(duration:0.95)) { revealed = value } }
     }
 }
 extension View { func ranyGlass(radius: CGFloat = 22) -> some View { modifier(RanyGlass(radius:radius)) } }
@@ -92,11 +95,8 @@ private struct RanyFractionalBlur: UIViewRepresentable {
 
 struct RanyInsetGlass: ViewModifier {
     var radius: CGFloat = 15
-    @AppStorage(RanyAppearanceKeys.glass) private var enabled = true
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     func body(content: Content) -> some View {
-        content.background(Theme.surface.opacity(enabled && !reduceTransparency ? 0.25 : 1),in:RoundedRectangle(cornerRadius:radius,style:.continuous))
-            .overlay(RoundedRectangle(cornerRadius:radius,style:.continuous).stroke(.white.opacity(0.075),lineWidth:0.7))
+        content.ranyGlass(radius:radius)
     }
 }
 extension View { func ranyInsetGlass(radius: CGFloat = 15) -> some View { modifier(RanyInsetGlass(radius:radius)) } }

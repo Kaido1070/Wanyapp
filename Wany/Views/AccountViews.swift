@@ -189,13 +189,27 @@ struct SettingsView: View {
     }
 }
 struct AvatarPickerView: View {
+    var onSelect: ((String)->Void)? = nil
     @EnvironmentObject var store: AppStore
     @Environment(\.dismiss) var dismiss
     @StateObject private var page = CachedPage()
     var body: some View {
         List { ForEach(Array(page.value["series"].array.enumerated()),id:\.offset) { _,series in
             Section(series["name"].string) { ForEach(Array(series["avatars"].array.enumerated()),id:\.offset) { _,avatar in
-                Button { Task { do { try await API.shared.send("/api/profile/avatar",method:"PUT",value:["avatarId":avatar["id"].string]); await store.refresh(); dismiss() } catch { store.error = error.localizedDescription } } } label: {
+                Button {
+                    if let onSelect {
+                        onSelect(avatar["id"].string)
+                        dismiss()
+                    } else {
+                        Task {
+                            do {
+                                try await API.shared.send("/api/profile/avatar",method:"PUT",value:["avatarId":avatar["id"].string])
+                                await store.refresh()
+                                dismiss()
+                            } catch { store.error = error.localizedDescription }
+                        }
+                    }
+                } label: {
                     HStack { if var account = store.state?.user { let _ = account.avatarId = avatar["id"].string; ProfileAvatar(user:account).frame(width:42,height:42) }; Text(avatar["characterName"].string) }
                 }.disabled(!store.online)
             } }

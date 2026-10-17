@@ -48,11 +48,14 @@ struct RootView: View {
                     }.buttonStyle(.plain).ranyGlass(radius:24).padding(.horizontal,14).padding(.bottom,6)
                         .background(GeometryReader { proxy in Color.clear.preference(key:BottomBarHeightKey.self,value:proxy.size.height) })
                         .accessibilityIdentifier("main.bottom-bar")
+                        .offset(y:store.chromeHidden ? 140 : 0)
+                        .opacity(store.chromeHidden ? 0 : 1)
+                        .allowsHitTesting(!store.chromeHidden)
+                        .animation(.easeInOut(duration:0.22),value:store.chromeHidden)
                         }
                     }
-                    .onAppear { store.mainPageVisible = true }
+                    .onAppear { store.mainPageVisible = true; store.chromeHidden = false }
                 }
-                .id(selected)
             }
         }
         .onPreferenceChange(BottomBarHeightKey.self) { store.bottomBarHeight = max(90,$0) }
@@ -64,10 +67,10 @@ struct RootView: View {
         requested = index; selectionTask?.cancel()
         if reduceMotion {
             selected = index; tabOpacity = 1; tabOffset = 0
-            store.mainPageVisible = true; return
+            store.mainPageVisible = true; store.chromeHidden = false; return
         }
         selectionTask = Task { @MainActor in
-            withAnimation(.easeIn(duration:0.085)) { tabOpacity = 0; tabOffset = -3 }
+            withAnimation(.easeOut(duration:0.085)) { tabOpacity = 0; tabOffset = -3 }
             do { try await Task.sleep(nanoseconds:85_000_000) } catch { return }
             guard !Task.isCancelled else { return }
             var transaction = Transaction(); transaction.disablesAnimations = true
