@@ -154,3 +154,20 @@ enum RanyGoldenOpening {
         context.fill(Path(CGRect(x:edge-40/390*size.width,y:0,width:78/390*size.width,height:size.height)),with:.linearGradient(Gradient(colors:colors),startPoint:CGPoint(x:edge-40/390*size.width,y:0),endPoint:CGPoint(x:edge+38/390*size.width,y:0)))
     }
 }
+
+// The selected preview starts with readable ink panels and gains depth as the
+// camera pulls back. The normal app veil takes over only at the final handoff.
+struct RanyOpeningShade: View {
+    let time: Double
+    var body: some View {
+        Canvas { context,size in
+            let bounds = Path(CGRect(origin:.zero,size:size))
+            let amount = RanyOpeningMotion.glide((time-1.1)/1.5)
+            let charcoal = Color(red:25/255,green:27/255,blue:29/255)
+            let scale = size.width/390
+            context.fill(bounds,with:.radialGradient(Gradient(colors:[charcoal.opacity(0.22+0.48*amount),charcoal.opacity(0.1)]),center:CGPoint(x:size.width/2,y:size.height*343/780),startRadius:40*scale,endRadius:480*scale))
+            context.fill(bounds,with:.radialGradient(Gradient(colors:[Color(red:223/255,green:193/255,blue:149/255).opacity(0.075),.clear]),center:CGPoint(x:size.width*330/390,y:size.height*120/780),startRadius:0,endRadius:450*scale))
+            context.fill(bounds,with:.radialGradient(Gradient(colors:[.clear,.black.opacity(0.56)]),center:CGPoint(x:size.width/2,y:size.height*350/780),startRadius:100*scale,endRadius:510*scale))
+        }.allowsHitTesting(false)
+    }
+}

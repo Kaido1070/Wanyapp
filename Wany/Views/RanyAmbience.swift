@@ -155,11 +155,17 @@ struct RanyBackdrop: View {
             Theme.background
             if enabled && !reading && !reduceTransparency {
                 TimelineView(.animation(minimumInterval:cinematicOpening && !openingFinished ? 1.0/60.0 : 1.0/24.0,paused:paused)) { timeline in
-                    RanyBackdropArtwork(images:visibleImages,time:elapsed + (paused ? 0 : max(0,timeline.date.timeIntervalSince(resumedAt))),assembly:reduceMotion || lowPower ? 1 : assembly,opening:cinematicOpening && !openingFinished && !paused ? openingPalette.artwork : nil,openingTime:openingStartedAt.map { max(0,timeline.date.timeIntervalSince($0)) } ?? 0)
-
+                    let time = elapsed + (paused ? 0 : max(0,timeline.date.timeIntervalSince(resumedAt)))
+                    let openingTime = openingStartedAt.map { max(0,timeline.date.timeIntervalSince($0)) } ?? 0
+                    let presenting = cinematicOpening && !openingFinished && !paused && openingPalette.artwork != nil && openingTime < RanyOpeningMotion.duration
+                    let settled = presenting ? RanyOpeningMotion.glide((openingTime-3)/1.3) : 1
+                    ZStack {
+                        RanyBackdropArtwork(images:visibleImages,time:time,assembly:reduceMotion || lowPower ? 1 : assembly,opening:presenting ? openingPalette.artwork : nil,openingTime:openingTime)
+                        if presenting { RanyOpeningShade(time:openingTime).opacity(1-settled) }
+                        RadialGradient(colors:[Theme.background.opacity(0.74),Theme.background.opacity(0.22),.clear],center:.center,startRadius:15,endRadius:460).opacity(settled)
+                        LinearGradient(colors:[Theme.background.opacity(0.12),.clear,Theme.background.opacity(0.36)],startPoint:.top,endPoint:.bottom).opacity(settled)
+                    }
                 }
-                RadialGradient(colors:[Theme.background.opacity(0.74),Theme.background.opacity(0.22),.clear],center:.center,startRadius:15,endRadius:460)
-                LinearGradient(colors:[Theme.background.opacity(0.12),.clear,Theme.background.opacity(0.36)],startPoint:.top,endPoint:.bottom)
             }
         }.ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
         .task(id:"\(accountID ?? "guest")|\(ambience.isOpeningReady(accountID:accountID))|\(paused)") {

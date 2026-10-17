@@ -317,8 +317,6 @@ private struct GoldenProductionLifecycleView: View {
         RanyExperience(onOpeningStart:onStart)
             .environmentObject(store).environmentObject(store.downloads)
             .environment(\.scenePhase,fixture.phase)
-            .environment(\.accessibilityReduceMotion,false)
-            .environment(\.accessibilityReduceTransparency,false)
             .environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark)
     }
 }

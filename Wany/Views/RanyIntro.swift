@@ -155,7 +155,7 @@ struct RanyExperience: View {
                         Task { await CinematicCovers.prefetch(store:store) }
                     })
                 } else {
-                RanyIntro(accountTransition:false,loginDestination:store.state == nil,firstAccount:store.firstArrival,start:backgroundReady,destinationFrame:markFrames[store.state == nil ? "login" : "header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ opening = false; if store.firstArrival { store.completeAccountArrival() } })
+                RanyIntro(accountTransition:false,loginDestination:store.state == nil,firstAccount:store.firstArrival,start:backgroundReady || cinematicConfiguration.shouldPlay(),destinationFrame:markFrames[store.state == nil ? "login" : "header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ opening = false; if store.firstArrival { store.completeAccountArrival() } })
                 }
             } else if store.enteringAccount {
                 RanyIntro(accountTransition:true,loginDestination:false,firstAccount:store.firstArrival,destinationFrame:markFrames["header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ store.completeAccountArrival() })
