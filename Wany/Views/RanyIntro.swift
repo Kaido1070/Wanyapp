@@ -8,6 +8,7 @@ struct RanyIntro: View {
     let accountTransition: Bool
     let loginDestination: Bool
     var firstAccount = false
+    var start = true
     var destinationFrame: CGRect?
     var sourceFrame: CGRect?
     var onArrange: () -> Void = {}
@@ -45,7 +46,8 @@ struct RanyIntro: View {
                 }
             }.opacity(visible ? 1 : 0).accessibilityElement(children:.ignore).accessibilityLabel("Rany، اقرأ في أي وقت")
         }.ignoresSafeArea().environment(\.layoutDirection,.leftToRight).allowsHitTesting(false)
-        .task {
+        .task(id:start) {
+            guard start else { stage = 0; visible = true; return }
             if accountTransition && !firstAccount {
                 stage = 3; visible = true
                 guard await wait(reduceMotion ? 0.06 : 0.76) else { return }
@@ -124,6 +126,7 @@ struct RanyIntroLayout {
 
 struct RanyExperience: View {
     var cinematicConfiguration: CinematicConfiguration = .production
+    var onOpeningStart: (Date) -> Void = { _ in }
     @EnvironmentObject var store: AppStore
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -131,11 +134,15 @@ struct RanyExperience: View {
     @State private var markFrames: [String:CGRect] = [:]
     @State private var assembly: Double = 0
     @State private var opening = true
+    @State private var backgroundReady = false
     @State private var revealed = false
     @State private var glassProgress: Double = 0
     var body: some View {
         ZStack {
-            RanyBackdropHost(ambience:ambience,reading:store.readerActive,accountID:store.state?.user.id,assembly:assembly,cinematicOpening:!cinematicConfiguration.shouldPlay()).frame(maxWidth:.infinity,maxHeight:.infinity).ignoresSafeArea()
+            RanyBackdropHost(ambience:ambience,reading:store.readerActive,accountID:store.state?.user.id,assembly:assembly,cinematicOpening:!cinematicConfiguration.shouldPlay(),onOpeningReady:{ date in
+                guard !backgroundReady else { return }
+                backgroundReady = true; onOpeningStart(date)
+            }).frame(maxWidth:.infinity,maxHeight:.infinity).ignoresSafeArea()
             RootView().id(store.state?.user.id).environment(\.ranyGlassProgress,glassProgress).environment(\.ranyMeasureMarkFrames,opening || store.enteringAccount).environment(\.ranyMarkCovered,opening || store.enteringAccount).opacity((opening && !revealed) || (store.enteringAccount && !revealed) ? 0 : 1)
                 .animation(.easeOut(duration:reduceMotion ? 0.05 : 0.42),value:revealed)
                 .allowsHitTesting(!opening && !store.enteringAccount)
@@ -148,7 +155,7 @@ struct RanyExperience: View {
                         Task { await CinematicCovers.prefetch(store:store) }
                     })
                 } else {
-                RanyIntro(accountTransition:false,loginDestination:store.state == nil,firstAccount:store.firstArrival,destinationFrame:markFrames[store.state == nil ? "login" : "header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ opening = false; if store.firstArrival { store.completeAccountArrival() } })
+                RanyIntro(accountTransition:false,loginDestination:store.state == nil,firstAccount:store.firstArrival,start:backgroundReady,destinationFrame:markFrames[store.state == nil ? "login" : "header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ opening = false; if store.firstArrival { store.completeAccountArrival() } })
                 }
             } else if store.enteringAccount {
                 RanyIntro(accountTransition:true,loginDestination:false,firstAccount:store.firstArrival,destinationFrame:markFrames["header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ store.completeAccountArrival() })

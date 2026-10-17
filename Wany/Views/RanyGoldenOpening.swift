@@ -97,7 +97,7 @@ enum RanyOpeningMotion {
 enum RanyGoldenOpening {
     private static func mix(_ a: CGFloat,_ b: CGFloat,_ t: CGFloat) -> CGFloat { a+(b-a)*t }
 
-    static func draw(context: GraphicsContext,size: CGSize,time: Double,artwork: RanyOpeningPalette.Artwork) {
+    static func draw(context: GraphicsContext,size: CGSize,time: Double,artwork: RanyOpeningPalette.Artwork,backdropTime: Double? = nil) {
         guard !artwork.original.isEmpty else { return }
         let pull = CGFloat(RanyOpeningMotion.camera(time)), distribution = CGFloat(RanyOpeningMotion.distribution(time))
         var scene = context
@@ -109,7 +109,7 @@ enum RanyGoldenOpening {
         let width = min(min(size.width*0.30,size.height*0.15),190)
         let color = CGFloat(RanyOpeningMotion.glide((time-3.0)/1.3))
         for i in artwork.original.indices {
-            let target = RanyBackdropMotion.position(index:i,elapsed:time,height:Double(size.height))
+            let target = RanyBackdropMotion.position(index:i,elapsed:backdropTime ?? time,height:Double(size.height))
             let origin = RanyOpeningMotion.origin(index:i)
             let x = mix(origin.x/390*size.width,target.x*size.width,distribution)
             let y = mix(origin.y/780*size.height,target.y*size.height,distribution)

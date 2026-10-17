@@ -85,7 +85,7 @@ jobs:
           path: TestResults.xcresult
           retention-days: 7
   capture:
-    name: Optional cinematic recording (retry this job independently)
+    name: Production opening recording (retry this job independently)
     needs: build
     runs-on: macos-15
     timeout-minutes: 12
@@ -102,7 +102,7 @@ jobs:
           xcrun simctl boot "$DEVICE"
           xcrun simctl bootstatus "$DEVICE" -b
           xcrun simctl install "$DEVICE" Wany.app
-      - name: Record guest and signed-in read-only previews
+      - name: Record actual cold launch for guest and signed-in fixtures
         run: |
           mkdir -p cinematic-preview
           record_intro() {
@@ -119,7 +119,7 @@ jobs:
               sleep 0.1
             done
             grep -q "Recording started" "$RECORD_LOG" || { cat "$RECORD_LOG"; return 1; }
-            xcrun simctl launch "$SIMULATOR_ID" site.wany.reader --rany-cinematic-preview "$@"
+            xcrun simctl launch "$SIMULATOR_ID" site.wany.reader --rany-opening-fixture "$@"
             sleep 10
             kill -INT "$RECORD_PID"
             wait "$RECORD_PID" || true
@@ -132,7 +132,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Rany-cinematic-native-video
+          name: Rany-production-opening-video
           overwrite: true
           path: cinematic-preview
           retention-days: 14

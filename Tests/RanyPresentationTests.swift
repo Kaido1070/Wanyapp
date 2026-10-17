@@ -24,6 +24,35 @@ import UIKit
         attachment.name = "Rany-avatar-grid-320"; attachment.lifetime = .keepAlways; add(attachment)
     }
 
+    func testProductionGoldenOpeningWaitsForActiveSceneThenPlaysOnce() async throws {
+        let store = fixtureStore(), fixture = CinematicLifecycleFixture()
+        fixture.phase = .inactive
+        var starts: [Date] = []
+        let root = GoldenProductionLifecycleView(fixture:fixture,store:store,onStart:{ starts.append($0) })
+        let (window,previous) = show(root)
+        defer { window.isHidden = true; previous?.makeKeyAndVisible() }
+        // Exceed the entire intro duration while inactive: cold launch must not consume it.
+        try await Task.sleep(for:.seconds(4.6))
+        XCTAssertTrue(starts.isEmpty)
+        fixture.phase = .active
+        for _ in 0..<100 {
+            if !starts.isEmpty { break }
+            try await Task.sleep(for:.milliseconds(50))
+        }
+        let started = try XCTUnwrap(starts.first,"The production host must prepare and start the golden background.")
+        for (time,name) in [(0.3,"pages"),(1.65,"pullback"),(2.4,"distribution"),(4.6,"handoff")] {
+            let remaining = time-Date().timeIntervalSince(started)
+            if remaining > 0 { try await Task.sleep(for:.seconds(remaining)) }
+            snapshot(window,name:"Rany-production-golden-\(name)")
+        }
+        XCTAssertEqual(descendants(window).filter { $0.accessibilityIdentifier == "rany.background.renderer" }.count,1)
+        fixture.phase = .inactive
+        try await Task.sleep(for:.milliseconds(100))
+        fixture.phase = .active
+        try await Task.sleep(for:.milliseconds(300))
+        XCTAssertEqual(starts.count,1,"Returning to the app must not replay the opening.")
+    }
+
     private func fixtureStore() -> AppStore {
         let store = AppStore(startServices:false)
         store.online = false
@@ -277,5 +306,19 @@ private struct CinematicLifecycleTestView: View {
     var finish: () -> Void
     var body: some View {
         CinematicIntro(configuration:CinematicConfiguration(),state:fixture.account,stories:[:],destination:nil,imagesOverride:[],onReveal:{},onFinish:finish).environment(\.scenePhase,fixture.phase)
+    }
+}
+
+private struct GoldenProductionLifecycleView: View {
+    @ObservedObject var fixture: CinematicLifecycleFixture
+    let store: AppStore
+    let onStart: (Date) -> Void
+    var body: some View {
+        RanyExperience(onOpeningStart:onStart)
+            .environmentObject(store).environmentObject(store.downloads)
+            .environment(\.scenePhase,fixture.phase)
+            .environment(\.accessibilityReduceMotion,false)
+            .environment(\.accessibilityReduceTransparency,false)
+            .environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark)
     }
 }

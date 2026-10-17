@@ -19,6 +19,7 @@ private struct RanyBackdropManifest: Codable, Sendable { let entries: [RanyBackd
     private var fingerprint = ""
     private var activeFiles: [String] = []
     private static func defaults() -> [UIImage] { (1...14).compactMap { UIImage(named:"RanyDefault\($0)") } }
+    func isOpeningReady(accountID: String?) -> Bool { openingReady && accountID == owner }
     func displayImages(accountID: String?) -> [UIImage] { accountID == owner ? images : Self.defaults() }
     nonisolated private static func completePool(_ primary: [UIImage], defaults: [UIImage]) -> [UIImage] {
         var result: [UIImage] = [], signatures: [UInt64] = []
@@ -139,8 +140,10 @@ struct RanyBackdrop: View {
     var accountID: String?
     var assembly: Double = 1
     var cinematicOpening = false
+    var onOpeningReady: (Date) -> Void = { _ in }
     @StateObject private var openingPalette = RanyOpeningPalette()
     @State private var openingFinished = false
+    @State private var openingStartedAt: Date?
     @AppStorage(RanyAppearanceKeys.background) private var enabled = true
     @State private var elapsed: TimeInterval = 0
     @State private var resumedAt = Date()
@@ -152,26 +155,30 @@ struct RanyBackdrop: View {
             Theme.background
             if enabled && !reading && !reduceTransparency {
                 TimelineView(.animation(minimumInterval:cinematicOpening && !openingFinished ? 1.0/60.0 : 1.0/24.0,paused:paused)) { timeline in
-                    RanyBackdropArtwork(images:visibleImages,time:elapsed + (paused ? 0 : max(0,timeline.date.timeIntervalSince(resumedAt))),assembly:reduceMotion || lowPower ? 1 : assembly,opening:cinematicOpening && !openingFinished && !paused ? openingPalette.artwork : nil)
+                    RanyBackdropArtwork(images:visibleImages,time:elapsed + (paused ? 0 : max(0,timeline.date.timeIntervalSince(resumedAt))),assembly:reduceMotion || lowPower ? 1 : assembly,opening:cinematicOpening && !openingFinished && !paused ? openingPalette.artwork : nil,openingTime:openingStartedAt.map { max(0,timeline.date.timeIntervalSince($0)) } ?? 0)
 
                 }
                 RadialGradient(colors:[Theme.background.opacity(0.74),Theme.background.opacity(0.22),.clear],center:.center,startRadius:15,endRadius:460)
                 LinearGradient(colors:[Theme.background.opacity(0.12),.clear,Theme.background.opacity(0.36)],startPoint:.top,endPoint:.bottom)
             }
         }.ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
-        .task(id:[ambience.openingReady,paused]) {
+        .task(id:"\(accountID ?? "guest")|\(ambience.isOpeningReady(accountID:accountID))|\(paused)") {
             guard cinematicOpening, !openingFinished else { return }
-            guard enabled, !reduceMotion, !reduceTransparency, !lowPower else { openingFinished = true; return }
-            guard !paused, ambience.openingReady else { return }
+            guard enabled, !reduceMotion, !reduceTransparency, !lowPower else { openingFinished = true; onOpeningReady(Date()); return }
+            guard !paused, ambience.isOpeningReady(accountID:accountID) else { return }
             await openingPalette.prepare(ambience.displayImages(accountID:accountID))
+            guard !Task.isCancelled, openingPalette.artwork != nil else { return }
+            let started = Date()
+            openingStartedAt = started; onOpeningReady(started)
             do { try await Task.sleep(nanoseconds:4_400_000_000) } catch { return }
             openingFinished = true; openingPalette.release()
         }
         .onChange(of:accountID) { _,_ in
-            openingFinished = true; openingPalette.release()
+            openingPalette.release()
+            if openingStartedAt != nil { openingFinished = true; onOpeningReady(Date()) }
         }
         .onChange(of:paused) { _,value in
-            if value && cinematicOpening { openingFinished = true; openingPalette.release() }
+            if value && cinematicOpening && openingStartedAt != nil { openingFinished = true; openingPalette.release() }
             if value { elapsed += max(0,Date().timeIntervalSince(resumedAt)) }
             else { resumedAt = Date() }
         }
@@ -185,11 +192,12 @@ struct RanyBackdropArtwork: View, Animatable {
     let time: TimeInterval
     var assembly: Double
     var opening: RanyOpeningPalette.Artwork? = nil
+    var openingTime: TimeInterval = 0
     var animatableData: Double { get { assembly } set { assembly = newValue } }
     var body: some View {
         Canvas(opaque:false,rendersAsynchronously:true) { context,size in
-            if let opening, time < RanyOpeningMotion.duration {
-                RanyGoldenOpening.draw(context:context,size:size,time:time,artwork:opening)
+            if let opening, openingTime < RanyOpeningMotion.duration {
+                RanyGoldenOpening.draw(context:context,size:size,time:openingTime,artwork:opening,backdropTime:time)
                 return
             }
             let order = CGFloat(min(1,max(0,assembly)))
@@ -220,6 +228,7 @@ struct RanyBackdropHost: UIViewControllerRepresentable {
     let accountID: String?
     let assembly: Double
     var cinematicOpening = false
+    var onOpeningReady: (Date) -> Void = { _ in }
     func makeUIViewController(context: Context) -> UIHostingController<AnyView> {
         let controller = UIHostingController(rootView:scene(context))
         controller.view.backgroundColor = .clear
@@ -231,7 +240,7 @@ struct RanyBackdropHost: UIViewControllerRepresentable {
         withTransaction(context.transaction) { controller.rootView = scene(context) }
     }
     private func scene(_ context: Context) -> AnyView {
-        AnyView(RanyBackdrop(ambience:ambience,reading:reading,accountID:accountID,assembly:assembly,cinematicOpening:cinematicOpening)
+        AnyView(RanyBackdrop(ambience:ambience,reading:reading,accountID:accountID,assembly:assembly,cinematicOpening:cinematicOpening,onOpeningReady:onOpeningReady)
             .environment(\.self,context.environment))
     }
 }

@@ -16,8 +16,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     }
     private static func makeStore() -> AppStore {
         let preview=ProcessInfo.processInfo.arguments.contains("--rany-cinematic-preview")
-        let account=AppStore(startServices:!preview)
-        if preview {
+        let fixture=ProcessInfo.processInfo.arguments.contains("--rany-opening-fixture")
+        let account=AppStore(startServices:!preview && !fixture)
+        if preview || fixture {
             account.online=false
             if ProcessInfo.processInfo.arguments.contains("--rany-cinematic-signed-in") {
                 account.state=AccountState(user:Account(id:"cinematic-preview-fixture",name:"قارئ Rany",username:"preview"))
@@ -31,9 +32,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 if ProcessInfo.processInfo.arguments.contains("--rany-cinematic-preview") { CinematicPreview().environmentObject(store) }
                 else { RanyExperience().environmentObject(store).environmentObject(store.downloads)
                 .environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark).tint(Theme.accent)
-                .task { await store.refresh() }
+                .task { if !ProcessInfo.processInfo.arguments.contains("--rany-opening-fixture") { await store.refresh() } }
                 .onChange(of:phase) { _,phase in
-                    if phase == .active { Task { await store.refresh() }; store.downloads.updateNetwork() }
+                    if phase == .active && !ProcessInfo.processInfo.arguments.contains("--rany-opening-fixture") { Task { await store.refresh() }; store.downloads.updateNetwork() }
                     else { store.persist(); store.downloads.persist() }
                 }
                 }
