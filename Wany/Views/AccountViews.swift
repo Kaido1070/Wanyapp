@@ -251,12 +251,14 @@ struct AvatarPickerView: View {
         guard !saving, !selectedID.isEmpty, store.online else { return }
         if let onSelect { onSelect(selectedID); dismiss(); return }
         saving = true
+        let savingRoute = navigator?.path.last
         Task { @MainActor in
             defer { saving = false }
             do {
                 try await API.shared.send("/api/profile/avatar",method:"PUT",value:["avatarId":selectedID])
                 await store.refresh()
-                if let navigator { navigator.pop() } else { dismiss() }
+                if let navigator, let savingRoute { navigator.pop(ifCurrent:savingRoute) }
+                else { dismiss() }
             } catch { if !isRequestCancellation(error) { saveError = error.localizedDescription } }
         }
     }

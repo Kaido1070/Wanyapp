@@ -23,6 +23,10 @@ struct RanyRoute: Hashable { let id = UUID() }
         let route = RanyRoute()
         transition { self.destinations[route] = view; self.path.append(route) }
     }
+    func pop(ifCurrent route:RanyRoute) {
+        guard path.last == route else { return }
+        pop()
+    }
     func pop() {
         guard !transitioning, !path.isEmpty else { return }
         transition { let removed = self.path.removeLast(); self.destinations[removed] = nil }

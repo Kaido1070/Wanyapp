@@ -33,7 +33,9 @@ import Combine
         navigator.push(AnyView(Text("two")))
         try await Task.sleep(for:.milliseconds(100))
         XCTAssertEqual(navigator.path.count,2)
-        navigator.pop()
+        navigator.pop(ifCurrent:first)
+        XCTAssertEqual(navigator.path.count,2,"A late save from a previous route must not pop the current page.")
+        navigator.pop(ifCurrent:try XCTUnwrap(navigator.path.last))
         try await Task.sleep(for:.milliseconds(100))
         XCTAssertEqual(navigator.path,[first])
         navigator.reduceMotion = false
