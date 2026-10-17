@@ -12,6 +12,7 @@ private struct RanyBackdropManifest: Codable, Sendable { let entries: [RanyBackd
 
 @MainActor final class RanyAmbience: ObservableObject {
     @Published private(set) var images: [UIImage] = RanyAmbience.defaults()
+    @Published private(set) var openingReady = false
     private var owner: String?
     private var generation = UUID()
     private var task: Task<Void,Never>?
@@ -29,11 +30,12 @@ private struct RanyBackdropManifest: Codable, Sendable { let entries: [RanyBackd
         return result
     }
     func attach(state: AccountState?, stories: [String:Story]) async {
-        guard owner != state?.user.id else { return }
+        guard owner != state?.user.id else { openingReady = true; return }
+        openingReady = false
         task?.cancel(); generation = UUID(); owner = state?.user.id; fingerprint = ""; activeFiles = []
         // Never leave the preceding account's artwork on screen, even for one decoded frame.
         images = Self.defaults()
-        guard let state else { return }
+        guard let state else { openingReady = true; return }
         let allowed = RanyBackdropPlan.candidates(data:state.data,stories:stories)
         let folder = Disk.folder(state.user.id), token = generation, fallback = Self.defaults()
         let prepared = await Task.detached(priority:.utility) {
@@ -42,7 +44,7 @@ private struct RanyBackdropManifest: Codable, Sendable { let entries: [RanyBackd
         }.value
         let entries = prepared.0
         guard generation == token, !Task.isCancelled else { return }
-        images = prepared.1; activeFiles = entries.map { $0.0.file }
+        images = prepared.1; activeFiles = entries.map { $0.0.file }; openingReady = true
     }
 
     func prepare(state: AccountState?, stories: [String:Story]) {
@@ -136,6 +138,9 @@ struct RanyBackdrop: View {
     var reading = false
     var accountID: String?
     var assembly: Double = 1
+    var cinematicOpening = false
+    @StateObject private var openingPalette = RanyOpeningPalette()
+    @State private var openingFinished = false
     @AppStorage(RanyAppearanceKeys.background) private var enabled = true
     @State private var elapsed: TimeInterval = 0
     @State private var resumedAt = Date()
@@ -146,15 +151,27 @@ struct RanyBackdrop: View {
         ZStack {
             Theme.background
             if enabled && !reading && !reduceTransparency {
-                TimelineView(.animation(minimumInterval:1.0/24.0,paused:paused)) { timeline in
-                    RanyBackdropArtwork(images:visibleImages,time:elapsed + (paused ? 0 : max(0,timeline.date.timeIntervalSince(resumedAt))),assembly:reduceMotion || lowPower ? 1 : assembly)
+                TimelineView(.animation(minimumInterval:cinematicOpening && !openingFinished ? 1.0/60.0 : 1.0/24.0,paused:paused)) { timeline in
+                    RanyBackdropArtwork(images:visibleImages,time:elapsed + (paused ? 0 : max(0,timeline.date.timeIntervalSince(resumedAt))),assembly:reduceMotion || lowPower ? 1 : assembly,opening:cinematicOpening && !openingFinished && !paused ? openingPalette.artwork : nil)
 
                 }
                 RadialGradient(colors:[Theme.background.opacity(0.74),Theme.background.opacity(0.22),.clear],center:.center,startRadius:15,endRadius:460)
                 LinearGradient(colors:[Theme.background.opacity(0.12),.clear,Theme.background.opacity(0.36)],startPoint:.top,endPoint:.bottom)
             }
         }.ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
+        .task(id:[ambience.openingReady,paused]) {
+            guard cinematicOpening, !openingFinished else { return }
+            guard enabled, !reduceMotion, !reduceTransparency, !lowPower else { openingFinished = true; return }
+            guard !paused, ambience.openingReady else { return }
+            await openingPalette.prepare(ambience.displayImages(accountID:accountID))
+            do { try await Task.sleep(nanoseconds:4_400_000_000) } catch { return }
+            openingFinished = true; openingPalette.release()
+        }
+        .onChange(of:accountID) { _,_ in
+            openingFinished = true; openingPalette.release()
+        }
         .onChange(of:paused) { _,value in
+            if value && cinematicOpening { openingFinished = true; openingPalette.release() }
             if value { elapsed += max(0,Date().timeIntervalSince(resumedAt)) }
             else { resumedAt = Date() }
         }
@@ -163,13 +180,18 @@ struct RanyBackdrop: View {
 }
 
 
-private struct RanyBackdropArtwork: View, Animatable {
+struct RanyBackdropArtwork: View, Animatable {
     let images: [UIImage]
     let time: TimeInterval
     var assembly: Double
+    var opening: RanyOpeningPalette.Artwork? = nil
     var animatableData: Double { get { assembly } set { assembly = newValue } }
     var body: some View {
         Canvas(opaque:false,rendersAsynchronously:true) { context,size in
+            if let opening, time < RanyOpeningMotion.duration {
+                RanyGoldenOpening.draw(context:context,size:size,time:time,artwork:opening)
+                return
+            }
             let order = CGFloat(min(1,max(0,assembly)))
             let width = min(min(size.width*0.30,size.height*0.15),190), height = width*248/180
             for (i,image) in images.prefix(RanyIdentity.maxBackdropCovers).enumerated() {
@@ -197,6 +219,7 @@ struct RanyBackdropHost: UIViewControllerRepresentable {
     let reading: Bool
     let accountID: String?
     let assembly: Double
+    var cinematicOpening = false
     func makeUIViewController(context: Context) -> UIHostingController<AnyView> {
         let controller = UIHostingController(rootView:scene(context))
         controller.view.backgroundColor = .clear
@@ -208,7 +231,7 @@ struct RanyBackdropHost: UIViewControllerRepresentable {
         withTransaction(context.transaction) { controller.rootView = scene(context) }
     }
     private func scene(_ context: Context) -> AnyView {
-        AnyView(RanyBackdrop(ambience:ambience,reading:reading,accountID:accountID,assembly:assembly)
+        AnyView(RanyBackdrop(ambience:ambience,reading:reading,accountID:accountID,assembly:assembly,cinematicOpening:cinematicOpening)
             .environment(\.self,context.environment))
     }
 }
