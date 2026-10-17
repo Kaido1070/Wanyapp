@@ -19,7 +19,7 @@ struct RanyIntro: View {
         GeometryReader { geometry in
             let layout = RanyIntroLayout(size:geometry.size,origin:geometry.frame(in:.global).origin,destinationFrame:destinationFrame,sourceFrame:sourceFrame)
             ZStack {
-                Theme.background.opacity(stage < 4 ? 0.6 : 0)
+                Theme.background.opacity(stage < 4 && accountTransition ? 0.6 : 0)
                 // The exact same asset and rendering modifiers used by the final toolbar/login mark.
                 RanyMark(size:stage < 4 ? (accountTransition && !firstAccount ? 92 : 168) : layout.destinationSize(login:loginDestination),illuminated:stage == 3)
                     .opacity(stage >= 3 ? 1 : 0)
@@ -57,19 +57,19 @@ struct RanyIntro: View {
             }
             stage = reduceMotion ? 2 : 0
             withAnimation(.easeOut(duration:reduceMotion ? 0.08 : 0.3)) { visible = true }
-            guard await wait(reduceMotion ? 0.1 : 0.65) else { return }
+            guard await wait(reduceMotion ? 0.1 : (accountTransition ? 0.65 : 1.85)) else { return }
             onArrange()
             if (!accountTransition || firstAccount) && !reduceMotion {
-                withAnimation(.timingCurve(0.22,0.72,0.2,1,duration:0.82)) { stage = 1 }
-                guard await wait(0.86) else { return }
-                withAnimation(.timingCurve(0.22,0.75,0.2,1,duration:0.66)) { stage = 2 }
-                guard await wait(0.7) else { return }
+                withAnimation(.timingCurve(0.22,0.72,0.2,1,duration:accountTransition ? 0.82 : 0.48)) { stage = 1 }
+                guard await wait(accountTransition ? 0.86 : 0.63) else { return }
+                withAnimation(.timingCurve(0.22,0.75,0.2,1,duration:accountTransition ? 0.66 : 0.42)) { stage = 2 }
+                guard await wait(accountTransition ? 0.7 : 0.45) else { return }
             }
-            withAnimation(.easeOut(duration:reduceMotion ? 0.05 : 0.42)) { stage = 3 }
-            guard await wait(reduceMotion ? 0.05 : (firstAccount ? 1.1 : 0.86)) else { return }
+            withAnimation(.easeOut(duration:reduceMotion ? 0.05 : (accountTransition ? 0.42 : 0.23))) { stage = 3 }
+            guard await wait(reduceMotion ? 0.05 : (firstAccount ? 1.1 : (accountTransition ? 0.86 : 0.39))) else { return }
             onReveal()
-            withAnimation(.timingCurve(0.2,0.75,0.2,1,duration:reduceMotion ? 0.08 : 0.84)) { stage = 4 }
-            guard await wait(reduceMotion ? 0.1 : 0.86) else { return }
+            withAnimation(.timingCurve(0.2,0.75,0.2,1,duration:reduceMotion ? 0.08 : (accountTransition ? 0.84 : 0.65))) { stage = 4 }
+            guard await wait(reduceMotion ? 0.1 : (accountTransition ? 0.86 : 0.68)) else { return }
             onFinish()
         }
     }
@@ -134,7 +134,7 @@ struct RanyExperience: View {
     @State private var glassProgress: Double = 0
     var body: some View {
         ZStack {
-            RanyBackdropHost(ambience:ambience,reading:store.readerActive,accountID:store.state?.user.id,assembly:assembly).frame(maxWidth:.infinity,maxHeight:.infinity).ignoresSafeArea()
+            RanyBackdropHost(ambience:ambience,reading:store.readerActive,accountID:store.state?.user.id,assembly:assembly,cinematicOpening:true).frame(maxWidth:.infinity,maxHeight:.infinity).ignoresSafeArea()
             RootView().environment(\.ranyGlassProgress,glassProgress).environment(\.ranyMeasureMarkFrames,opening || store.enteringAccount).environment(\.ranyMarkCovered,opening || store.enteringAccount).opacity((opening && !revealed) || (store.enteringAccount && !revealed) ? 0 : 1)
                 .animation(.easeOut(duration:reduceMotion ? 0.05 : 0.42),value:revealed)
                 .allowsHitTesting(!opening && !store.enteringAccount)
