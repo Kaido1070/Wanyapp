@@ -49,8 +49,15 @@ jobs:
             CASE_NAME="$1"
             shift
             xcrun simctl terminate "$SIMULATOR_ID" site.wany.reader || true
-            xcrun simctl io "$SIMULATOR_ID" recordVideo --codec=h264 "cinematic-preview/Rany-$CASE_NAME.mp4" &
+            RECORD_LOG="cinematic-preview/$CASE_NAME-recording.log"
+            xcrun simctl io "$SIMULATOR_ID" recordVideo --codec=h264 "cinematic-preview/Rany-$CASE_NAME.mp4" > "$RECORD_LOG" 2>&1 &
             RECORD_PID=$!
+            for ATTEMPT in {1..300}; do
+              if grep -q "Recording started" "$RECORD_LOG"; then break; fi
+              kill -0 "$RECORD_PID" || { cat "$RECORD_LOG"; return 1; }
+              sleep 0.1
+            done
+            grep -q "Recording started" "$RECORD_LOG" || { cat "$RECORD_LOG"; kill -INT "$RECORD_PID"; return 1; }
             xcrun simctl launch "$SIMULATOR_ID" site.wany.reader --rany-cinematic-preview "$@"
             sleep 10
             kill -INT "$RECORD_PID"

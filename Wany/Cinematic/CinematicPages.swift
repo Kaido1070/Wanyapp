@@ -16,6 +16,7 @@ struct CinematicPages: UIViewRepresentable {
 final class PageStage: SCNView, SCNSceneRendererDelegate {
     var onReady: (() -> Void)?
     private var didSignalReady=false
+    private(set) var firstFrameTimestamp: Date?
     var firstFrameReady: Bool { didSignalReady }
     private let cameraNode=SCNNode(), key=SCNNode(), bed=SCNNode()
     private var leaves: [SCNNode] = [], textures: [UIImage]
@@ -45,7 +46,7 @@ final class PageStage: SCNView, SCNSceneRendererDelegate {
     nonisolated func renderer(_ renderer: SCNSceneRenderer,didRenderScene scene: SCNScene,atTime time: TimeInterval) {
         Task { @MainActor [weak self] in
             guard let self,!self.didSignalReady,self.bed.geometry?.firstMaterial?.diffuse.contents is UIImage else { return }
-            self.didSignalReady=true; let ready=self.onReady; self.onReady=nil; ready?()
+            self.didSignalReady=true; self.firstFrameTimestamp=Date(); let ready=self.onReady; self.onReady=nil; ready?()
         }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -103,8 +104,9 @@ final class PageStage: SCNView, SCNSceneRendererDelegate {
         let progression=pow(CinematicConfiguration.p(t,0.45,3.15),1.6)*18*max(0.4,min(1.5,speed))
         let index=Int(progression), fraction=progression-Double(index)
         texture(bed,index+1)
+        let spacing=0.31+0.69*CinematicConfiguration.ease(t,0.4,0.85)
         for (i,node) in leaves.enumerated() {
-            let phase=fraction+Double(i)*0.31
+            let phase=fraction+Double(i)*spacing
             node.isHidden=phase>1.2 || t>3.2
             texture(node,index-i)
             node.geometry?.firstMaterial?.setValue(Float(min(1,phase)*Double.pi*0.97),forKey:"turn")

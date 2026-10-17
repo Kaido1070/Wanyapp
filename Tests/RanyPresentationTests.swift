@@ -141,24 +141,46 @@ import UIKit
         let store=fixtureStore()
         let (window,previous)=show(CinematicPreview().environmentObject(store))
         defer { window.isHidden=true; previous?.makeKeyAndVisible() }
-        try await Task.sleep(for:.seconds(1))
-        XCTAssertTrue(descendants(window).contains { $0 is PageStage },"The account snapshot must be attached before the intro starts, rather than cancelling it as an account switch.")
-        let stage=try XCTUnwrap(descendants(window).compactMap { $0 as? PageStage }.first)
+        for _ in 0..<100 {
+            if descendants(window).contains(where:{ $0 is PageStage }) { break }
+            try await Task.sleep(for:.milliseconds(50))
+        }
+        let stage=try XCTUnwrap(descendants(window).compactMap { $0 as? PageStage }.first,"The account snapshot must be attached before the intro starts, rather than cancelling it as an account switch.")
         for _ in 0..<70 {
             if stage.firstFrameReady { break }
             try await Task.sleep(for:.milliseconds(100))
         }
         XCTAssertTrue(stage.firstFrameReady)
+        let started=try XCTUnwrap(stage.firstFrameTimestamp)
+        @MainActor func waitUntil(_ time: Double) async throws {
+            let remaining=time-Date().timeIntervalSince(started)
+            if remaining>0 { try await Task.sleep(nanoseconds:UInt64(remaining*1_000_000_000)) }
+        }
         snapshot(window,name:"Rany-cinematic-first-frame")
-        try await Task.sleep(for:.milliseconds(900))
+        try await waitUntil(0.8)
         snapshot(window,name:"Rany-cinematic-Read-Any-Time")
-        try await Task.sleep(for:.milliseconds(1600))
+        try await waitUntil(2.4)
         snapshot(window,name:"Rany-cinematic-RANY")
-        try await Task.sleep(for:.milliseconds(800))
+        try await waitUntil(3.17)
         snapshot(window,name:"Rany-cinematic-R")
-        try await Task.sleep(for:.milliseconds(2100))
+        try await waitUntil(3.85)
+        snapshot(window,name:"Rany-cinematic-official-mark")
+        try await waitUntil(5.4)
         XCTAssertFalse(descendants(window).contains { $0 is PageStage },"The optional renderer must release after the handoff.")
         snapshot(window,name:"Rany-cinematic-signed-in-handoff")
+    }
+    func testPreviewClearsAccountArtworkBeforeDismissalOnOwnerChange() async throws {
+        let store=fixtureStore()
+        let (window,previous)=show(CinematicPreview().environmentObject(store))
+        defer { window.isHidden=true; previous?.makeKeyAndVisible() }
+        for _ in 0..<100 {
+            if descendants(window).contains(where:{ $0 is PageStage }) { break }
+            try await Task.sleep(for:.milliseconds(50))
+        }
+        XCTAssertTrue(descendants(window).contains { $0 is PageStage })
+        store.state=AccountState(user:Account(id:"another-preview-owner",name:"B",username:"fixture-b"))
+        try await Task.sleep(for:.milliseconds(300))
+        XCTAssertFalse(descendants(window).contains { $0 is PageStage },"Old account artwork must clear even when the presentation host cannot dismiss immediately.")
     }
     func testMissingCinematicArtworkStillRevealsAndFinishes() async throws {
         var revealed=false,finished=false

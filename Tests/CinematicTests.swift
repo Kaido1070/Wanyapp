@@ -1,5 +1,6 @@
 import XCTest
 import UIKit
+import SceneKit
 @testable import Wany
 
 @MainActor final class CinematicTests: XCTestCase {
@@ -58,6 +59,27 @@ import UIKit
         view.frame=CGRect(x:0,y:0,width:393,height:852); view.layoutIfNeeded(); view.render(time:0,lighting:1,speed:1)
         XCTAssertNotNil(view.scene)
         view.scene=nil
+    }
+    func testRecycledPageKeepsItsPoseAcrossConsecutiveTurnBoundaries() throws {
+        let cover=try XCTUnwrap(UIImage(named:"RanyDefault1"))
+        let stage=PageStage(images:Array(repeating:cover,count:8))
+        stage.frame=CGRect(x:0,y:0,width:320,height:568); stage.layoutIfNeeded()
+        @MainActor func page(_ id: Int) throws -> SCNNode {
+            try XCTUnwrap(stage.scene?.rootNode.childNodes.first { $0.name == String(id) && $0.geometry?.firstMaterial?.shaderModifiers?.isEmpty == false })
+        }
+        for boundary in 1...5 {
+            let time=0.45+2.7*pow(Double(boundary)/18,1/1.6)
+            stage.render(time:time-0.00005,lighting:1,speed:1)
+            let before=try page(boundary-1), position=before.position, roll=before.eulerAngles.z
+            let turn=try XCTUnwrap(before.geometry?.firstMaterial?.value(forKey:"turn") as? NSNumber).doubleValue
+            stage.render(time:time+0.00005,lighting:1,speed:1)
+            let after=try page(boundary-1)
+            XCTAssertFalse(after.isHidden)
+            XCTAssertEqual(after.position.x,position.x,accuracy:0.015)
+            XCTAssertEqual(after.eulerAngles.z,roll,accuracy:0.001)
+            XCTAssertEqual(try XCTUnwrap(after.geometry?.firstMaterial?.value(forKey:"turn") as? NSNumber).doubleValue,turn,accuracy:0.005,"An outgoing cover must keep its bend when recycled into the next mesh, rather than pop back into the center.")
+        }
+        stage.scene=nil
     }
     func testBentPageShaderRendersBundledCoverPixels() throws {
         let cover=try XCTUnwrap(UIImage(named:"RanyDefault1"))

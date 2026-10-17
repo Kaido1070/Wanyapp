@@ -14,14 +14,15 @@ struct CinematicPreview: View {
     @State private var loadingCovers=false
     @State private var anonymous=false
     @State private var forceReducedMotion=false
+    private var validSnapshot: Bool { anonymous || fixture.state?.user.id == store.state?.user.id }
     private var login: Bool { anonymous || fixture.state == nil }
     var body: some View {
         ZStack {
             RanyBackdropHost(ambience:ambience,reading:false,accountID:fixture.state?.user.id,assembly:1).ignoresSafeArea()
             RootView().id(fixture.state?.user.id).environmentObject(fixture).environmentObject(fixture.downloads)
                 .environment(\.ranyMeasureMarkFrames,playing).environment(\.ranyMarkCovered,playing)
-                .disabled(true).opacity(revealed ? 1 : 0).accessibilityHidden(playing)
-            if playing && ready {
+                .disabled(true).opacity(revealed && validSnapshot ? 1 : 0).accessibilityHidden(playing || !validSnapshot)
+            if playing && ready && validSnapshot {
                 CinematicIntro(configuration:CinematicConfiguration(duration:duration,forceReducedMotion:forceReducedMotion),state:login ? nil : fixture.state,stories:fixture.stories,
                     destination:frames[login ? "login" : "header"],onReveal:{ withAnimation(.easeOut(duration:0.8)) { revealed=true } },onFinish:{ playing=false; revealed=true })
                     .id(replay)
@@ -48,7 +49,9 @@ struct CinematicPreview: View {
             }
         }
         .onAppear { fixture.online=false; fixture.state=store.state; fixture.stories=store.stories; ready=true }
-        .onChange(of:store.state?.user.id) { _,_ in dismiss() }
+        .onChange(of:store.state?.user.id) { _,_ in
+            playing=false; ready=false; revealed=false; fixture.state=nil; fixture.stories=[:]; frames=[:]; dismiss()
+        }
     }
     private func restart() { frames=[:]; revealed=false; replay=UUID(); playing=true }
 }
