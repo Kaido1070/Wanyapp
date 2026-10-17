@@ -172,6 +172,7 @@ struct SettingsView: View {
                 Button { Task { await store.refresh() } } label: { settingsRow(store.syncing ? "جاري المزامنة…" : "مزامنة الآن",icon:"arrow.clockwise") }.disabled(!store.online || store.syncing)
             }.card()
             VStack(alignment:.leading,spacing:16) {
+                WanyLink { AccountSecurityView() } label: { settingsRow("الأمان وكلمة المرور",icon:"lock.shield") }
                 Text(AppVersion.display).font(RanyTypography.font(.subheadline))
                 WanyLink { UpdatesView() } label: { settingsRow("سجل التحديثات",icon:"clock.arrow.circlepath") }
             }.card()

@@ -21,3 +21,11 @@ Local Phase A checks: release gate against c9c02e8; four Node feed/source merge 
 - Personalization: GET personalization-state includes followed (including custom lists) and readingWorks; source popular ordering is source-owned.
 
 Each later phase appends actual changes, test results and limitations here. The final parity matrix must distinguish implemented, pre-existing and incomplete work. Production server/user data is not changed for tests.
+
+## Phase B — candidate 1.3.14 (42)
+
+Added native security and recovery forms with server-owned password/question/recovery-code verification and explicit sensitive-action confirmation. Secrets exist only in transient form/task memory, are never saved to disk/cache/logs, and clear on dismissal/background. Recovery never verifies an answer separately before the complete reset. Logout-all waits for server revocation before clearing local credentials and account attachment. Change-password now persists the server's rotated cookie to Keychain and invalidates old request generations; a new feed engine is created for the renewed session. HTTP 401 marks session recovery as required.
+
+Executed server contract/auth checks: `node --experimental-strip-types --test tests/auth-request-safety.test.mjs tests/settings-phase9.test.mjs tests/invitation-registration.test.mjs` — 24 passed. Four native feed bridge tests also passed locally. Added URLProtocol-based native tests for cookie rotation, 401 propagation and the recovery contract; native results await CI. The first Phase A CI failed at SwiftUI type inference, not at a passing test; 1.3.13 (41) split the heavy animation expression into smaller views and reruns CI. No failed build was packaged as an IPA.
+
+The complete website baseline initially had missing TypeScript dependencies and a pre-existing progress source-contract assertion failure. Dependencies were installed locally without changing server files; a complete rerun is being recorded separately. Production server/data are untouched.

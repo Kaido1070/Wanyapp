@@ -101,6 +101,20 @@ import UIKit
         API.shared.clear(); downloads.attach(nil); enteringAccount = false; state = nil; stories = [:]; engine = nil
         UserDefaults.standard.removeObject(forKey:"lastAccount"); loginRequired = false
     }
+    func sessionRenewed() { engine=nil; metadataTask?.cancel(); metadataTask=nil; metadataToken=nil }
+    func report(_ error: Error) {
+        guard !isRequestCancellation(error) else { return }
+        if (error as? APIError)?.status == 401 { loginRequired=true }
+        self.error=error.localizedDescription
+    }
+    func logoutAllDevices() async throws {
+        guard online,let owner=state?.user.id else { throw APIError(message:"تحتاج هذه العملية اتصالًا وجلسة صالحة",status:0) }
+        try await API.shared.send("/api/logout-all",value:[String:String]())
+        guard state?.user.id == owner else { return }
+        persist(); refreshTask?.cancel(); metadataTask?.cancel(); metadataTask=nil; metadataToken=nil; syncTask?.cancel()
+        API.shared.clear(); downloads.attach(nil); enteringAccount=false; state=nil; stories=[:]; engine=nil
+        UserDefaults.standard.removeObject(forKey:"lastAccount"); loginRequired=false
+    }
     func refresh() async {
         guard online, let owner = state?.user.id, !syncing else { return }
         syncing = true

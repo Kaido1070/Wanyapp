@@ -36,6 +36,23 @@ jobs:
       - name: Run persistence and download tests
         if: "!contains(github.event.head_commit.message, '[package-only]')"
         run: xcodebuild test -project Wany.xcodeproj -scheme Wany -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath build-simulator -resultBundlePath TestResults CODE_SIGNING_ALLOWED=NO
+      - name: Record isolated native cinematic preview
+        if: "!contains(github.event.head_commit.message, '[package-only]')"
+        run: |
+          mkdir -p cinematic-preview
+          xcrun simctl terminate "$SIMULATOR_ID" site.wany.reader || true
+          xcrun simctl io "$SIMULATOR_ID" recordVideo --codec=h264 cinematic-preview/Rany-native-intro.mp4 &
+          RECORD_PID=$!
+          xcrun simctl launch "$SIMULATOR_ID" site.wany.reader --rany-cinematic-preview
+          sleep 8
+          kill -INT "$RECORD_PID"
+          wait "$RECORD_PID" || true
+          test -s cinematic-preview/Rany-native-intro.mp4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Rany-cinematic-native-video
+          path: cinematic-preview
+          retention-days: 14
       - name: Export native presentation regression screenshots
         if: "!contains(github.event.head_commit.message, '[package-only]')"
         run: xcrun xcresulttool export attachments --path TestResults.xcresult --output-path screenshots

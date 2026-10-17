@@ -162,6 +162,7 @@ struct RanyExperience: View {
             await ambience.attach(state:store.state,stories:store.stories)
             ambience.prepare(state:store.state,stories:store.stories)
         }
+        .onReceive(NotificationCenter.default.publisher(for:.ranySessionExpired)) { _ in if store.state != nil { store.loginRequired=true } }
         .onReceive(store.objectWillChange.debounce(for:.seconds(3),scheduler:RunLoop.main)) { _ in
             if !store.readerActive { ambience.prepare(state:store.state,stories:store.stories) }
         }

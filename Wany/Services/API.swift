@@ -10,15 +10,16 @@ struct APIError: LocalizedError {
     private let session: URLSession
     private var credential: String?
     var generation = UUID()
-    private init() {
-        let configuration = URLSessionConfiguration.ephemeral
+    private let persistCredentials: Bool
+    init(configuration: URLSessionConfiguration = .ephemeral, credential: String? = nil, persistCredentials: Bool = true) {
+        self.persistCredentials=persistCredentials
         configuration.httpShouldSetCookies = false
         configuration.timeoutIntervalForRequest = 45
         configuration.timeoutIntervalForResource = 90
         session = URLSession(configuration: configuration)
-        credential = Keychain.read("session").flatMap { String(data:$0, encoding:.utf8) }
+        self.credential = credential ?? (persistCredentials ? Keychain.read("session").flatMap { String(data:$0, encoding:.utf8) } : nil)
     }
-    func clear() { generation = UUID(); credential = nil; Keychain.delete("session") }
+    func clear() { generation = UUID(); credential = nil; if persistCredentials { Keychain.delete("session") } }
     func request(_ path: String, query: [String:String] = [:], method: String = "GET", body: Data? = nil) throws -> URLRequest {
         guard path.hasPrefix("/api/"), !path.contains("://") else { throw APIError(message:"عنوان غير صالح",status:0) }
         var components = URLComponents(url:website.appendingPathComponent(String(path.dropFirst())), resolvingAgainstBaseURL:false)!
@@ -36,13 +37,19 @@ struct APIError: LocalizedError {
         guard scope == generation else { throw CancellationError() }
         guard let http = response as? HTTPURLResponse else { throw APIError(message:"تعذر الاتصال",status:0) }
         guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 401 { NotificationCenter.default.post(name:.ranySessionExpired,object:nil) }
             let value = try? JSONDecoder().decode(JSONValue.self,from:data)
             throw APIError(message:value?["message"].string.isEmpty == false ? value!["message"].string : "تعذر إكمال الطلب (\(http.statusCode))",status:http.statusCode)
         }
-        if path == "/api/login" {
+        if path == "/api/login" || path == "/api/change-password" {
             let fields = http.allHeaderFields.reduce(into:[String:String]()) { if let k = $1.key as? String, let v = $1.value as? String { $0[k] = v } }
-            guard let cookie = HTTPCookie.cookies(withResponseHeaderFields:fields,for:website).first(where:{$0.name == "anytime_session"}) else { throw APIError(message:"لم تُحفظ جلسة الدخول",status:0) }
-            try Keychain.save(Data(cookie.value.utf8),key:"session"); credential = cookie.value
+            guard let cookie = HTTPCookie.cookies(withResponseHeaderFields:fields,for:website).first(where:{$0.name == "anytime_session"}) else { throw APIError(message:"لم تُحفظ جلسة الدخول؛ أعد تسجيل الدخول",status:path == "/api/change-password" ? 401 : 0) }
+            if persistCredentials {
+                do { try Keychain.save(Data(cookie.value.utf8),key:"session") }
+                catch { credential=nil; Keychain.delete("session"); throw APIError(message:"تعذر حفظ الجلسة الآمنة؛ سجل الدخول مجددًا",status:401) }
+            }
+            credential = cookie.value
+            if path == "/api/change-password" { generation=UUID() }
         }
         return data
     }
@@ -92,5 +99,13 @@ struct APIError: LocalizedError {
         let result = try await get("/api/source/chapter",query:q,as:ChapterResponse.self).chapter
         guard result.item.key == key, result.number == chapter.number, !result.pages.isEmpty else { throw APIError(message:"بيانات الفصل غير مكتملة",status:0) }
         return result
+    }
+}
+
+extension Notification.Name { static let ranySessionExpired = Notification.Name("rany.session.expired") }
+
+extension API {
+    func getMutation<T: Encodable>(_ path: String,value: T,method: String = "POST") async throws -> JSONValue {
+        try JSONDecoder().decode(JSONValue.self,from:await raw(path,method:method,body:JSONEncoder().encode(value)))
     }
 }

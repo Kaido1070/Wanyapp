@@ -8,18 +8,25 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 }
 @main struct WanyApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
-    @StateObject private var store = AppStore()
+    @StateObject private var store: AppStore
     @Environment(\.scenePhase) private var phase
-    init() { RanyTypography.registerFont() }
+    init() {
+        RanyTypography.registerFont()
+        _store=StateObject(wrappedValue:AppStore(startServices:!ProcessInfo.processInfo.arguments.contains("--rany-cinematic-preview")))
+    }
     var body: some Scene {
         WindowGroup {
-            RanyExperience().environmentObject(store).environmentObject(store.downloads)
+            Group {
+                if ProcessInfo.processInfo.arguments.contains("--rany-cinematic-preview") { CinematicPreview().environmentObject(store) }
+                else { RanyExperience().environmentObject(store).environmentObject(store.downloads)
                 .environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark).tint(Theme.accent)
                 .task { await store.refresh() }
                 .onChange(of:phase) { _,phase in
                     if phase == .active { Task { await store.refresh() }; store.downloads.updateNetwork() }
                     else { store.persist(); store.downloads.persist() }
                 }
+                }
+            }
         }
     }
 }
