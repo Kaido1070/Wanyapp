@@ -123,6 +123,7 @@ struct RanyIntroLayout {
 }
 
 struct RanyExperience: View {
+    var cinematicConfiguration: CinematicConfiguration = .production
     @EnvironmentObject var store: AppStore
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -140,7 +141,13 @@ struct RanyExperience: View {
                 .allowsHitTesting(!opening && !store.enteringAccount)
                 .accessibilityHidden(opening || store.enteringAccount)
             if opening {
+                if cinematicConfiguration.shouldPlay() && store.error == nil && !store.loginRequired {
+                    CinematicIntro(configuration:cinematicConfiguration,state:store.state,stories:store.stories,destination:markFrames[store.state == nil ? "login" : "header"],onReveal:{ arrangeArtwork(); revealContent() },onFinish:{
+                        opening=false; UserDefaults.standard.set(true,forKey:"rany.cinematic.approved.v2")
+                    })
+                } else {
                 RanyIntro(accountTransition:false,loginDestination:store.state == nil,firstAccount:store.firstArrival,destinationFrame:markFrames[store.state == nil ? "login" : "header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ opening = false; if store.firstArrival { store.completeAccountArrival() } })
+                }
             } else if store.enteringAccount {
                 RanyIntro(accountTransition:true,loginDestination:false,firstAccount:store.firstArrival,destinationFrame:markFrames["header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ store.completeAccountArrival() })
             }
@@ -159,6 +166,8 @@ struct RanyExperience: View {
             if !store.readerActive { ambience.prepare(state:store.state,stories:store.stories) }
         }
         .onChange(of:store.enteringAccount) { _,value in if value { revealed = false; assembly = 0; glassProgress = 0 } }
+        .onChange(of:store.error) { _,error in if error != nil && cinematicConfiguration.shouldPlay() { opening=false; arrangeArtwork(); revealContent() } }
+        .onChange(of:store.loginRequired) { _,needed in if needed && cinematicConfiguration.shouldPlay() { opening=false; arrangeArtwork(); revealContent() } }
         .onChange(of:phase) { _,value in
             if value == .background { ambience.activateWhileHidden(state:store.state,stories:store.stories) }
         }
