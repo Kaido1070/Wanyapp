@@ -20,6 +20,7 @@ final class PageStage: SCNView, SCNSceneRendererDelegate {
     private let cameraNode=SCNNode(), key=SCNNode(), bed=SCNNode()
     private var leaves: [SCNNode] = [], textures: [UIImage]
     private var aspect: CGFloat = 0
+    private var lastTime=0.0,lastLighting=1.0,lastSpeed=1.0
     init(images: [UIImage]) {
         textures=images; super.init(frame:.zero,options:nil)
         backgroundColor = .clear; isOpaque=false; allowsCameraControl=false
@@ -43,12 +44,14 @@ final class PageStage: SCNView, SCNSceneRendererDelegate {
     }
     nonisolated func renderer(_ renderer: SCNSceneRenderer,didRenderScene scene: SCNScene,atTime time: TimeInterval) {
         Task { @MainActor [weak self] in
-            guard let self,!self.didSignalReady else { return }
+            guard let self,!self.didSignalReady,self.bed.geometry?.firstMaterial?.diffuse.contents is UIImage else { return }
             self.didSignalReady=true; let ready=self.onReady; self.onReady=nil; ready?()
         }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    override func layoutSubviews() { super.layoutSubviews(); rebuild() }
+    override func layoutSubviews() {
+        super.layoutSubviews(); render(time:lastTime,lighting:lastLighting,speed:lastSpeed)
+    }
     private func rebuild() {
         guard bounds.height > 0,bounds.width > 0 else { return }
         let next=bounds.width/bounds.height
@@ -94,6 +97,7 @@ final class PageStage: SCNView, SCNSceneRendererDelegate {
         material.diffuse.wrapS = .clamp; material.diffuse.wrapT = .clamp
     }
     func render(time t: Double,lighting: Double,speed: Double) {
+        lastTime=t; lastLighting=lighting; lastSpeed=speed
         rebuild(); guard aspect>0,!textures.isEmpty else { return }
         SCNTransaction.begin(); SCNTransaction.animationDuration=0; SCNTransaction.disableActions=true
         let progression=pow(CinematicConfiguration.p(t,0.45,3.15),1.6)*18*max(0.4,min(1.5,speed))
