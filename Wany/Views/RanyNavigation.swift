@@ -37,7 +37,10 @@ struct RanyNavigationLifecycle: UIViewControllerRepresentable {
         }
         private func publishVisibility() {
             let main = navigation.map { $0.viewControllers.count <= 1 } ?? isMain
-            DispatchQueue.main.async { [weak self] in self?.onVisibility?(main) }
+            // The popped destination may already be deallocated when the main queue runs.
+            // Keep the notification, not the transient UIViewController, alive.
+            let notify = onVisibility
+            DispatchQueue.main.async { notify?(main) }
         }
         private func observeTransition() {
             guard let coordinator = transitionCoordinator ?? navigation?.transitionCoordinator else { publishVisibility(); return }
@@ -48,7 +51,16 @@ struct RanyNavigationLifecycle: UIViewControllerRepresentable {
                 let shield = UIImageView(image:image); shield.isUserInteractionEnabled = false
                 shield.frame = renderer.convert(renderer.bounds,to:view); view.addSubview(shield); wallpaper = shield
             }
-            coordinator.animate(alongsideTransition:nil) { [weak self] _ in self?.publishVisibility(); self?.clearShield() }
+            // The outgoing destination can be released before the completed pop callback.
+            // Capture the visibility callback and navigation stack independently of the observer,
+            // so a completed or cancelled interactive transition always restores the correct bar.
+            let notify = onVisibility
+            let stack = navigation
+            let fallback = isMain
+            coordinator.animate(alongsideTransition:nil) { [weak self] _ in
+                notify?(stack.map { $0.viewControllers.count <= 1 } ?? fallback)
+                self?.clearShield()
+            }
         }
         private func clearShield() { wallpaper?.removeFromSuperview(); wallpaper = nil }
         private func renderer(in view: UIView?) -> UIView? {
