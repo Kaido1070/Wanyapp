@@ -27,7 +27,9 @@ struct WanyScroll<Content: View>: View {
                 // Navigation destinations must reserve their own space for the floating bar.
                 .padding(.bottom,mainHeader ? store.bottomBarHeight + 32 : 32)
                 .background(ReaderScrollObserver { offset, moving in
-                    guard mainHeader, store.mainPageVisible else { return }
+                    // Only main tabs own the bottom bar; navigation destinations are
+                    // explicitly tagged as non-main by WanyLink.
+                    guard mainHeader else { return }
                     if let visible = scrollDirection.update(offset:offset,userScrolling:moving), store.chromeHidden == visible {
                         withAnimation(.easeInOut(duration:0.22)) { store.chromeHidden = !visible }
                     }

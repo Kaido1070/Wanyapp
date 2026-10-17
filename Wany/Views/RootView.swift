@@ -28,7 +28,6 @@ struct RootView: View {
                     }
                     // Animate the selected page only; never fade or move the bottom tab bar.
                     .opacity(tabOpacity).offset(y:tabOffset)
-                    .background(RanyNavigationLifecycle(main:true))
                     .environment(\.ranyMainHeader,true)
                     .navigationTitle("").navigationBarTitleDisplayMode(.inline)
                     .toolbar(.hidden,for:.navigationBar)
