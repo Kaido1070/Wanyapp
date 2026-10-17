@@ -28,7 +28,7 @@ struct CinematicPreview: View {
         }
         .environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark).tint(Theme.accent)
         .onPreferenceChange(RanyMarkFrameKey.self) { if playing { frames=$0 } }
-        .overlay(alignment:.topTrailing) { Button("إغلاق",systemImage:"xmark") { dismiss() }.padding(12).background(.regularMaterial,in:Capsule()).padding(12) }
+        .overlay(alignment:.topLeading) { Button("إغلاق",systemImage:"xmark") { dismiss() }.padding(12).background(.regularMaterial,in:Capsule()).padding(12) }
         .overlay(alignment:.bottom) {
             if !playing {
                 VStack(spacing:10) {
