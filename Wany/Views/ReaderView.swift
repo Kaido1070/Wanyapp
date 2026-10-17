@@ -4,6 +4,10 @@ import ImageIO
 struct ReaderView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var downloads: Downloads
+    @State private var registeredOpen: String?
+    @State private var catchupPrompt=false
+    @State private var catchupShown=false
+    @State private var enteredFromReader=false
     @Environment(\.dismiss) var dismiss
     @Environment(\.ranyNavigator) private var navigator
     let story: Story
@@ -74,6 +78,10 @@ struct ReaderView: View {
             }
         }.toolbar(.hidden,for:.navigationBar).toolbar(.hidden,for:.tabBar)
         .sheet(isPresented:$choosingChapter) { chapterPicker }
+        .confirmationDialog("هل قرأت الفصول السابقة؟",isPresented:$catchupPrompt,titleVisibility:.visible) {
+            Button("تعليم الفصول السابقة كمقروءة") { Task { await store.manualRead(story,chapters:previousUnread) } }.disabled(!store.online || store.syncing || store.readingMutation)
+            Button("لاحقًا",role:.cancel) {}
+        } message: { Text("يوجد \(previousUnread.count) فصل سابق غير مكتمل. هذه عملية قراءة مستقلة عن التنزيل.") }
         .task(id:readingChapter.id) { await load() }
         .task {
             if store.online, let full = try? await API.shared.fullSeries(story.key), !Task.isCancelled { store.remember(full) }
@@ -105,6 +113,17 @@ struct ReaderView: View {
                 .navigationTitle("اختيار الفصل").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement:.confirmationAction) { Button("إغلاق") { choosingChapter = false } } }
         }.environment(\.layoutDirection,.rightToLeft)
+    }
+    private var previousUnread: [Double] {
+        guard let state=store.state else { return [] }
+        return (payload?.item ?? story).orderedChapters.filter { $0.number < readingChapter.number && !state.data.completed.contains(story.key+":"+$0.id) }.map(\.number)
+    }
+    private func recordOpen(_ value: ChapterPayload) {
+        guard registeredOpen != value.id else { return }; registeredOpen=value.id
+        store.queueChapterOpen(value); Task { await store.syncProgress() }
+        if !enteredFromReader,!catchupShown,(payload?.item ?? story).chapterListComplete != false,!previousUnread.isEmpty {
+            catchupShown=true; catchupPrompt=true
+        }
     }
     func neighbor(forward: Bool) -> Chapter? {
         if let index = chapters.firstIndex(where:{$0.id == readingChapter.id}) {
@@ -146,6 +165,7 @@ struct ReaderView: View {
         if let payload { downloads.leaveChapter(payload.id) }
         payload = nil; error = nil; currentPage = nil; interacted = false
         percent = 0; pageRatios = [:]; scrollDirection = ReaderScrollDirection(revealDistance:288); controls = true
+        registeredOpen=nil; enteredFromReader=true
         activeChapter = target
         Task { await store.syncProgress() }
     }
@@ -162,7 +182,7 @@ struct ReaderView: View {
         if let saved = Disk.read(ChapterPayload.self,owner:owner,name:Disk.chapterName(id)) {
             pageRatios = cachedRatios(saved,owner:owner)
             payload = saved; currentPage = restoredPage(saved)
-            downloads.usePayload(saved)
+            downloads.usePayload(saved); recordOpen(saved)
             return
         }
         guard store.online else { error = "هذا الفصل غير محمل. اتصل بالإنترنت لتنزيله؛ بقية الفصول المحملة متاحة من التنزيلات."; return }
@@ -170,7 +190,7 @@ struct ReaderView: View {
             let value = try await API.shared.chapter(story.key,requested)
             guard !Task.isCancelled, readingChapter.id == requested.id, store.state?.user.id == owner else { return }
             pageRatios = cachedRatios(value,owner:owner)
-            payload = value; currentPage = restoredPage(value); downloads.usePayload(value); store.remember(value.item)
+            payload = value; currentPage = restoredPage(value); downloads.usePayload(value); store.remember(value.item); recordOpen(value)
         } catch { if !Task.isCancelled, readingChapter.id == requested.id { self.error = error.localizedDescription } }
     }
 }

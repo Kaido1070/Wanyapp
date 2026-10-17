@@ -25,6 +25,7 @@ struct Story: Codable, Hashable, Identifiable {
     var chapterListComplete: Bool?
     var chapterPageCount: Int?
     var sourceTemporarilyUnavailable: Bool?
+    var snapshotOriginalCover: String?
     var id: String { key }
     var orderedChapters: [Chapter] { (chapters ?? []).sorted { $0.number < $1.number } }
 }
@@ -95,6 +96,8 @@ struct AccountState: Codable {
     var data = AccountData()
     var pending: [String: ProgressRecord] = [:]
     var completedPending: [String:ProgressRecord]?
+    var pendingOpens: [String:ReadingOpenEvent]?
+    var pendingSnapshots: [String:WorkSnapshotWrite]?
     var positions: [String: Int] = [:]
     var stats: [String: JSONValue] = [:]
     var profile: JSONValue?
@@ -230,6 +233,13 @@ extension AccountState {
         }
         for record in completedPending?.values.map({ $0 }) ?? [] {
             if !data.completed.contains(record.id) { data.completed.append(record.id) }
+        }
+        for event in (pendingOpens?.values.map { $0 } ?? []).sorted(by:{$0.openedAt < $1.openedAt}) {
+            if let index=data.library.firstIndex(where:{$0.mangaId == event.mangaId}) {
+                if event.openedAt >= (data.library[index].lastReadAt ?? 0) { data.library[index].lastReadAt=event.openedAt; data.library[index].lastReadChapter=event.chapter }
+                data.library[index].highestReachedChapter=max(data.library[index].highestReachedChapter ?? 0,event.chapter)
+            } else { data.library.append(LibraryEntry(mangaId:event.mangaId,status:"reading",addedAt:event.openedAt,updatedAt:event.openedAt,lastReadAt:event.openedAt,lastReadChapter:event.chapter,highestReachedChapter:event.chapter)) }
+            if event.openedAt >= (remote.library.compactMap(\.lastReadAt).max() ?? 0) { data.lastOpened=LastOpened(mangaId:event.mangaId,chapter:event.chapter) }
         }
         if let latest = pending.values.max(by: { $0.updatedAt < $1.updatedAt }), latest.updatedAt >= (remote.library.compactMap(\.lastReadAt).max() ?? 0) {
             data.lastOpened = LastOpened(mangaId:latest.mangaId,chapter:latest.chapter)

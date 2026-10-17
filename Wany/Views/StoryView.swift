@@ -4,6 +4,10 @@ struct StoryView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var downloads: Downloads
     let initial: Story
+    var sourceKeys: [String] = []
+    @State private var selectedSource: String?
+    @State private var confirmReadAll=false
+    @State private var confirmClear=false
     @State private var detail: Story?
     @State private var loading = false
     @State private var error: String?
@@ -13,7 +17,7 @@ struct StoryView: View {
     @State private var listPicker = false
     @State private var preparingUnread = false
     @State private var selected: Set<String> = []
-    var story: Story { detail ?? store.stories[initial.key] ?? initial }
+    var story: Story { detail ?? store.stories[selectedSource ?? initial.key] ?? initial }
     var chapters: [Chapter] {
         let result = story.orderedChapters.filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || $0.id.contains(query) }
         return ascending ? result : result.reversed()
@@ -24,7 +28,10 @@ struct StoryView: View {
                 CoverView(story:story).frame(width:112,height:164).clipShape(RoundedRectangle(cornerRadius:16))
                 VStack(alignment:.leading,spacing:10) {
                     Text(story.title).font(RanyTypography.font(.title2).bold())
-                    Text(sourceLabel(story.source)).font(RanyTypography.font(.caption)).foregroundStyle(Theme.accent)
+                    if sourceKeys.count > 1 { Menu {
+                        ForEach(sourceKeys,id:\.self) { key in Button(sourceLabel(sourceFromStoryKey(key))) { Task { await switchSource(key) } } }
+                    } label: { Label(sourceLabel(story.source),systemImage:"arrow.triangle.2.circlepath").font(.caption) }.disabled(loading)
+                    } else { Text(sourceLabel(story.source)).font(RanyTypography.font(.caption)).foregroundStyle(Theme.accent) }
                     Text(storyStatusLabel(story.status ?? story.type)).font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
                     Button { Task { await store.toggleFavorite(story) } } label: { Label(store.state?.data.favorites.contains(story.key) == true ? "في المفضلة" : "أضف للمفضلة",systemImage:store.state?.data.favorites.contains(story.key) == true ? "heart.fill" : "heart") }.buttonStyle(.bordered)
                     Button("إضافة إلى قائمة",systemImage:"text.badge.plus") { listPicker=true }.buttonStyle(.bordered).disabled(!store.online)
@@ -52,6 +59,10 @@ struct StoryView: View {
                 }.frame(maxWidth:.infinity).padding(9)
             }.buttonStyle(.bordered).disabled(preparingUnread || downloads.preparing.contains(story.key) || !store.online)
             if let job = downloads.savedJobs.first(where:{$0.id == story.key}) { DownloadSummary(job:job).card() }
+            Menu("أدوات القراءة",systemImage:"checkmark.bookmark") {
+                Button("تعليم جميع الفصول كمقروءة") { confirmReadAll=true }.disabled(story.chapterListComplete != true || story.orderedChapters.isEmpty)
+                Button("مسح تقدم القصة وإعادتها لغير مقروءة",role:.destructive) { confirmClear=true }
+            }.disabled(!store.online || loading || store.readingMutation || store.syncing)
             HStack { Text("الفصول · \(story.chapters?.count ?? 0)").font(RanyTypography.font(.title3).bold()); Spacer(); if loading { ProgressView() }; Button { ascending.toggle() } label: { Image(systemName:"arrow.up.arrow.down") }; Button(selecting ? "إلغاء" : "تحديد") { selecting.toggle(); selected.removeAll() } }
             if let error { Text(error).font(RanyTypography.font(.caption)).foregroundStyle(.orange); Button("إعادة جلب قائمة الفصول") { Task { await refresh() } } }
             if !store.online { Text("التفاصيل محفوظة. الفصول بعلامة ✓ متاحة بدون إنترنت؛ الفصول الناقصة تحتاج اتصالًا لاستكمال الصور.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
@@ -64,20 +75,41 @@ struct StoryView: View {
                     HStack {
                         if selecting { Button { if selected.contains(chapter.id) { selected.remove(chapter.id) } else { selected.insert(chapter.id) } } label: { Image(systemName:selected.contains(chapter.id) ? "checkmark.circle.fill" : "circle") } }
                         WanyLink { ReaderView(story:story,chapter:chapter) } label: {
-                            VStack(alignment:.leading,spacing:5) { Text(chapter.title).font(RanyTypography.font(.subheadline)); if store.state?.data.completed.contains(story.key+":"+chapter.id) == true { Text("مقروء").font(RanyTypography.font(.caption2)).foregroundStyle(Theme.accent) } }.frame(maxWidth:.infinity,alignment:.leading).foregroundStyle(.primary)
+                            VStack(alignment:.leading,spacing:5) {
+                                Text(chapter.title).font(RanyTypography.font(.subheadline))
+                                HStack(spacing:8) {
+                                    if store.state?.data.completed.contains(story.key+":"+chapter.id) == true { Text("مقروء").foregroundStyle(Theme.accent) }
+                                    else if let percent=store.state?.data.progress[story.key+":"+chapter.id]?.percent,percent>0 { Text("\(Int(percent))٪").foregroundStyle(Theme.accent) }
+                                    if let date=chapter.publishedAt,!date.isEmpty { Text(date).foregroundStyle(.secondary) }
+                                }.font(.caption2)
+                            }.frame(maxWidth:.infinity,alignment:.leading).foregroundStyle(.primary)
                         }
                         if downloads.savedJobs.first(where:{$0.id == story.key})?.chapters.first(where:{$0.id == chapter.id})?.complete == true { Image(systemName:"checkmark.circle.fill").foregroundStyle(.green) }
                         else { Button { Task { await downloads.enqueue(story,chapters:[chapter]) } } label: { Image(systemName:"arrow.down.circle").font(RanyTypography.font(.title3)) }.disabled(!store.online) }
-                    }.padding(14).ranyInsetGlass(radius:12)
+                    }.padding(14).ranyInsetGlass(radius:12).contextMenu {
+                        Button("تعليم الفصل كمقروء",systemImage:"checkmark") { Task { await store.manualReadChapter(story,chapter:chapter.number) } }.disabled(!store.online || store.syncing || store.readingMutation)
+                        Button("إعادة الفصل إلى غير مقروء",systemImage:"arrow.uturn.backward") { Task { await store.manualUnread(story,chapter:chapter.number) } }.disabled(!store.online || store.syncing || store.readingMutation)
+                    }
                 }
             }
         }.navigationTitle(story.title).navigationBarTitleDisplayMode(.inline)
+            .confirmationDialog("تعليم جميع الفصول كمقروءة؟",isPresented:$confirmReadAll,titleVisibility:.visible) { Button("تأكيد تعليم \(story.chapters?.count ?? 0) فصل") { Task { await store.manualRead(story,chapters:story.orderedChapters.map(\.number)) } }; Button("إلغاء",role:.cancel) {} }
+            .confirmationDialog("مسح تقدم هذه القصة؟",isPresented:$confirmClear,titleVisibility:.visible) { Button("مسح التقدم",role:.destructive) { Task { await store.manualUnreadGroup(story,keys:sourceKeys) } }; Button("إلغاء",role:.cancel) {} } message: { Text("يُحذف سجل وتقدم القراءة لكل المصادر المرتبطة بهذه القصة عبر الموقع. تبقى الملفات المحملة والمفضلة والقوائم.") }
             .sheet(isPresented:$listPicker) { StoryListPicker(story:story) }
             .task { await refresh() }.refreshable { await refresh() }
     }
+    private func switchSource(_ key: String) async {
+        guard key != story.key,store.online,!loading else { return }
+        loading=true; let owner=store.state?.user.id; defer { loading=false }
+        do {
+            let value=try await API.shared.fullSeries(key)
+            guard !Task.isCancelled,owner == store.state?.user.id else { return }
+            store.remember(value); selectedSource=key; detail=value; selecting=false; selected=[]; error=nil
+        } catch { self.error=error.localizedDescription }
+    }
     func refresh() async {
         guard store.online, !loading else { return }; loading = true; defer { loading = false }
-        do { let value = try await API.shared.fullSeries(initial.key); detail = value; store.remember(value); error = nil }
+        do { let value = try await API.shared.fullSeries(selectedSource ?? initial.key); detail = value; store.remember(value); error = nil }
         catch { self.error = error.localizedDescription }
     }
 }

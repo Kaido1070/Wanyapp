@@ -91,7 +91,7 @@ struct ListEditorSheet: View {
                 guard !id.isEmpty else { throw APIError(message:"لم يرجع الخادم معرّف القائمة",status:0) }
                 if list == nil { createdID=id }
             }
-            if let story=addingStory { try await API.shared.send("/api/lists/"+apiComponent(id)+"/items",value:["mangaId":story.key]) }
+            if let story=addingStory { store.queueSnapshot(story); try await API.shared.send("/api/lists/"+apiComponent(id)+"/items",value:["mangaId":story.key]) }
             guard !Task.isCancelled,store.state?.user.id == owner else { return }
             NotificationCenter.default.post(name:.ranyCollectionsChanged,object:owner); onCreated(id); dismiss()
         } catch { if !isRequestCancellation(error) { self.error=createdID == nil ? error.localizedDescription : "أُنشئت القائمة، وتعذرت إضافة القصة. أعد المحاولة لإضافتها دون تكرار القائمة."; store.report(error) } }
@@ -204,7 +204,7 @@ struct StoryListPicker: View {
     private func load() async { await page.load("/api/lists",store:store); await membership.load("/api/lists/membership/"+apiComponent(story.key),store:store) }
     private func add(_ id: String) async {
         busy=true; defer { busy=false }
-        do { try await API.shared.send("/api/lists/"+apiComponent(id)+"/items",value:["mangaId":story.key]); await load(); NotificationCenter.default.post(name:.ranyCollectionsChanged,object:store.state?.user.id) }
+        do { try await API.shared.send("/api/lists/"+apiComponent(id)+"/items",value:["mangaId":story.key]); store.queueSnapshot(story); await load(); NotificationCenter.default.post(name:.ranyCollectionsChanged,object:store.state?.user.id) }
         catch { self.error=error.localizedDescription; store.report(error) }
     }
 }

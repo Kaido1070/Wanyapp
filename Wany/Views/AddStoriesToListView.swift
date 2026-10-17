@@ -29,7 +29,7 @@ struct AddStoriesToListView: View {
     func add(_ story: Story) async {
         guard !busy.contains(story.key) else { return }
         busy.insert(story.key); defer { busy.remove(story.key) }
-        do { try await API.shared.send("/api/lists/"+id+"/items",value:["mangaId":story.key]); await page.load("/api/lists/"+id,store:store) }
+        do { try await API.shared.send("/api/lists/"+id+"/items",value:["mangaId":story.key]); store.queueSnapshot(story); await page.load("/api/lists/"+id,store:store) }
         catch { if !isRequestCancellation(error) { store.error = error.localizedDescription } }
     }
 }

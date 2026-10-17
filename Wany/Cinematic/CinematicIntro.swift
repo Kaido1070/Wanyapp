@@ -98,7 +98,7 @@ private struct CinematicLetter: View {
             .fixedSize().mask {
                 GeometryReader { box in
                     let cut=layout.cut(index:index,t:t)
-                    Rectangle().frame(width:box.size.width*(1-cut)).offset(x:box.size.width*cut)
+                    Rectangle().frame(width:box.size.width*CGFloat(1-cut)).offset(x:box.size.width*CGFloat(cut))
                 }
             }
             .scaleEffect(layout.scale(index:index,t:t))
@@ -107,7 +107,7 @@ private struct CinematicLetter: View {
             .mask(alignment:.leading) {
                 if index == 0 && t >= 3.14 {
                     GeometryReader { box in
-                        let edge=layout.size.width/2-84+168*CinematicConfiguration.p(t,3.14,3.48)
+                        let edge: CGFloat=layout.size.width/2-84+168*CGFloat(CinematicConfiguration.p(t,3.14,3.48))
                         Rectangle().frame(width:max(0,box.size.width-edge)).offset(x:edge)
                     }
                 } else { Rectangle() }
@@ -126,7 +126,7 @@ private struct CinematicPaperEdge: View {
                 .overlay(alignment:.trailing) { Rectangle().fill(Color(red:0.83,green:0.77,blue:0.65)).frame(width:1) }
                 .frame(width:15,height:145).rotationEffect(.degrees(-14))
                 .shadow(color:.black.opacity(0.7),radius:6,x:9,y:3)
-                .position(x:-45+(size.width+90)*sweep,y:size.height*0.46)
+                .position(x:-45+(size.width+90)*CGFloat(sweep),y:size.height*0.46)
         }
     }
 }

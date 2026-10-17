@@ -20,20 +20,20 @@ struct APIError: LocalizedError {
         self.credential = credential ?? (persistCredentials ? Keychain.read("session").flatMap { String(data:$0, encoding:.utf8) } : nil)
     }
     func clear() { generation = UUID(); credential = nil; if persistCredentials { Keychain.delete("session") } }
-    func request(_ path: String, query: [String:String] = [:], method: String = "GET", body: Data? = nil) throws -> URLRequest {
+    func request(_ path: String, query: [String:String] = [:], method: String = "GET", body: Data? = nil,contentType: String = "application/json") throws -> URLRequest {
         guard path.hasPrefix("/api/"), !path.contains("://") else { throw APIError(message:"عنوان غير صالح",status:0) }
         var components = URLComponents(url:website.appendingPathComponent(String(path.dropFirst())), resolvingAgainstBaseURL:false)!
         if !query.isEmpty { components.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name:$0.key,value:$0.value) } }
         var req = URLRequest(url:components.url!); req.httpMethod = method; req.httpBody = body
         req.setValue("application/json", forHTTPHeaderField:"Accept")
         req.setValue(website.absoluteString, forHTTPHeaderField:"Origin")
-        if body != nil { req.setValue("application/json", forHTTPHeaderField:"Content-Type") }
+        if body != nil { req.setValue(contentType, forHTTPHeaderField:"Content-Type") }
         if let credential { req.setValue("anytime_session=" + credential, forHTTPHeaderField:"Cookie") }
         return req
     }
-    func raw(_ path: String, query: [String:String] = [:], method: String = "GET", body: Data? = nil) async throws -> Data {
+    func raw(_ path: String, query: [String:String] = [:], method: String = "GET", body: Data? = nil,contentType: String = "application/json") async throws -> Data {
         let scope = generation
-        let (data, response) = try await session.data(for: request(path,query:query,method:method,body:body))
+        let (data, response) = try await session.data(for: request(path,query:query,method:method,body:body,contentType:contentType))
         guard scope == generation else { throw CancellationError() }
         guard let http = response as? HTTPURLResponse else { throw APIError(message:"تعذر الاتصال",status:0) }
         guard (200..<300).contains(http.statusCode) else {
