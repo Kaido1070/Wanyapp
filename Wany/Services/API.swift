@@ -21,8 +21,9 @@ struct APIError: LocalizedError {
     }
     func clear() { generation = UUID(); credential = nil; if persistCredentials { Keychain.delete("session") } }
     func request(_ path: String, query: [String:String] = [:], method: String = "GET", body: Data? = nil,contentType: String = "application/json") throws -> URLRequest {
-        guard path.hasPrefix("/api/"), !path.contains("://") else { throw APIError(message:"عنوان غير صالح",status:0) }
-        var components = URLComponents(url:website.appendingPathComponent(String(path.dropFirst())), resolvingAgainstBaseURL:false)!
+        guard path.hasPrefix("/api/"), !path.contains("://"), !path.contains("?"), !path.contains("#") else { throw APIError(message:"عنوان غير صالح",status:0) }
+        guard let target=URL(string:path,relativeTo:website)?.absoluteURL, target.host == website.host,
+              var components=URLComponents(url:target,resolvingAgainstBaseURL:false) else { throw APIError(message:"عنوان غير صالح",status:0) }
         if !query.isEmpty { components.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name:$0.key,value:$0.value) } }
         var req = URLRequest(url:components.url!); req.httpMethod = method; req.httpBody = body
         req.setValue("application/json", forHTTPHeaderField:"Accept")

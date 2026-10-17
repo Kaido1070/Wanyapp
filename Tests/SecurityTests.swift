@@ -20,6 +20,18 @@ final class APIStubProtocol: URLProtocol {
         let config=URLSessionConfiguration.ephemeral; config.protocolClasses=[APIStubProtocol.self]
         return API(configuration:config,credential:"fixture-old",persistCredentials:false)
     }
+    func testPathIdentifiersSurviveExactlyOneServerDecodingPass() throws {
+        let api=client(), prefix="/api/lists/membership/"
+        for key in ["tx:work/name?x=1","aq:حكاية ١","mt:100%story"] {
+            let request=try api.request(prefix+apiComponent(key))
+            let url=try XCTUnwrap(request.url)
+            let parts=try XCTUnwrap(URLComponents(url:url,resolvingAgainstBaseURL:false))
+            let encoded=String(parts.percentEncodedPath.dropFirst(prefix.count))
+            XCTAssertEqual(encoded.removingPercentEncoding,key,"The server decodes path identifiers once, including encoded slash and percent characters.")
+            XCTAssertEqual(url.host,website.host)
+        }
+        XCTAssertThrowsError(try api.request("/api/data?inline=1"))
+    }
     func testPasswordChangeStoresRotatedSessionBeforeFollowingRequest() async throws {
         let api=client()
         APIStubProtocol.handler={ request in
