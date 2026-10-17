@@ -2,6 +2,20 @@ import XCTest
 @testable import Wany
 
 @MainActor final class CollectionTests: XCTestCase {
+    func testCachedPageClearsPreviousAccountAndLogoutOffline() async {
+        let store=AppStore(startServices:false); store.online=false
+        let page=CachedPage()
+        store.state=AccountState(user:Account(id:"privacy-fixture-a",name:"A",username:"fixture-a"))
+        await page.load("/api/profiles/fixture",store:store)
+        page.value = .object(["private":.string("account-a")]); page.loading=true
+        store.state=AccountState(user:Account(id:"privacy-fixture-b",name:"B",username:"fixture-b"))
+        await page.load("/api/profiles/fixture",store:store)
+        XCTAssertEqual(page.value["private"].string,""); XCTAssertFalse(page.loading)
+        page.value = .object(["private":.string("account-b")])
+        store.state=nil
+        await page.load("/api/profiles/fixture",store:store)
+        XCTAssertEqual(page.value["private"].string,"")
+    }
     func testManagedOrderingPreservesUnrelatedSectionsAndVisibility() throws {
         let all=[RanyProfileSection(key:"reading",sectionType:"continue_reading",position:1,isVisible:true),RanyProfileSection(key:"favorite",sectionType:"favorites",position:2,isVisible:false),RanyProfileSection(key:"activity",sectionType:"my_activity",position:3,isVisible:true),RanyProfileSection(key:"custom",sectionType:"custom_list",referenceId:"fixture-list",position:4,isVisible:true)]
         let reordered=SectionOrder.replacingManaged(all,with:[all[3],all[1]])

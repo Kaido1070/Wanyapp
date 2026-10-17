@@ -59,6 +59,7 @@ struct ListEditorSheet: View {
     @State private var busy=false
     @State private var error: String?
     @State private var createdID: String?
+    @State private var saveTask: Task<Void,Never>?
     var body: some View {
         NavigationStack {
             WanyScroll {
@@ -72,13 +73,14 @@ struct ListEditorSheet: View {
                     }
                     if let error { Text(error).foregroundStyle(.orange).font(.caption) }
                     if busy { ProgressView() }
-                    Button(createdID == nil ? (list == nil ? "إنشاء القائمة" : "حفظ التعديلات") : "إعادة محاولة إضافة القصة") { Task { await save() } }
+                    Button(createdID == nil ? (list == nil ? "إنشاء القائمة" : "حفظ التعديلات") : "إعادة محاولة إضافة القصة") { saveTask=Task { await save() } }
                         .disabled(!ListEditorInput(name:name,description:description,iconKey:icon).valid || busy || !store.online)
                 }.card()
             }.navigationTitle(list == nil ? "قائمة جديدة" : "تعديل القائمة").disabled(busy)
                 .toolbar { ToolbarItem(placement:.cancellationAction) { Button("إغلاق") { dismiss() } } }
         }.environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark)
         .onAppear { if let list { name=list.name; description=list.description ?? ""; icon=list.iconKey } }
+        .onDisappear { saveTask?.cancel(); saveTask=nil }
     }
     private func save() async {
         guard let owner=store.state?.user.id,!busy else { return }; busy=true; error=nil; defer { busy=false }
@@ -94,13 +96,14 @@ struct ListEditorSheet: View {
             if let story=addingStory { store.queueSnapshot(story); try await API.shared.send("/api/lists/"+apiComponent(id)+"/items",value:["mangaId":story.key]) }
             guard !Task.isCancelled,store.state?.user.id == owner else { return }
             NotificationCenter.default.post(name:.ranyCollectionsChanged,object:owner); onCreated(id); dismiss()
-        } catch { if !isRequestCancellation(error) { self.error=createdID == nil ? error.localizedDescription : "أُنشئت القائمة، وتعذرت إضافة القصة. أعد المحاولة لإضافتها دون تكرار القائمة."; store.report(error) } }
+        } catch { if !Task.isCancelled,store.state?.user.id == owner,!isRequestCancellation(error) { self.error=createdID == nil ? error.localizedDescription : "أُنشئت القائمة، وتعذرت إضافة القصة. أعد المحاولة لإضافتها دون تكرار القائمة."; store.report(error) } }
     }
 }
 
 struct ListDetailView: View {
     @EnvironmentObject var store: AppStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.ranyNavigator) private var navigator
     let id: String
     let title: String
     @StateObject private var page=CachedPage()
@@ -150,13 +153,17 @@ struct ListDetailView: View {
     private func mutate(_ path: String,method: String,exit: Bool = false) {
         guard !busy else { return }; busy=true
         let owner=store.state?.user.id
+        let savingRoute=navigator?.path.last
         Task { @MainActor in
             defer { busy=false }
             do {
                 _=try await API.shared.raw(path,method:method)
                 guard owner == store.state?.user.id else { return }
                 NotificationCenter.default.post(name:.ranyCollectionsChanged,object:owner)
-                if exit { dismiss() } else { await load() }
+                if exit {
+                    if let navigator,let savingRoute { navigator.pop(ifCurrent:savingRoute) }
+                    else { dismiss() }
+                } else { await load() }
             } catch { store.report(error) }
         }
     }

@@ -16,7 +16,7 @@ struct CinematicPreview: View {
     var body: some View {
         ZStack {
             RanyBackdropHost(ambience:ambience,reading:false,accountID:fixture.state?.user.id,assembly:1).ignoresSafeArea()
-            RootView().environmentObject(fixture).environmentObject(fixture.downloads)
+            RootView().id(fixture.state?.user.id).environmentObject(fixture).environmentObject(fixture.downloads)
                 .environment(\.ranyMeasureMarkFrames,playing).environment(\.ranyMarkCovered,playing)
                 .disabled(true).opacity(revealed ? 1 : 0).accessibilityHidden(playing)
             if playing {

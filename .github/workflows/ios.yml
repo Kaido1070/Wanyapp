@@ -40,14 +40,23 @@ jobs:
         if: "!contains(github.event.head_commit.message, '[package-only]')"
         run: |
           mkdir -p cinematic-preview
-          xcrun simctl terminate "$SIMULATOR_ID" site.wany.reader || true
-          xcrun simctl io "$SIMULATOR_ID" recordVideo --codec=h264 cinematic-preview/Rany-native-intro.mp4 &
-          RECORD_PID=$!
-          xcrun simctl launch "$SIMULATOR_ID" site.wany.reader --rany-cinematic-preview
-          sleep 8
-          kill -INT "$RECORD_PID"
-          wait "$RECORD_PID" || true
-          test -s cinematic-preview/Rany-native-intro.mp4
+          xcrun simctl boot "$SIMULATOR_ID" || true
+          xcrun simctl bootstatus "$SIMULATOR_ID" -b
+          xcrun simctl install "$SIMULATOR_ID" build-simulator/Build/Products/Debug-iphonesimulator/Wany.app
+          record_intro() {
+            CASE_NAME="$1"
+            shift
+            xcrun simctl terminate "$SIMULATOR_ID" site.wany.reader || true
+            xcrun simctl io "$SIMULATOR_ID" recordVideo --codec=h264 "cinematic-preview/Rany-$CASE_NAME.mp4" &
+            RECORD_PID=$!
+            xcrun simctl launch "$SIMULATOR_ID" site.wany.reader --rany-cinematic-preview "$@"
+            sleep 10
+            kill -INT "$RECORD_PID"
+            wait "$RECORD_PID" || true
+            test -s "cinematic-preview/Rany-$CASE_NAME.mp4"
+          }
+          record_intro login
+          record_intro signed-in --rany-cinematic-signed-in
       - uses: actions/upload-artifact@v4
         with:
           name: Rany-cinematic-native-video

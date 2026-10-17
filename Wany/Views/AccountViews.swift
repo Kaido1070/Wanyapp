@@ -6,8 +6,14 @@ import SwiftUI
     @Published var error: String?
     private var requestID = UUID()
     private var filename: String?
+    private var accountID: String?
     func load(_ path: String, store: AppStore, query: [String:String] = [:]) async {
-        guard let owner = store.state?.user.id else { return }
+        let ownerID = store.state?.user.id
+        if accountID != ownerID {
+            requestID = UUID(); accountID = ownerID; filename = nil
+            value = .null; error = nil; loading = false
+        }
+        guard let owner = ownerID else { return }
         let filename = "api/"+Disk.hash(path + query.sorted {$0.key<$1.key}.description)+".json"
         guard !loading || self.filename != filename else { return }
         let token = UUID(); requestID = token; self.filename = filename
@@ -22,7 +28,7 @@ import SwiftUI
             let response = try await API.shared.get(path,query:query,as:JSONValue.self)
             guard requestID == token, store.state?.user.id == owner else { return }
             value = response; error = nil; if !freshAuthorization { try Disk.save(value,owner:owner,name:filename) }
-        } catch { if requestID == token, !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
+        } catch { if requestID == token, store.state?.user.id == owner, !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
 }
 struct SettingsView: View {
