@@ -8,6 +8,8 @@ struct RanyIntro: View {
     let accountTransition: Bool
     let loginDestination: Bool
     var firstAccount = false
+    var destinationFrame: CGRect?
+    var sourceFrame: CGRect?
     var onArrange: () -> Void = {}
     let onReveal: () -> Void
     let onFinish: () -> Void
@@ -15,11 +17,11 @@ struct RanyIntro: View {
     @State private var visible = false
     var body: some View {
         GeometryReader { geometry in
-            let layout = RanyIntroLayout(size:geometry.size)
+            let layout = RanyIntroLayout(size:geometry.size,origin:geometry.frame(in:.global).origin,destinationFrame:destinationFrame,sourceFrame:sourceFrame)
             ZStack {
                 Theme.background.opacity(stage < 4 ? 0.6 : 0)
                 // The exact same asset and rendering modifiers used by the final toolbar/login mark.
-                RanyMark(size:stage < 4 ? (accountTransition && !firstAccount ? 92 : 168) : (loginDestination ? 92 : 32),illuminated:stage == 3)
+                RanyMark(size:stage < 4 ? (accountTransition && !firstAccount ? 92 : 168) : layout.destinationSize(login:loginDestination),illuminated:stage == 3)
                     .opacity(stage >= 3 ? 1 : 0)
                     .position(stage == 3 && accountTransition && !firstAccount ? layout.loginPoint : layout.point(index:0,stage:stage,login:loginDestination))
                 if firstAccount {
@@ -35,14 +37,14 @@ struct RanyIntro: View {
                         let keep = RanyIdentity.retainedIndices.contains(index)
                         let size: CGFloat = stage == 0 ? 38 : (stage == 1 ? 54 : (stage <= 3 ? 92.8 : (loginDestination ? 63.5 : 22)))
                         Text(String(letter)).font(.custom(RanyIdentity.fontName,size:54))
-                            .foregroundStyle(Color(red:223.0/255,green:193.0/255,blue:149.0/255))
+                            .foregroundStyle(RanyTypography.brandColor)
                             .scaleEffect(size/54)
                             .position(layout.point(index:index,stage:stage,login:loginDestination))
                             .opacity(opacity(index:index,keep:keep))
                     }
                 }
             }.opacity(visible ? 1 : 0).accessibilityElement(children:.ignore).accessibilityLabel("Rany، اقرأ في أي وقت")
-        }.ignoresSafeArea().allowsHitTesting(false)
+        }.ignoresSafeArea().environment(\.layoutDirection,.leftToRight).allowsHitTesting(false)
         .task {
             if accountTransition && !firstAccount {
                 stage = 3; visible = true
@@ -51,8 +53,6 @@ struct RanyIntro: View {
                 onReveal()
                 withAnimation(.timingCurve(0.22,0.7,0.15,1,duration:reduceMotion ? 0.08 : 0.78)) { stage = 4 }
                 guard await wait(reduceMotion ? 0.1 : 0.8) else { return }
-                withAnimation(.linear(duration:0.1)) { visible = false }
-                guard await wait(0.1) else { return }
                 onFinish(); return
             }
             stage = reduceMotion ? 2 : 0
@@ -70,8 +70,6 @@ struct RanyIntro: View {
             onReveal()
             withAnimation(.timingCurve(0.2,0.75,0.2,1,duration:reduceMotion ? 0.08 : 0.84)) { stage = 4 }
             guard await wait(reduceMotion ? 0.1 : 0.86) else { return }
-            withAnimation(.easeOut(duration:0.12)) { visible = false }
-            guard await wait(0.12) else { return }
             onFinish()
         }
     }
@@ -86,9 +84,17 @@ struct RanyIntro: View {
     }
 }
 
-private struct RanyIntroLayout {
+struct RanyIntroLayout {
     let size: CGSize
-    var loginPoint: CGPoint { CGPoint(x:size.width/2,y:max(105,size.height*0.16)) }
+    let origin: CGPoint
+    let destinationFrame: CGRect?
+    let sourceFrame: CGRect?
+    private func localCenter(_ frame: CGRect) -> CGPoint {
+        CGPoint(x:frame.midX-origin.x,y:frame.midY-origin.y)
+    }
+    var loginPoint: CGPoint { sourceFrame.map(localCenter) ?? CGPoint(x:size.width/2,y:max(105,size.height*0.16)) }
+    func destinationSize(login: Bool) -> CGFloat { destinationFrame?.width ?? (login ? 92 : 32) }
+
     private func width(_ c: Character, at points: CGFloat) -> CGFloat {
         let font = UIFont(name:RanyIdentity.fontName,size:points) ?? UIFont.systemFont(ofSize:points)
         return max(1,(String(c) as NSString).size(withAttributes:[.font:font]).width)
@@ -111,6 +117,7 @@ private struct RanyIntroLayout {
             return linePoint(RanyIdentity.retainedIndices,index:target,points:54,y:middle)
         }
         if stage <= 3 { return CGPoint(x:size.width/2,y:middle) }
+        if let destinationFrame { return localCenter(destinationFrame) }
         return CGPoint(x:login ? size.width/2 : size.width-46,y:login ? max(105,size.height*0.16) : 70)
     }
 }
@@ -120,22 +127,28 @@ struct RanyExperience: View {
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var ambience = RanyAmbience()
+    @State private var markFrames: [String:CGRect] = [:]
     @State private var assembly: Double = 0
     @State private var opening = true
     @State private var revealed = false
     var body: some View {
         ZStack {
             RanyBackdrop(ambience:ambience,reading:store.readerActive,accountID:store.state?.user.id,assembly:assembly)
-            RootView().opacity((opening && !revealed) || (store.enteringAccount && !revealed) ? 0 : 1)
+            RootView().environment(\.ranyMarkCovered,opening || store.enteringAccount).opacity((opening && !revealed) || (store.enteringAccount && !revealed) ? 0 : 1)
                 .animation(.easeOut(duration:reduceMotion ? 0.05 : 0.42),value:revealed)
                 .allowsHitTesting(!opening && !store.enteringAccount)
                 .accessibilityHidden(opening || store.enteringAccount)
             if opening {
-                RanyIntro(accountTransition:false,loginDestination:store.state == nil,onArrange:arrangeArtwork,onReveal:{ revealed = true },onFinish:{ opening = false })
+                RanyIntro(accountTransition:false,loginDestination:store.state == nil,destinationFrame:markFrames[store.state == nil ? "login" : "header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:{ revealed = true },onFinish:{ opening = false })
             } else if store.enteringAccount {
-                RanyIntro(accountTransition:true,loginDestination:false,firstAccount:store.firstArrival,onArrange:arrangeArtwork,onReveal:{ revealed = true },onFinish:{ store.enteringAccount = false; store.firstArrival = false })
+                RanyIntro(accountTransition:true,loginDestination:false,firstAccount:store.firstArrival,destinationFrame:markFrames["header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:{ revealed = true },onFinish:{ store.enteringAccount = false; store.firstArrival = false })
             }
         }.font(RanyTypography.font(.body))
+        .onPreferenceChange(RanyMarkFrameKey.self) { frames in
+            for (key,frame) in frames where frame.width > 0 && frame.height > 0 {
+                markFrames[key] = frame
+            }
+        }
         .task(id:store.state?.user.id) {
             await ambience.attach(state:store.state,stories:store.stories)
             ambience.prepare(state:store.state,stories:store.stories)

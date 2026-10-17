@@ -3,8 +3,8 @@ import CoreGraphics
 
 enum RanyBackdropMotion {
     static func scatteredPosition(index: Int) -> CGPoint {
-        let x = 0.08+Double((index*37+11)%101)/100*0.84
-        let y = 0.04+Double((index*61+19)%103)/102*0.92
+        let x = 0.36+Double((index*37+11)%101)/100*0.28
+        let y = 0.34+Double((index*61+19)%103)/102*0.24
         return CGPoint(x:CGFloat(x),y:CGFloat(y))
     }
     static let pixelsPerSecond = 1.6

@@ -8,22 +8,9 @@ enum RanyTypography {
         CTFontManagerRegisterFontsForURL(url as CFURL,.process,nil)
     }
     static func font(_ style: Font.TextStyle) -> Font {
-        let size: CGFloat
-        switch style {
-        case .largeTitle: size = 34
-        case .title: size = 28
-        case .title2: size = 22
-        case .title3: size = 20
-        case .headline, .body: size = 17
-        case .callout: size = 16
-        case .subheadline: size = 15
-        case .footnote: size = 13
-        case .caption: size = 12
-        case .caption2: size = 11
-        @unknown default: size = 17
-        }
-        return .custom(RanyIdentity.fontName,size:size,relativeTo:style)
+        .system(style)
     }
+    static let brandColor = Color(red:223.0/255,green:193.0/255,blue:149.0/255)
     static func script(_ size: CGFloat) -> Font { .custom(RanyIdentity.fontName,size:size,relativeTo:.title) }
 }
 
@@ -60,6 +47,7 @@ struct RanyMark: View {
     var size: CGFloat = 96
     var illuminated = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.ranyMarkCovered) private var covered
     @State private var shine: CGFloat = -1.5
     var body: some View {
         Image("RanyMonogram").resizable().scaledToFit().frame(width:size,height:size)
@@ -68,6 +56,7 @@ struct RanyMark: View {
                 LinearGradient(colors:[.clear,.white.opacity(0.18),.clear],startPoint:.leading,endPoint:.trailing)
                     .frame(width:size*0.42,height:size*1.7).rotationEffect(.degrees(23)).offset(x:shine*size)
             }.clipShape(RoundedRectangle(cornerRadius:size*0.25,style:.continuous)).accessibilityLabel(RanyIdentity.name)
+            .opacity(covered ? 0 : 1)
             .task(id:illuminated) {
                 guard illuminated, !reduceMotion else { return }
                 withAnimation(.easeInOut(duration:0.72)) { shine = 1.5 }
@@ -99,7 +88,7 @@ struct RanyLoginView: View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing:0) {
-                    RanyMark(size:92).padding(.top,geometry.size.height > 650 ? 38 : 16)
+                    RanyMark(size:92).reportRanyMarkFrame("login").padding(.top,geometry.size.height > 650 ? 38 : 16)
                     Text(creating ? "مساحتك تبدأ من هنا" : "هنا تبدأ حكايتك").font(.system(size:28,weight:.medium)).padding(.top,24)
                     Text(creating ? "حكايات كثيرة، ومكتبة تصبح لك" : "قصص تختارها، وعالم يشبهك").font(RanyTypography.font(.footnote)).foregroundStyle(.secondary).padding(.top,7)
                     HStack(spacing:4) {
@@ -161,5 +150,27 @@ struct RanyLoginView: View {
             if store.state != nil { password = ""; confirmation = ""; answer = "" }
             busy = false
         }
+    }
+}
+
+// Global frames avoid RTL mirroring and guessed safe-area offsets at the intro handoff.
+struct RanyMarkFrameKey: PreferenceKey {
+    static var defaultValue: [String:CGRect] = [:]
+    static func reduce(value: inout [String:CGRect], nextValue: () -> [String:CGRect]) {
+        value.merge(nextValue(),uniquingKeysWith:{ _,new in new })
+    }
+}
+private struct RanyMarkCoveredKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    var ranyMarkCovered: Bool {
+        get { self[RanyMarkCoveredKey.self] }
+        set { self[RanyMarkCoveredKey.self] = newValue }
+    }
+}
+extension View {
+    func reportRanyMarkFrame(_ identity: String) -> some View {
+        background(GeometryReader { geometry in
+            Color.clear.preference(key:RanyMarkFrameKey.self,value:[identity:geometry.frame(in:.global)])
+        })
     }
 }

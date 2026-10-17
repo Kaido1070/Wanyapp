@@ -24,9 +24,10 @@ struct RootView: View {
                     .onAppear { store.mainPageVisible = true }
                     .navigationTitle(RanyIdentity.name).navigationBarTitleDisplayMode(.inline)
                     .toolbarBackground(.hidden,for:.navigationBar)
+                    .toolbar(store.chromeHidden && store.mainPageVisible ? .hidden : .visible,for:.navigationBar)
                     .toolbar {
-                        ToolbarItem(placement:.principal) { Text(RanyIdentity.displayName).accessibilityLabel(RanyIdentity.name).font(RanyTypography.script(27)) }
-                        ToolbarItem(placement:.topBarLeading) { RanyMark(size:32) }
+                        ToolbarItem(placement:.principal) { Text(RanyIdentity.displayName).accessibilityLabel(RanyIdentity.name).font(RanyTypography.script(27)).foregroundStyle(RanyTypography.brandColor) }
+                        ToolbarItem(placement:.topBarLeading) { RanyMark(size:32).reportRanyMarkFrame("header") }
                         ToolbarItem(placement:.topBarTrailing) { WanyLink { SettingsView() } label: { Image(systemName:"gearshape") } }
                     }
                     .safeAreaInset(edge:.top,spacing:0) {
@@ -38,7 +39,7 @@ struct RootView: View {
                 .overlay(alignment:.bottom) {
                     if store.mainPageVisible && !store.readerActive { HStack(spacing:0) {
                         ForEach(0..<5) { i in Button { selected = i; store.mainPageVisible = true; store.chromeHidden = false } label: {
-                            VStack(spacing:5) { Image(systemName:icons[i]).font(.system(size:21)); Text(titles[i]).font(.custom(RanyIdentity.fontName,size:11,relativeTo:.caption2)) }.foregroundStyle(selected == i ? Theme.accent : .secondary).frame(maxWidth:.infinity).padding(.vertical,12)
+                            VStack(spacing:5) { Image(systemName:icons[i]).font(.system(size:21)); Text(titles[i]).font(.system(.caption2)) }.foregroundStyle(selected == i ? Theme.accent : .secondary).frame(maxWidth:.infinity).padding(.vertical,12)
                         } }
                     }.buttonStyle(.plain).ranyGlass(radius:24).padding(.horizontal,14).padding(.bottom,6)
                         .background(GeometryReader { proxy in Color.clear.preference(key:BottomBarHeightKey.self,value:proxy.size.height) })

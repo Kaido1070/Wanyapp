@@ -40,6 +40,8 @@ jobs:
         continue-on-error: true
         run: |
           mkdir -p screenshots
+          BOOTED=$(xcrun simctl list devices booted --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((v["udid"] for k,vs in d["devices"].items() if "iOS" in k for v in vs if "iPhone" in v["name"]),""))')
+          if [ -n "$BOOTED" ]; then SIMULATOR_ID="$BOOTED"; fi
           xcrun simctl boot "$SIMULATOR_ID" || true
           xcrun simctl bootstatus "$SIMULATOR_ID" -b
           xcrun simctl install "$SIMULATOR_ID" build-simulator/Build/Products/Debug-iphonesimulator/Wany.app

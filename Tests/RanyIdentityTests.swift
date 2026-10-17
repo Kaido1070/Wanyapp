@@ -73,6 +73,23 @@ final class RanyIdentityTests: XCTestCase {
         XCTAssertEqual(hashes.count,14)
         for i in hashes.indices { for j in hashes.indices where j > i { XCTAssertFalse(RanyCoverQuality.matches(hashes[i],hashes[j])) } }
     }
+    func testIntroUsesMeasuredRightHandDestinationWithSafeAreaOffset() {
+        let frame = CGRect(x:330,y:66,width:32,height:32)
+        let layout = RanyIntroLayout(size:CGSize(width:390,height:800),origin:CGPoint(x:0,y:47),destinationFrame:frame,sourceFrame:CGRect(x:149,y:100,width:92,height:92))
+        let destination = layout.point(index:0,stage:4,login:false)
+        XCTAssertEqual(destination,CGPoint(x:346,y:35))
+        XCTAssertGreaterThan(destination.x,195)
+        XCTAssertEqual(layout.destinationSize(login:false),32)
+        XCTAssertEqual(layout.loginPoint,CGPoint(x:195,y:99))
+    }
+    func testAllFourteenCoversStartAsADistinctCentralCluster() {
+        let points = (0..<14).map { RanyBackdropMotion.scatteredPosition(index:$0) }
+        XCTAssertEqual(Set(points.map { "\($0.x),\($0.y)" }).count,14)
+        for point in points {
+            XCTAssertTrue((0.35...0.65).contains(Double(point.x)))
+            XCTAssertTrue((0.33...0.59).contains(Double(point.y)))
+        }
+    }
     private func story(_ key: String, cover: String = "https://example.invalid/cover.jpg") -> Story {
         Story(key:key,source:"teamx",slug:key,type:"manhwa",url:"https://example.invalid/"+key,title:key,cover:cover,genres:[])
     }
