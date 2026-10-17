@@ -177,10 +177,23 @@ import UIKit
             if descendants(window).contains(where:{ $0 is PageStage }) { break }
             try await Task.sleep(for:.milliseconds(50))
         }
-        XCTAssertTrue(descendants(window).contains { $0 is PageStage })
+        let stage=try XCTUnwrap(descendants(window).compactMap { $0 as? PageStage }.first)
+        // Creating the UIView is earlier than its first GPU frame. Switch owners
+        // during actual playback, after SwiftUI has committed the initial snapshot.
+        for _ in 0..<70 {
+            if stage.firstFrameReady { break }
+            try await Task.sleep(for:.milliseconds(100))
+        }
+        XCTAssertTrue(stage.firstFrameReady,"The privacy check must exercise rendered account artwork.")
         store.state=AccountState(user:Account(id:"another-preview-owner",name:"B",username:"fixture-b"))
-        try await Task.sleep(for:.milliseconds(300))
+        // Observe removal across render transactions instead of assuming that a
+        // fixed 300ms sleep necessarily commits a SwiftUI update on a busy runner.
+        for _ in 0..<20 {
+            if !descendants(window).contains(where:{ $0 is PageStage }) { break }
+            try await Task.sleep(for:.milliseconds(50))
+        }
         XCTAssertFalse(descendants(window).contains { $0 is PageStage },"Old account artwork must clear even when the presentation host cannot dismiss immediately.")
+        snapshot(window,name:"Rany-preview-after-owner-change")
     }
     func testMissingCinematicArtworkStillRevealsAndFinishes() async throws {
         var revealed=false,finished=false
