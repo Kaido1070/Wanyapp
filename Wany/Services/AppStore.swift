@@ -4,6 +4,8 @@ import Network
 import UIKit
 
 @MainActor final class AppStore: ObservableObject {
+    @Published var enteringAccount = false
+    @Published var firstArrival = false
     @Published var state: AccountState?
     @Published var stories: [String:Story] = [:]
     @Published var online = true
@@ -56,7 +58,7 @@ import UIKit
         stories[story.key] = merged
         do { try Disk.save(stories,owner:owner,name:"stories.json") } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
-    func login(username: String, password: String) async {
+    func login(username: String, password: String, freshAccount: Bool = false) async {
         guard online else { error = "تسجيل الدخول لأول مرة يحتاج إنترنت"; return }
         do {
             refreshTask?.cancel()
@@ -65,6 +67,8 @@ import UIKit
             let body = try JSONEncoder().encode(["username":username.precomposedStringWithCompatibilityMapping.trimmingCharacters(in:.whitespacesAndNewlines).lowercased(),"password":password])
             let response = try JSONDecoder().decode(SessionResponse.self,from:await API.shared.raw("/api/login",method:"POST",body:body))
             guard let user = response.user else { throw APIError(message:"بيانات الدخول غير صحيحة",status:401) }
+            firstArrival = freshAccount
+            enteringAccount = true
             state = Disk.read(AccountState.self,owner:user.id,name:"account.json") ?? AccountState(user:user)
             state?.user = user; loginRequired = false
             UserDefaults.standard.set(user.id,forKey:"lastAccount")
@@ -72,10 +76,18 @@ import UIKit
             await refresh()
         } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
+    func register(username: String, password: String, confirmation: String, question: String, answer: String) async -> Bool {
+        guard online else { error = "إنشاء الحساب يحتاج إنترنت"; return false }
+        do {
+            let value = ["username":username.precomposedStringWithCompatibilityMapping.trimmingCharacters(in:.whitespacesAndNewlines).lowercased(),"password":password,"confirmPassword":confirmation,"securityQuestion":question,"securityAnswer":answer]
+            try await API.shared.send("/api/register",value:value)
+            return true
+        } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription }; return false }
+    }
     func logout() async {
         persist(); refreshTask?.cancel(); metadataTask?.cancel(); metadataTask = nil; metadataToken = nil; syncTask?.cancel()
         if online { _ = try? await API.shared.raw("/api/logout",method:"POST") }
-        API.shared.clear(); downloads.attach(nil); state = nil; stories = [:]; engine = nil
+        API.shared.clear(); downloads.attach(nil); enteringAccount = false; state = nil; stories = [:]; engine = nil
         UserDefaults.standard.removeObject(forKey:"lastAccount"); loginRequired = false
     }
     func refresh() async {

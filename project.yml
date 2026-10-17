@@ -9,10 +9,14 @@ settings:
     TARGETED_DEVICE_FAMILY: '1,2'
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     CODE_SIGNING_ALLOWED: NO
-    MARKETING_VERSION: '1.0.21'
-    CURRENT_PROJECT_VERSION: '22'
+    MARKETING_VERSION: '1.3.1'
+    CURRENT_PROJECT_VERSION: '29'
 targets:
   Wany:
+    info:
+      path: Wany/Info.plist
+      properties:
+        UIAppFonts: [RanyScript.otf]
     type: application
     platform: iOS
     sources:
@@ -22,7 +26,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: site.wany.reader
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: Wany
+        INFOPLIST_KEY_CFBundleDisplayName: Rany
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.books
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES

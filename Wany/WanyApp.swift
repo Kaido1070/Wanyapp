@@ -10,9 +10,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
     @StateObject private var store = AppStore()
     @Environment(\.scenePhase) private var phase
+    init() { RanyTypography.registerFont() }
     var body: some Scene {
         WindowGroup {
-            RootView().environmentObject(store).environmentObject(store.downloads)
+            RanyExperience().environmentObject(store).environmentObject(store.downloads)
                 .environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark).tint(Theme.accent)
                 .task { await store.refresh() }
                 .onChange(of:phase) { _,phase in

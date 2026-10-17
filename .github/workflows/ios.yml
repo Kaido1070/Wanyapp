@@ -1,4 +1,4 @@
-name: Build Wany IPA
+name: Build Rany IPA
 on:
   push:
     branches: [main]
@@ -45,14 +45,14 @@ jobs:
           xcrun simctl install "$SIMULATOR_ID" build-simulator/Build/Products/Debug-iphonesimulator/Wany.app
           xcrun simctl terminate "$SIMULATOR_ID" site.wany.reader || true
           xcrun simctl launch "$SIMULATOR_ID" site.wany.reader
-          sleep 3
-          xcrun simctl io "$SIMULATOR_ID" screenshot screenshots/Wany-login.png
+          sleep 6
+          xcrun simctl io "$SIMULATOR_ID" screenshot screenshots/Rany-login.png
       - uses: actions/upload-artifact@v4
         if: "!contains(github.event.head_commit.message, '[package-only]')"
         continue-on-error: true
         with:
-          name: Wany-native-preview
-          path: screenshots/Wany-login.png
+          name: Rany-native-preview
+          path: screenshots/Rany-login.png
           retention-days: 7
       - name: Build iPhone app
         run: xcodebuild build -project Wany.xcodeproj -scheme Wany -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO
@@ -62,11 +62,11 @@ jobs:
           cp -R build/Build/Products/Release-iphoneos/Wany.app output/Payload/
           cd output
           VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Payload/Wany.app/Info.plist)
-          /usr/bin/zip -qr "Wany-$VERSION.ipa" Payload
+          /usr/bin/zip -qr "Rany-$VERSION.ipa" Payload
       - uses: actions/upload-artifact@v4
         with:
-          name: Wany-IPA-unsigned
-          path: output/Wany-*.ipa
+          name: Rany-IPA-unsigned
+          path: output/Rany-*.ipa
           retention-days: 14
       - uses: actions/upload-artifact@v4
         if: failure()

@@ -51,11 +51,11 @@ struct ReaderView: View {
                     HStack {
                         Button { dismiss() } label: { Image(systemName:"chevron.right").padding(10) }.accessibilityLabel("العودة للفصول")
                         VStack(alignment:.leading,spacing:3) {
-                            Text(readingChapter.title).font(.subheadline.bold()).lineLimit(1)
-                            if let payload { Text("\((currentPage ?? 0)+1) / \(payload.pages.count)").font(.caption).foregroundStyle(.secondary) }
+                            Text(readingChapter.title).font(RanyTypography.font(.subheadline).bold()).lineLimit(1)
+                            if let payload { Text("\((currentPage ?? 0)+1) / \(payload.pages.count)").font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
                         }
                         Spacer(minLength:8)
-                        if let payload { Button { downloads.retryChapter(payload) } label: { Label("الصور الناقصة",systemImage:"arrow.clockwise").font(.caption) }.disabled(!store.online) }
+                        if let payload { Button { downloads.retryChapter(payload) } label: { Label("الصور الناقصة",systemImage:"arrow.clockwise").font(RanyTypography.font(.caption)) }.disabled(!store.online) }
                     }
                     HStack(spacing:12) {
                         Button { if let previous = previousChapter { open(previous) } } label: { Label("السابق",systemImage:"chevron.right") }.disabled(previousChapter == nil)
@@ -63,7 +63,7 @@ struct ReaderView: View {
                         Button { chapterQuery = ""; choosingChapter = true } label: { Label("اختيار الفصل",systemImage:"list.bullet") }
                         Spacer(minLength:0)
                         Button { if let next = nextChapter { open(next) } } label: { Label("التالي",systemImage:"chevron.left") }.disabled(nextChapter == nil)
-                    }.font(.subheadline).padding(.horizontal,8)
+                    }.font(RanyTypography.font(.subheadline)).padding(.horizontal,8)
                 }.padding(10).background(.ultraThinMaterial)
                     .background(GeometryReader { proxy in Color.clear.preference(key:ReaderHeaderHeightKey.self,value:proxy.size.height) })
                     .onPreferenceChange(ReaderHeaderHeightKey.self) { headerHeight = $0 }

@@ -29,7 +29,7 @@ struct ListsView: View {
     @State private var name = ""
     var body: some View {
         WanyScroll {
-            HStack { Text("قوائمي").font(.largeTitle.bold()); Spacer(); Button { create = true } label: { Image(systemName:"plus") }.disabled(!store.online) }
+            HStack { Text("قوائمي").font(RanyTypography.font(.largeTitle).bold()); Spacer(); Button { create = true } label: { Image(systemName:"plus") }.disabled(!store.online) }
             ForEach(Array(page.value["lists"].array.enumerated()),id:\.offset) { _,list in
                 WanyLink { ListDetailView(id:list["id"].string,title:list["name"].string) } label: { HStack { Image(systemName:"list.bullet.rectangle"); Text(list["name"].string); Spacer(); Text("\(Int(list["itemCount"].number))").foregroundStyle(.secondary); Image(systemName:"chevron.left") }.foregroundStyle(.primary).card() }
             }
@@ -46,11 +46,11 @@ struct ListDetailView: View {
     var canManage: Bool { page.value["list"]["canManage"].boolean }
     var body: some View {
         WanyScroll {
-            HStack { Text(title).font(.largeTitle.bold()); Spacer(); if canManage { Button { adding = true } label: { Image(systemName:"plus") }.disabled(!store.online) } }
+            HStack { Text(title).font(RanyTypography.font(.largeTitle).bold()); Spacer(); if canManage { Button { adding = true } label: { Image(systemName:"plus") }.disabled(!store.online) } }
             ForEach(Array(page.value["items"].array.enumerated()),id:\.offset) { _,item in
                 if let story = store.stories[item["mangaId"].string] {
                     HStack { WanyLink { StoryView(initial:story) } label: { Text(story.title).foregroundStyle(.primary) }; Spacer(); if canManage { Button(role:.destructive) { Task { do { _ = try await API.shared.raw("/api/lists/"+id+"/items/"+story.key,method:"DELETE"); await load() } catch { store.error = error.localizedDescription } } } label: { Image(systemName:"minus.circle") }.disabled(!store.online) } }.card()
-                } else { Text(item["mangaId"].string).font(.caption) }
+                } else { Text(item["mangaId"].string).font(RanyTypography.font(.caption)) }
             }
             if let error = page.error { Text(error).foregroundStyle(.orange) }
         }.task { await load() }.refreshable { await load() }
@@ -73,7 +73,7 @@ struct FriendsView: View {
     @State private var query = ""
     var body: some View {
         WanyScroll {
-            Text("الأصدقاء").font(.largeTitle.bold()).frame(maxWidth:.infinity,alignment:.leading)
+            Text("الأصدقاء").font(RanyTypography.font(.largeTitle).bold()).frame(maxWidth:.infinity,alignment:.leading)
             HStack { TextField("اسم المستخدم",text:$query).textInputAutocapitalization(.never).autocorrectionDisabled(); Button("بحث") { Task { await search.load("/api/friends/search",store:store,query:["q":query]) } }.disabled(!store.online) }.card()
             ForEach(Array(search.value["results"].array.enumerated()),id:\.offset) { _,entry in
                 HStack { userLabel(entry["user"]); Spacer(); Button(entry["relationship"].string == "none" ? "إضافة" : "طلب مسجل") { Task { await action("/api/friends",body:["userId":entry["user"]["id"].string]); await search.load("/api/friends/search",store:store,query:["q":query]) } }.disabled(entry["relationship"].string != "none" || !store.online) }.card()
@@ -100,7 +100,7 @@ struct PublicProfileView: View {
             PublicAccountIdentity(user:page.value["profile"]["user"],large:true)
             if page.value["profile"]["access"].string == "private" { EmptyState(icon:"lock",title:"حساب خاص",detail:"صاحب الحساب أخفى تفاصيل مكتبته") }
             else {
-                Text("المفضلة").font(.headline)
+                Text("المفضلة").font(RanyTypography.font(.headline))
                 StoryGrid(stories:page.value["profile"]["favorites"].array.compactMap { store.stories[$0.string] })
                 ForEach(Array(page.value["profile"]["lists"].array.enumerated()),id:\.offset) { _,list in
                     WanyLink { ListDetailView(id:list["id"].string,title:list["name"].string) } label: {
@@ -108,7 +108,7 @@ struct PublicProfileView: View {
                     }
                     StoryGrid(stories:list["previewItems"].array.compactMap { store.stories[$0.string] })
                 }
-                if page.value["profile"]["access"].string == "friends" { Label("نشاط القراءة خاص",systemImage:"lock").font(.caption).foregroundStyle(.secondary) }
+                if page.value["profile"]["access"].string == "friends" { Label("نشاط القراءة خاص",systemImage:"lock").font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
             }
         }.task {
             await page.load("/api/profiles/"+id,store:store)
@@ -124,13 +124,13 @@ struct ActivityView: View {
     private let labels = ["started_work":"بدأ قراءة", "progress_reached":"وصل إلى", "completed_work":"أكمل", "favorited_work":"أضاف للمفضلة", "added_to_list":"أضاف إلى قائمة", "created_list":"أنشأ قائمة"]
     var body: some View {
         WanyScroll {
-            Text("النشاط").font(.largeTitle.bold())
+            Text("النشاط").font(RanyTypography.font(.largeTitle).bold())
             Picker("النشاط",selection:$friends) { Text("نشاطي").tag(false); Text("الأصدقاء").tag(true) }.pickerStyle(.segmented).onChange(of:friends) { _,_ in Task { await load() } }
             ForEach(Array(page.value["events"].array.enumerated()),id:\.offset) { _,event in VStack(alignment:.leading,spacing:8) {
                 HStack { Text(event["user"]["name"].string).bold(); AccountBadge(kind:event["user"]["badgeType"].string) }
-                Text(labels[event["type"].string] ?? event["type"].string).font(.caption).foregroundStyle(.secondary)
+                Text(labels[event["type"].string] ?? event["type"].string).font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
                 if let story = store.stories[event["mangaId"].string] { WanyLink(story.title) { StoryView(initial:story) } }
-                if event["chapterNumber"].number > 0 { Text("الفصل \(chapterNumber(event["chapterNumber"].number))").font(.caption) }
+                if event["chapterNumber"].number > 0 { Text("الفصل \(chapterNumber(event["chapterNumber"].number))").font(RanyTypography.font(.caption)) }
                 if !event["list"]["name"].string.isEmpty { Text(event["list"]["name"].string) }
             }.frame(maxWidth:.infinity,alignment:.leading).card() }
         }.task { await load() }.refreshable { await load() }
@@ -146,7 +146,7 @@ struct SettingsView: View {
     var body: some View {
         WanyScroll {
             VStack(alignment:.leading,spacing:16) {
-                Text("الحساب").font(.headline)
+                Text("الحساب").font(RanyTypography.font(.headline))
                 Button { name = store.state?.user.name ?? ""; editingName = true } label: { settingsRow("الاسم الظاهر",value:store.state?.user.name ?? "",icon:"pencil") }.disabled(!store.online)
                 Divider()
                 WanyLink { AvatarPickerView() } label: { settingsRow("الصورة الشخصية",icon:"person.crop.circle") }
@@ -154,27 +154,27 @@ struct SettingsView: View {
                 Toggle("حساب خاص",isOn:Binding(get:{store.state?.user.profileVisibility == "private"},set:{ value in Task { do { try await API.shared.send("/api/profile/visibility",method:"PUT",value:["visibility":value ? "private" : "public"]); await store.refresh() } catch { if !isRequestCancellation(error) { store.error = error.localizedDescription } } } })).disabled(!store.online)
             }.card()
             VStack(alignment:.leading,spacing:16) {
-                Text("التنزيلات والمساحة").font(.headline)
+                Text("التنزيلات والمساحة").font(RanyTypography.font(.headline))
                 Toggle("التنزيل عبر Wi-Fi فقط",isOn:Binding(get:{downloads.wifiOnly},set:{downloads.wifiOnly = $0}))
                 Divider()
                 Picker("جودة الصور",selection:Binding(get:{downloads.quality},set:{downloads.quality = $0})) { ForEach(ImageQuality.allCases) { quality in Text(quality.label).tag(quality) } }
-                Text("المتوازنة والعالية تطلبان تصغير الصورة على الخادم قبل تنزيلها. يظهر عدد الصور المصغرة في التنزيلات عندما يدعم الخادم المعالجة؛ وإلا تُصغر محليًا.").font(.caption).foregroundStyle(.secondary)
+                Text("المتوازنة والعالية تطلبان تصغير الصورة على الخادم قبل تنزيلها. يظهر عدد الصور المصغرة في التنزيلات عندما يدعم الخادم المعالجة؛ وإلا تُصغر محليًا.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
                 settingsRow("التنزيلات المحفوظة",value:byteLabel(downloads.savedJobs.reduce(0){$0+$1.bytes}))
                 settingsRow("صور القراءة المؤقتة",value:byteLabel(downloads.temporaryBytes))
-                Text("صور القراءة العادية تُحذف بعد 3 دقائق من مغادرة الفصل، أو عند فتح التطبيق مجددًا إذا كان مغلقًا. تقدمك يبقى محفوظًا.").font(.caption).foregroundStyle(.secondary)
+                Text("صور القراءة العادية تُحذف بعد 3 دقائق من مغادرة الفصل، أو عند فتح التطبيق مجددًا إذا كان مغلقًا. تقدمك يبقى محفوظًا.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
                 Button { downloads.cleanTemporary(all:true) } label: { settingsRow("مسح الصور المؤقتة الآن",icon:"trash") }.disabled(downloads.temporaryBytes == 0)
             }.card()
             VStack(alignment:.leading,spacing:16) {
-                Text("المزامنة").font(.headline)
+                Text("المزامنة").font(RanyTypography.font(.headline))
                 settingsRow("التحديثات المعلقة",value:String(store.state?.pending.count ?? 0))
-                if let date = store.state?.lastSynced { Text("آخر مزامنة: " + date.formatted(date:.abbreviated,time:.shortened)).font(.caption).foregroundStyle(.secondary) }
+                if let date = store.state?.lastSynced { Text("آخر مزامنة: " + date.formatted(date:.abbreviated,time:.shortened)).font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
                 Button { Task { await store.refresh() } } label: { settingsRow(store.syncing ? "جاري المزامنة…" : "مزامنة الآن",icon:"arrow.clockwise") }.disabled(!store.online || store.syncing)
             }.card()
             VStack(alignment:.leading,spacing:16) {
-                Text(AppVersion.display).font(.subheadline)
+                Text(AppVersion.display).font(RanyTypography.font(.subheadline))
                 WanyLink { UpdatesView() } label: { settingsRow("سجل التحديثات",icon:"clock.arrow.circlepath") }
             }.card()
-            Button(role:.destructive) { logout = true } label: { Label("تسجيل الخروج",systemImage:"rectangle.portrait.and.arrow.right").font(.headline).foregroundStyle(.red).frame(maxWidth:.infinity,minHeight:52).contentShape(Rectangle()) }.padding(12).background(Color.red.opacity(0.12),in:RoundedRectangle(cornerRadius:20)).overlay(RoundedRectangle(cornerRadius:20).stroke(Color.red.opacity(0.4),lineWidth:1))
+            Button(role:.destructive) { logout = true } label: { Label("تسجيل الخروج",systemImage:"rectangle.portrait.and.arrow.right").font(RanyTypography.font(.headline)).foregroundStyle(.red).frame(maxWidth:.infinity,minHeight:52).contentShape(Rectangle()) }.padding(12).background(Color.red.opacity(0.12),in:RoundedRectangle(cornerRadius:20)).overlay(RoundedRectangle(cornerRadius:20).stroke(Color.red.opacity(0.4),lineWidth:1))
         }.buttonStyle(.plain).navigationTitle("الإعدادات")
         .alert("الاسم الظاهر",isPresented:$editingName) {
             TextField("اسمك",text:$name)
@@ -184,7 +184,7 @@ struct SettingsView: View {
         .confirmationDialog("تسجيل الخروج؟ تبقى التنزيلات والتقدم محفوظة لحسابك.",isPresented:$logout) { Button("تسجيل الخروج",role:.destructive) { Task { await store.logout() } } }
     }
     func settingsRow(_ title: String, value: String = "", icon: String? = nil) -> some View {
-        HStack(spacing:12) { Text(title).foregroundStyle(.primary); Spacer(minLength:10); if !value.isEmpty { Text(value).font(.subheadline).foregroundStyle(.secondary) }; if let icon { Image(systemName:icon).foregroundStyle(Theme.accent) } }.frame(minHeight:44).contentShape(Rectangle())
+        HStack(spacing:12) { Text(title).foregroundStyle(.primary); Spacer(minLength:10); if !value.isEmpty { Text(value).font(RanyTypography.font(.subheadline)).foregroundStyle(.secondary) }; if let icon { Image(systemName:icon).foregroundStyle(Theme.accent) } }.frame(minHeight:44).contentShape(Rectangle())
     }
 }
 struct AvatarPickerView: View {
@@ -198,7 +198,7 @@ struct AvatarPickerView: View {
                     HStack { if var account = store.state?.user { let _ = account.avatarId = avatar["id"].string; ProfileAvatar(user:account).frame(width:42,height:42) }; Text(avatar["characterName"].string) }
                 }.disabled(!store.online)
             } }
-        } }.navigationTitle("الصورة الشخصية").task { await page.load("/api/avatars",store:store) }
+        } }.scrollContentBackground(.hidden).navigationTitle("الصورة الشخصية").task { await page.load("/api/avatars",store:store) }
     }
 }
 
@@ -211,7 +211,7 @@ struct PublicAccountIdentity: View {
                 ProfileAvatar(user:account).frame(width:large ? 72 : 44,height:large ? 72 : 44)
                 VStack(alignment:.leading,spacing:5) {
                     HStack { Text(account.name).font(large ? .title2.bold() : .body).lineLimit(2); AccountBadge(kind:account.badgeType) }
-                    if !account.username.isEmpty { Text("@"+account.username).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                    if !account.username.isEmpty { Text("@"+account.username).font(RanyTypography.font(.caption)).foregroundStyle(.secondary).lineLimit(1) }
                 }
             }
         }.frame(maxWidth:.infinity,alignment:.leading)

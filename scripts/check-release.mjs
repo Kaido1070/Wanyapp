@@ -43,4 +43,4 @@ if(previous) {
   const previousNotes=JSON.parse(previousNotesText);
   for(const oldNote of previousNotes) assert.deepEqual(notes.find(n=>n.version===oldNote.version),oldNote,'Keep previous release notes unchanged.');
 }
-console.log(`Release verified: Wany ${current.version} (build ${current.build})`);
+console.log(`Release verified: Rany ${current.version} (build ${current.build})`);

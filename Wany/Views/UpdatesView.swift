@@ -10,7 +10,7 @@ struct ReleaseNote: Decodable, Identifiable {
 enum AppVersion {
     static var version: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "غير معروف" }
     static var build: String { Bundle.main.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "غير معروف" }
-    static var display: String { "Wany · \(version) (\(build))" }
+    static var display: String { "Rany · \(version) (\(build))" }
     static var releases: [ReleaseNote] {
         guard let url = Bundle.main.url(forResource:"Releases",withExtension:"json"),
               let data = try? Data(contentsOf:url),
@@ -21,17 +21,17 @@ enum AppVersion {
 struct UpdatesView: View {
     var body: some View {
         List {
-            Section("الإصدار المثبت") { LabeledContent("Wany",value:"\(AppVersion.version) · بناء \(AppVersion.build)") }
+            Section("الإصدار المثبت") { LabeledContent("Rany",value:"\(AppVersion.version) · بناء \(AppVersion.build)").listRowBackground(Theme.surface.opacity(0.25)) }
             ForEach(AppVersion.releases) { release in
                 Section {
-                    ForEach(release.changes,id:\.self) { change in Text(change).font(.subheadline).padding(.vertical,3) }
+                    ForEach(release.changes,id:\.self) { change in Text(change).font(RanyTypography.font(.subheadline)).padding(.vertical,3).listRowBackground(Theme.surface.opacity(0.25)) }
                 } header: {
                     VStack(alignment:.leading,spacing:4) {
-                        Text("\(release.version) · بناء \(release.build)").font(.headline)
-                        Text(release.date).font(.caption)
+                        Text("\(release.version) · بناء \(release.build)").font(RanyTypography.font(.headline))
+                        Text(release.date).font(RanyTypography.font(.caption))
                     }.textCase(nil)
                 }
             }
-        }.navigationTitle("سجل التحديثات")
+        }.scrollContentBackground(.hidden).navigationTitle("سجل التحديثات")
     }
 }
