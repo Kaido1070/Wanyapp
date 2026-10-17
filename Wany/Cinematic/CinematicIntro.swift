@@ -21,54 +21,7 @@ struct CinematicIntro: View {
                 let elapsed=started.map { max(0,context.date.timeIntervalSince($0)) } ?? 0
                 let t=reduced ? 4.8 : min(4.8,elapsed/configuration.seconds*4.8)
                 let layout=CinematicLayout(size:geometry.size,origin:geometry.frame(in:.global).origin,destination:destination,configuration:configuration)
-                ZStack {
-                    if !reduced && !images.isEmpty {
-                        CinematicPages(images:images,time:t,lighting:configuration.lighting,speed:configuration.pageSpeed)
-                            .mask { Rectangle().scaleEffect(x:1,y:1-CinematicConfiguration.ease(t,3.05,3.4)) }
-                    }
-                    Theme.background.opacity(backgroundOpacity(t))
-                    ForEach(Array(configuration.displayTitle.enumerated()),id:\.offset) { index,letter in
-                        if letter != " " {
-                            let retained=configuration.retained.contains(index)
-                            let scale=layout.scale(index:index,t:t)
-                            Text(String(letter)).font(.custom(RanyIdentity.fontName,size:100)).foregroundStyle(RanyTypography.brandColor)
-                                .fixedSize().mask {
-                                    GeometryReader { box in
-                                        let cut=layout.cut(index:index,t:t)
-                                        Rectangle().frame(width:box.size.width*(1-cut)).offset(x:box.size.width*cut)
-                                    }
-                                }
-                                .scaleEffect(scale)
-                                .position(layout.point(index:index,t:t))
-                                .opacity(t < 0.58 || (!retained && t >= 2.13) || (index != 0 && t >= 3.14) ? 0 : 1)
-                                .mask(alignment:.leading) {
-                                    if index == 0 && t >= 3.14 {
-                                        GeometryReader { box in
-                                            let edge=geometry.size.width/2-84+168*CinematicConfiguration.p(t,3.14,3.48)
-                                            Rectangle().frame(width:max(0,box.size.width-edge)).offset(x:edge)
-                                        }
-                                    } else { Rectangle() }
-                                }
-                        }
-                    }
-                    // The actual official component; no replacement asset, font or logo drawing.
-                    RanyMark(size:layout.logoSize(t),illuminated:t>3.45 && t<3.8)
-                        .mask(alignment:.leading) { Rectangle().scaleEffect(x:CinematicConfiguration.p(t,3.14,3.48),y:1,anchor:.leading) }
-                        .position(layout.logoPoint(t))
-                    if !reduced {
-                        ForEach(0..<3,id:\.self) { pass in
-                            let begin=[1.10,1.58,2.62][pass], end=begin+0.45
-                            if t>begin && t<end {
-                                let sweep=CinematicConfiguration.p(t,begin,end)
-                                Rectangle().fill(Color(red:0.38,green:0.34,blue:0.27))
-                                    .overlay(alignment:.trailing) { Rectangle().fill(Color(red:0.83,green:0.77,blue:0.65)).frame(width:1) }
-                                    .frame(width:15,height:145).rotationEffect(.degrees(-14))
-                                    .shadow(color:.black.opacity(0.7),radius:6,x:9,y:3)
-                                    .position(x:-45+(geometry.size.width+90)*sweep,y:geometry.size.height*0.46)
-                            }
-                        }
-                    }
-                }
+                CinematicFrame(t:t,layout:layout,images:images,reduced:reduced,configuration:configuration)
                 .onChange(of:t) { _,value in
                     if value >= 4 { reveal() }
                     if value >= 4.79 { finish() }
@@ -90,6 +43,40 @@ struct CinematicIntro: View {
             .onChange(of:phase) { _,value in if value != .active { finish() } }
             .onChange(of:reduced) { _,value in if value { finish() } }
     }
+    private func reveal() { guard !revealed else { return }; revealed=true; onReveal() }
+    private func finish() { guard !finished else { return }; finished=true; reveal(); onFinish() }
+}
+
+private struct CinematicFrame: View {
+    let t: Double
+    let layout: CinematicLayout
+    let images: [UIImage]
+    let reduced: Bool
+    let configuration: CinematicConfiguration
+    var body: some View {
+        ZStack { pages; Theme.background.opacity(backgroundOpacity(t)); letters; officialLogo; paperEdges }
+    }
+    @ViewBuilder private var pages: some View {
+        if !reduced && !images.isEmpty {
+            CinematicPages(images:images,time:t,lighting:configuration.lighting,speed:configuration.pageSpeed)
+                .mask { Rectangle().scaleEffect(x:1,y:1-CinematicConfiguration.ease(t,3.05,3.4)) }
+        }
+    }
+    private var letters: some View {
+        ForEach(Array(configuration.displayTitle.enumerated()),id:\.offset) { index,letter in
+            if letter != " " { CinematicLetter(index:index,letter:letter,t:t,layout:layout,configuration:configuration) }
+        }
+    }
+    private var officialLogo: some View {
+        RanyMark(size:layout.logoSize(t),illuminated:t>3.45 && t<3.8)
+            .mask(alignment:.leading) { Rectangle().scaleEffect(x:CinematicConfiguration.p(t,3.14,3.48),y:1,anchor:.leading) }
+            .position(layout.logoPoint(t))
+    }
+    @ViewBuilder private var paperEdges: some View {
+        if !reduced {
+            ForEach(0..<3,id:\.self) { pass in CinematicPaperEdge(pass:pass,t:t,size:layout.size) }
+        }
+    }
     private func backgroundOpacity(_ t: Double) -> Double {
         if reduced { return 0 }
         let opening=1-CinematicConfiguration.ease(t,0,0.65)
@@ -97,8 +84,50 @@ struct CinematicIntro: View {
         let handoff=1-CinematicConfiguration.ease(t,4,4.8)
         return max(opening*0.92,0.34+closing*0.66)*handoff
     }
-    private func reveal() { guard !revealed else { return }; revealed=true; onReveal() }
-    private func finish() { guard !finished else { return }; finished=true; reveal(); onFinish() }
+}
+private struct CinematicLetter: View {
+    let index: Int
+    let letter: Character
+    let t: Double
+    let layout: CinematicLayout
+    let configuration: CinematicConfiguration
+    private var visible: Bool { t >= 0.58 && (configuration.retained.contains(index) || t < 2.13) && (index == 0 || t < 3.14) }
+    var body: some View {
+        Text(String(letter)).font(.custom(RanyIdentity.fontName,size:100)).foregroundStyle(RanyTypography.brandColor)
+            .fixedSize().mask {
+                GeometryReader { box in
+                    let cut=layout.cut(index:index,t:t)
+                    Rectangle().frame(width:box.size.width*(1-cut)).offset(x:box.size.width*cut)
+                }
+            }
+            .scaleEffect(layout.scale(index:index,t:t))
+            .position(layout.point(index:index,t:t))
+            .opacity(visible ? 1 : 0)
+            .mask(alignment:.leading) {
+                if index == 0 && t >= 3.14 {
+                    GeometryReader { box in
+                        let edge=layout.size.width/2-84+168*CinematicConfiguration.p(t,3.14,3.48)
+                        Rectangle().frame(width:max(0,box.size.width-edge)).offset(x:edge)
+                    }
+                } else { Rectangle() }
+            }
+    }
+}
+private struct CinematicPaperEdge: View {
+    let pass: Int
+    let t: Double
+    let size: CGSize
+    private var begin: Double { [1.10,1.58,2.62][pass] }
+    var body: some View {
+        if t>begin && t<begin+0.45 {
+            let sweep=CinematicConfiguration.p(t,begin,begin+0.45)
+            Rectangle().fill(Color(red:0.38,green:0.34,blue:0.27))
+                .overlay(alignment:.trailing) { Rectangle().fill(Color(red:0.83,green:0.77,blue:0.65)).frame(width:1) }
+                .frame(width:15,height:145).rotationEffect(.degrees(-14))
+                .shadow(color:.black.opacity(0.7),radius:6,x:9,y:3)
+                .position(x:-45+(size.width+90)*sweep,y:size.height*0.46)
+        }
+    }
 }
 
 struct CinematicLayout {
