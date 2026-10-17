@@ -10,6 +10,7 @@ struct StoryView: View {
     @State private var query = ""
     @State private var ascending = true
     @State private var selecting = false
+    @State private var listPicker = false
     @State private var preparingUnread = false
     @State private var selected: Set<String> = []
     var story: Story { detail ?? store.stories[initial.key] ?? initial }
@@ -26,6 +27,7 @@ struct StoryView: View {
                     Text(sourceLabel(story.source)).font(RanyTypography.font(.caption)).foregroundStyle(Theme.accent)
                     Text(storyStatusLabel(story.status ?? story.type)).font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
                     Button { Task { await store.toggleFavorite(story) } } label: { Label(store.state?.data.favorites.contains(story.key) == true ? "في المفضلة" : "أضف للمفضلة",systemImage:store.state?.data.favorites.contains(story.key) == true ? "heart.fill" : "heart") }.buttonStyle(.bordered)
+                    Button("إضافة إلى قائمة",systemImage:"text.badge.plus") { listPicker=true }.buttonStyle(.bordered).disabled(!store.online)
                     Menu("حالة القراءة") { ForEach([("reading","أقرأ حاليًا"),("completed","مكتمل"),("paused","متوقف"),("planned","أخطط لقراءته")],id:\.0) { pair in Button(pair.1) { Task { await store.setStatus(story,status:pair.0) } } } }
                 }.frame(maxWidth:.infinity,alignment:.leading)
             }
@@ -70,6 +72,7 @@ struct StoryView: View {
                 }
             }
         }.navigationTitle(story.title).navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented:$listPicker) { StoryListPicker(story:story) }
             .task { await refresh() }.refreshable { await refresh() }
     }
     func refresh() async {

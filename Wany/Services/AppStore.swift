@@ -6,6 +6,7 @@ import UIKit
 @MainActor final class AppStore: ObservableObject {
     @Published var enteringAccount = false
     @Published var firstArrival = false
+    @Published var incomingFriendRequests = 0
     @Published var state: AccountState?
     @Published var stories: [String:Story] = [:]
     @Published var online = true
@@ -45,7 +46,7 @@ import UIKit
             }
         }
         monitor.start(queue:DispatchQueue(label:"Wany.network"))
-        Timer.scheduledTimer(withTimeInterval:30,repeats:true) { [weak self] _ in Task { @MainActor in await self?.syncProgress() } }
+        Timer.scheduledTimer(withTimeInterval:30,repeats:true) { [weak self] _ in Task { @MainActor in await self?.syncProgress(); await self?.refreshFriendRequests() } }
     }
     func persist() {
         guard let state else { return }
@@ -98,7 +99,7 @@ import UIKit
     func logout() async {
         persist(); refreshTask?.cancel(); metadataTask?.cancel(); metadataTask = nil; metadataToken = nil; syncTask?.cancel()
         if online { _ = try? await API.shared.raw("/api/logout",method:"POST") }
-        API.shared.clear(); downloads.attach(nil); enteringAccount = false; state = nil; stories = [:]; engine = nil
+        incomingFriendRequests=0; API.shared.clear(); downloads.attach(nil); enteringAccount = false; state = nil; stories = [:]; engine = nil
         UserDefaults.standard.removeObject(forKey:"lastAccount"); loginRequired = false
     }
     func sessionRenewed() { engine=nil; metadataTask?.cancel(); metadataTask=nil; metadataToken=nil }
@@ -112,7 +113,7 @@ import UIKit
         try await API.shared.send("/api/logout-all",value:[String:String]())
         guard state?.user.id == owner else { return }
         persist(); refreshTask?.cancel(); metadataTask?.cancel(); metadataTask=nil; metadataToken=nil; syncTask?.cancel()
-        API.shared.clear(); downloads.attach(nil); enteringAccount=false; state=nil; stories=[:]; engine=nil
+        incomingFriendRequests=0; API.shared.clear(); downloads.attach(nil); enteringAccount=false; state=nil; stories=[:]; engine=nil
         UserDefaults.standard.removeObject(forKey:"lastAccount"); loginRequired=false
     }
     func refresh() async {
@@ -138,7 +139,7 @@ import UIKit
             guard state?.user.id == owner else { return }
             merge(fresh); state?.lastSynced = Date(); persist()
             if let stats = try? await API.shared.get("/api/reading/stats",as:JSONValue.self), state?.user.id == owner { state?.stats = stats["stats"].object; persist() }
-            if let profile = try? await API.shared.get("/api/profiles/"+owner,as:JSONValue.self), state?.user.id == owner { state?.profile = profile; persist() }
+            if let profile = try? await API.shared.get("/api/profiles/"+owner,as:JSONValue.self), state?.user.id == owner { state?.profile = profile; incomingFriendRequests=Int(profile["profile"]["pendingFriendRequests"].number); persist() }
             cacheLibrary()
         } catch {
             guard !Task.isCancelled, !isRequestCancellation(error), state?.user.id == owner else { return }
@@ -287,5 +288,28 @@ import UIKit
             else { state?.newFeed = try JSONDecoder().decode(NewFeed.self,from:result); for r in state?.newFeed?.all ?? [] { remember(r.item) } }
             persist()
         } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
+    }
+}
+
+extension AppStore {
+    func resolveMetadata(_ keys: [String]) async {
+        guard online,let owner=state?.user.id else { return }
+        let missing=Array(Set(keys.filter { !$0.isEmpty && stories[$0] == nil })).sorted()
+        for start in stride(from:0,to:missing.count,by:40) {
+            guard !Task.isCancelled,state?.user.id == owner else { return }
+            if let result=try? await API.shared.get("/api/source/resolve",query:["keys":missing[start..<min(start+40,missing.count)].joined(separator:",")],as:ResolveResponse.self),state?.user.id == owner {
+                for story in result.items { remember(story) }
+            }
+        }
+    }
+}
+func apiComponent(_ value: String) -> String {
+    value.addingPercentEncoding(withAllowedCharacters:CharacterSet.alphanumerics.union(CharacterSet(charactersIn:"-_.~"))) ?? ""
+}
+
+extension AppStore {
+    func refreshFriendRequests() async {
+        guard online,let owner=state?.user.id,UIApplication.shared.applicationState == .active else { return }
+        if let value=try? await API.shared.get("/api/friends/requests",as:JSONValue.self),state?.user.id == owner { incomingFriendRequests=Int(value["incomingCount"].number) }
     }
 }

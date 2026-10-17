@@ -1,0 +1,26 @@
+import XCTest
+@testable import Wany
+
+@MainActor final class CollectionTests: XCTestCase {
+    func testManagedOrderingPreservesUnrelatedSectionsAndVisibility() throws {
+        let all=[RanyProfileSection(key:"reading",sectionType:"continue_reading",position:1,isVisible:true),RanyProfileSection(key:"favorite",sectionType:"favorites",position:2,isVisible:false),RanyProfileSection(key:"activity",sectionType:"my_activity",position:3,isVisible:true),RanyProfileSection(key:"custom",sectionType:"custom_list",referenceId:"fixture-list",position:4,isVisible:true)]
+        let reordered=SectionOrder.replacingManaged(all,with:[all[3],all[1]])
+        XCTAssertEqual(reordered.map(\.key),["reading","custom","activity","favorite"])
+        XCTAssertFalse(reordered[3].isVisible)
+        struct Payload: Encodable { let sections: [ProfileSectionInput] }
+        let json=try JSONDecoder().decode(JSONValue.self,from:JSONEncoder().encode(Payload(sections:reordered.map(\.payload))))
+        XCTAssertEqual(json["sections"].array[1]["referenceId"].string,"fixture-list")
+        XCTAssertEqual(json["sections"].array[3]["isVisible"].boolean,false)
+    }
+    func testListItemMoveRetainsIdentityAndRejectsOutOfBounds() {
+        XCTAssertEqual(SectionOrder.moving(["a","b","c"],from:0,to:2),["b","c","a"])
+        XCTAssertEqual(SectionOrder.moving(["a","b"],from:0,to:-1),["a","b"])
+        XCTAssertEqual(apiComponent("tx:work/name?x=1"),"tx%3Awork%2Fname%3Fx%3D1")
+    }
+    func testListFieldsMatchBackendLimitsAndRelationshipStates() {
+        XCTAssertFalse(ListEditorInput(name:"",description:"",iconKey:"book").valid)
+        XCTAssertFalse(ListEditorInput(name:"fixture",description:String(repeating:"a",count:501),iconKey:"book").valid)
+        XCTAssertTrue(ListEditorInput(name:"fixture",description:"description",iconKey:"dragon").valid)
+        XCTAssertEqual(FriendRelation.allCases.count,4)
+    }
+}

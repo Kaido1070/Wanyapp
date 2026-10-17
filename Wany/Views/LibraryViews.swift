@@ -169,6 +169,7 @@ struct ProfileView: View {
     @StateObject private var lists = CachedPage()
     @StateObject private var selectedList = CachedPage()
     @State private var listID = ""
+    @State private var listSections: [RanyProfileSection] = []
     @State private var creating = false
     @State private var newName = ""
     @State private var adding = false
@@ -180,9 +181,14 @@ struct ProfileView: View {
     @State private var pickingAvatar = false
     @State private var savingProfile = false
     @FocusState private var nameFocused: Bool
+    private var visibleLists: [JSONValue] {
+        let visibility=Dictionary(listSections.filter { $0.sectionType == "custom_list" }.map { ($0.referenceId ?? "",$0.isVisible) },uniquingKeysWith:{ _,b in b })
+        return lists.value["lists"].array.filter { visibility[$0["id"].string] ?? true }
+    }
+    private var favoriteSectionHidden: Bool { listSections.first { $0.sectionType == "favorites" }?.isVisible == false }
     var keys: [String] {
         guard let state = store.state else { return [] }
-        if tab == "favorites" { return state.data.favorites }
+        if tab == "favorites" { return favoriteSectionHidden ? [] : state.data.favorites }
         if tab == "lists" { return selectedList.value["items"].array.map { $0["mangaId"].string } }
         return state.data.library.filter { $0.status == "reading" }.sorted { ($0.lastReadAt ?? $0.updatedAt) > ($1.lastReadAt ?? $1.updatedAt) }.map(\.mangaId)
     }
@@ -197,6 +203,7 @@ struct ProfileView: View {
             }
         }.task { await loadLists(); await loadSelectedList() }
         .refreshable { await store.refresh(); await loadLists(); await loadSelectedList() }
+        .onReceive(NotificationCenter.default.publisher(for:.ranyCollectionsChanged)) { _ in Task { await loadLists(); await loadSelectedList() } }
         .onChange(of:tab) { _,value in if value == "lists" { Task { await loadLists(); await loadSelectedList() } } }
         .onChange(of:listID) { _,_ in Task { await loadSelectedList() } }
         .sheet(isPresented:$adding,onDismiss:{ Task { await loadSelectedList(); await loadLists() } }) { AddStoriesToListView(id:listID) }
@@ -309,7 +316,7 @@ struct ProfileView: View {
                 VStack(spacing:12) {
                     HStack(spacing:6) {
                         WanyLink { StatsView() } label: { accountTool("الإحصائيات","chart.xyaxis.line") }
-                        WanyLink { FriendsView() } label: { accountTool("الأصدقاء","person.2") }
+                        WanyLink { FriendsView() } label: { accountTool(store.incomingFriendRequests > 0 ? "الأصدقاء · \(store.incomingFriendRequests)" : "الأصدقاء","person.2") }
                         WanyLink { ActivityView() } label: { accountTool("النشاط","clock") }
                     }.buttonStyle(.plain)
                     HStack {
@@ -353,10 +360,11 @@ struct ProfileView: View {
                 }
                 if tab == "lists" {
                     ScrollView(.horizontal,showsIndicators:false) {
-                        HStack(spacing:12) { ForEach(Array(lists.value["lists"].array.enumerated()),id:\.offset) { _,list in
-                            Button { listID = list["id"].string } label: { Text(list["name"].string).font(RanyTypography.font(.subheadline)).padding(.horizontal,16).frame(minHeight:48).background(listID == list["id"].string ? Theme.accent.opacity(0.25) : Theme.surface.opacity(0.22),in:Capsule()).contentShape(Capsule()) }.buttonStyle(.plain)
+                        HStack(spacing:12) { ForEach(Array(visibleLists.enumerated()),id:\.offset) { _,list in
+                            Button { listID = list["id"].string } label: { Label(list["name"].string,systemImage:ListIcons.symbol(list["iconKey"].string)).font(RanyTypography.font(.subheadline)).padding(.horizontal,16).frame(minHeight:48).background(listID == list["id"].string ? Theme.accent.opacity(0.25) : Theme.surface.opacity(0.22),in:Capsule()).contentShape(Capsule()) }.buttonStyle(.plain)
                         } }
                     }
+                    WanyLink { ListsView() } label: { Label("إدارة القوائم وترتيب الأقسام",systemImage:"slider.horizontal.3").font(.caption).frame(minHeight:44) }
                     if !listID.isEmpty {
                         HStack(spacing:16) {
                             Button { adding = true } label: { Label("إضافة قصص",systemImage:"plus").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }.disabled(!store.online)
@@ -367,12 +375,17 @@ struct ProfileView: View {
                 StoryGrid(stories:keys.compactMap { store.stories[$0] },showReadingProgress:true)
                 let missing = keys.filter { store.stories[$0] == nil }.count
                 if missing > 0 { Text("\(missing) قصة بانتظار حفظ تفاصيلها عند الاتصال").font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
-                if keys.isEmpty { EmptyState(icon:"books.vertical",title:"لا توجد قصص هنا",detail:"أضف قصة من صفحة الاستكشاف لتظهر في مكتبتك.") }
+                if keys.isEmpty { if tab == "favorites" && favoriteSectionHidden { Text("القسم مخفي من صفحتك. يمكنك إظهاره من إدارة القوائم.").font(.caption).foregroundStyle(.secondary) } else { EmptyState(icon:"books.vertical",title:"لا توجد قصص هنا",detail:"أضف قصة من صفحة الاستكشاف لتظهر في مكتبتك.") } }
                 }.card()
     }
     func loadLists() async {
         await lists.load("/api/lists",store:store)
-        if listID.isEmpty { listID = lists.value["lists"].array.first?["id"].string ?? "" }
+        if let owner=store.state?.user.id {
+            if store.online,let result=try? await API.shared.get("/api/profile/sections",as:SectionsResponse.self),store.state?.user.id == owner {
+                listSections=result.sections; try? Disk.save(result.sections,owner:owner,name:"collections/sections.json")
+            } else { listSections=Disk.read([RanyProfileSection].self,owner:owner,name:"collections/sections.json") ?? [] }
+        }
+        if !visibleLists.contains(where:{$0["id"].string == listID}) { listID=visibleLists.first?["id"].string ?? "" }
     }
     func loadSelectedList() async {
         guard !listID.isEmpty else { return }

@@ -47,4 +47,24 @@ import UIKit
         XCTAssertNotNil(view.scene)
         view.scene=nil
     }
+    func testBentPageShaderRendersBundledCoverPixels() throws {
+        let cover=try XCTUnwrap(UIImage(named:"RanyDefault1"))
+        let stage=PageStage(images:[cover])
+        stage.frame=CGRect(x:0,y:0,width:320,height:568); stage.layoutIfNeeded()
+        for time in [0.0,1.2,2.2] {
+            stage.render(time:time,lighting:1,speed:1)
+            let image=stage.snapshot()
+            let cg=try XCTUnwrap(image.cgImage)
+            var sample=[UInt8](repeating:0,count:16*16*4)
+            sample.withUnsafeMutableBytes { bytes in
+                let context=CGContext(data:bytes.baseAddress,width:16,height:16,bitsPerComponent:8,bytesPerRow:64,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue)!
+                context.draw(cg,in:CGRect(x:0,y:0,width:16,height:16))
+            }
+            let luminance=(0..<256).map { Int(sample[$0*4])+Int(sample[$0*4+1])+Int(sample[$0*4+2]) }
+            XCTAssertGreaterThan(luminance.max() ?? 0,90,"A decoded cover must render, rather than a black SceneKit surface.")
+            let attachment=XCTAttachment(image:image); attachment.name="Cinematic-page-\(time)"; attachment.lifetime = .keepAlways; add(attachment)
+        }
+        stage.scene=nil
+    }
+
 }

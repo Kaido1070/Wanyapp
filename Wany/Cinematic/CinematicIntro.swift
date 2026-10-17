@@ -92,8 +92,9 @@ private struct CinematicLetter: View {
     let layout: CinematicLayout
     let configuration: CinematicConfiguration
     private var visible: Bool { t >= 0.58 && (configuration.retained.contains(index) || t < 2.13) && (index == 0 || t < 3.14) }
+    private var glyph: Text { Text(String(letter)).font(Font.custom(RanyIdentity.fontName,fixedSize:100)).foregroundColor(RanyTypography.brandColor) }
     var body: some View {
-        Text(String(letter)).font(Font.custom(RanyIdentity.fontName,fixedSize:100)).foregroundStyle(RanyTypography.brandColor)
+        glyph
             .fixedSize().mask {
                 GeometryReader { box in
                     let cut=layout.cut(index:index,t:t)
