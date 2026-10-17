@@ -58,13 +58,14 @@ struct StoryCard: View {
     @EnvironmentObject var store: AppStore
     let story: Story
     var showReadingProgress = false
+    var sourceKeys: [String] = []
     var body: some View {
         VStack(alignment:.leading,spacing:8) {
-            WanyLink { StoryView(initial:story) } label: {
+            WanyLink { StoryView(initial:story,sourceKeys:sourceKeys) } label: {
                 VStack(alignment:.leading,spacing:7) {
                     CoverView(story:story).frame(height:205).clipShape(RoundedRectangle(cornerRadius:15))
                     Text(story.title).font(RanyTypography.font(.subheadline).weight(.semibold)).lineLimit(2).frame(height:40,alignment:.topLeading)
-                    HStack { Text(sourceLabel(story.source)); Spacer(); if let latest = story.latest { Text(chapterNumber(latest)) } }.font(RanyTypography.font(.caption2)).foregroundStyle(.secondary)
+                    HStack { Text(sourceKeys.count>1 ? "\(sourceKeys.count) مصادر · \(sourceLabel(story.source))" : sourceLabel(story.source)); Spacer(); if let latest = story.latest { Text(chapterNumber(latest)) } }.font(RanyTypography.font(.caption2)).foregroundStyle(.secondary)
                 }.contentShape(Rectangle()).foregroundStyle(.primary)
             }.buttonStyle(.plain)
             if showReadingProgress, let state = store.state {

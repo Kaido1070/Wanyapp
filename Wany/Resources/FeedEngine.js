@@ -769,6 +769,523 @@ function isSourceKey(value) {
 
 return {mergeSourceItems,preferredSourceCover};
 })();
+const discoveryRules = (()=>{
+const EMPTY_HAS_MORE = {
+    mangatime: false,
+    teamx: false,
+    "3asq": false,
+    starzmanga: false,
+    xsano: false,
+    mangalik: false,
+    azora: false
+};
+const WORK_TYPES = [
+    {
+        id: "manga",
+        label: "مانجا"
+    },
+    {
+        id: "manhwa",
+        label: "مانهوا"
+    },
+    {
+        id: "manhua",
+        label: "مانها"
+    },
+    {
+        id: "webtoon",
+        label: "ويب تون"
+    },
+    {
+        id: "novel",
+        label: "روايات"
+    },
+    {
+        id: "comic",
+        label: "كوميك"
+    }
+];
+const STATUSES = [
+    {
+        id: "ongoing",
+        label: "مستمر"
+    },
+    {
+        id: "completed",
+        label: "مكتمل"
+    },
+    {
+        id: "hiatus",
+        label: "متوقف"
+    },
+    {
+        id: "cancelled",
+        label: "متروك"
+    }
+];
+const GENRES = [
+    {
+        id: "action",
+        label: "أكشن",
+        aliases: [
+            "أكشن",
+            "اكشن",
+            "action"
+        ]
+    },
+    {
+        id: "fantasy",
+        label: "فانتزي",
+        aliases: [
+            "فانتزي",
+            "فانتازيا",
+            "fantasy"
+        ]
+    },
+    {
+        id: "adventure",
+        label: "مغامرات",
+        aliases: [
+            "مغامرات",
+            "مغامرة",
+            "adventure"
+        ]
+    },
+    {
+        id: "drama",
+        label: "دراما",
+        aliases: [
+            "دراما",
+            "drama"
+        ]
+    },
+    {
+        id: "comedy",
+        label: "كوميدي",
+        aliases: [
+            "كوميدي",
+            "كوميديا",
+            "comedy"
+        ]
+    },
+    {
+        id: "romance",
+        label: "رومانسي",
+        aliases: [
+            "رومانسي",
+            "رومانسية",
+            "romance"
+        ]
+    },
+    {
+        id: "supernatural",
+        label: "خارق للطبيعة",
+        aliases: [
+            "قوة خارقة",
+            "خارق للطبيعة",
+            "supernatural"
+        ]
+    },
+    {
+        id: "martial-arts",
+        label: "فنون قتالية",
+        aliases: [
+            "فنون قتالية",
+            "martial arts",
+            "murim",
+            "موريم"
+        ]
+    },
+    {
+        id: "isekai",
+        label: "إيسيكاي",
+        aliases: [
+            "إيسيكاي",
+            "ايسيكاي",
+            "isekai"
+        ]
+    },
+    {
+        id: "system",
+        label: "نظام",
+        aliases: [
+            "نظام",
+            "system"
+        ]
+    },
+    {
+        id: "school",
+        label: "مدرسي",
+        aliases: [
+            "مدرسي",
+            "مدرسة",
+            "school",
+            "school life"
+        ]
+    },
+    {
+        id: "mystery",
+        label: "غموض",
+        aliases: [
+            "غموض",
+            "mystery"
+        ]
+    },
+    {
+        id: "novel",
+        label: "روايات",
+        aliases: [
+            "روايات",
+            "رواية",
+            "رواية ويب",
+            "novel",
+            "web novel",
+            "light novel"
+        ]
+    },
+    {
+        id: "sci-fi",
+        label: "خيال علمي",
+        aliases: [
+            "خيال علمي",
+            "science fiction",
+            "sci fi",
+            "sci-fi"
+        ]
+    },
+    {
+        id: "horror",
+        label: "رعب",
+        aliases: [
+            "رعب",
+            "horror"
+        ]
+    },
+    {
+        id: "thriller",
+        label: "إثارة",
+        aliases: [
+            "إثارة",
+            "اثارة",
+            "thriller",
+            "suspense"
+        ]
+    },
+    {
+        id: "psychological",
+        label: "نفسي",
+        aliases: [
+            "نفسي",
+            "psychological"
+        ]
+    },
+    {
+        id: "historical",
+        label: "تاريخي",
+        aliases: [
+            "تاريخي",
+            "historical",
+            "history"
+        ]
+    },
+    {
+        id: "military",
+        label: "عسكري",
+        aliases: [
+            "عسكري",
+            "military",
+            "war"
+        ]
+    },
+    {
+        id: "sports",
+        label: "رياضة",
+        aliases: [
+            "رياضة",
+            "رياضي",
+            "sports"
+        ]
+    },
+    {
+        id: "slice-of-life",
+        label: "شريحة من الحياة",
+        aliases: [
+            "شريحة من الحياة",
+            "slice of life"
+        ]
+    },
+    {
+        id: "tragedy",
+        label: "مأساة",
+        aliases: [
+            "مأساة",
+            "ماساة",
+            "tragedy"
+        ]
+    },
+    {
+        id: "reincarnation",
+        label: "تناسخ",
+        aliases: [
+            "تناسخ",
+            "reincarnation",
+            "reincarnated"
+        ]
+    },
+    {
+        id: "regression",
+        label: "عودة بالزمن",
+        aliases: [
+            "عودة بالزمن",
+            "رجوع",
+            "regression",
+            "regressor",
+            "returner"
+        ]
+    },
+    {
+        id: "cultivation",
+        label: "زراعة",
+        aliases: [
+            "زراعة",
+            "cultivation",
+            "xianxia",
+            "wuxia"
+        ]
+    },
+    {
+        id: "magic",
+        label: "سحر",
+        aliases: [
+            "سحر",
+            "magic",
+            "magical"
+        ]
+    },
+    {
+        id: "demons",
+        label: "شياطين",
+        aliases: [
+            "شياطين",
+            "شيطان",
+            "demon",
+            "demons"
+        ]
+    },
+    {
+        id: "monsters",
+        label: "وحوش",
+        aliases: [
+            "وحوش",
+            "وحش",
+            "monster",
+            "monsters"
+        ]
+    },
+    {
+        id: "survival",
+        label: "بقاء",
+        aliases: [
+            "بقاء",
+            "survival"
+        ]
+    },
+    {
+        id: "game",
+        label: "ألعاب",
+        aliases: [
+            "ألعاب",
+            "العاب",
+            "game",
+            "gaming",
+            "virtual reality"
+        ]
+    },
+    {
+        id: "dungeon",
+        label: "زنزانات",
+        aliases: [
+            "زنزانة",
+            "زنزانات",
+            "dungeon",
+            "dungeons"
+        ]
+    },
+    {
+        id: "hunter",
+        label: "صيادون",
+        aliases: [
+            "صياد",
+            "صيادون",
+            "hunter",
+            "hunters"
+        ]
+    },
+    {
+        id: "villainess",
+        label: "شريرة",
+        aliases: [
+            "شريرة",
+            "villainess",
+            "villain"
+        ]
+    },
+    {
+        id: "royalty",
+        label: "ملكي",
+        aliases: [
+            "ملكي",
+            "ملوك",
+            "أميرة",
+            "اميرة",
+            "royalty",
+            "royal",
+            "nobility"
+        ]
+    },
+    {
+        id: "medical",
+        label: "طبي",
+        aliases: [
+            "طبي",
+            "طب",
+            "medical",
+            "doctor"
+        ]
+    },
+    {
+        id: "cooking",
+        label: "طبخ",
+        aliases: [
+            "طبخ",
+            "طهي",
+            "cooking",
+            "food"
+        ]
+    },
+    {
+        id: "business",
+        label: "أعمال",
+        aliases: [
+            "أعمال",
+            "اعمال",
+            "business",
+            "economics"
+        ]
+    },
+    {
+        id: "crime",
+        label: "جريمة",
+        aliases: [
+            "جريمة",
+            "جرائم",
+            "crime",
+            "mafia"
+        ]
+    },
+    {
+        id: "shounen",
+        label: "شونين",
+        aliases: [
+            "شونين",
+            "shounen",
+            "shonen"
+        ]
+    },
+    {
+        id: "shoujo",
+        label: "شوجو",
+        aliases: [
+            "شوجو",
+            "shoujo",
+            "shojo"
+        ]
+    },
+    {
+        id: "seinen",
+        label: "سينين",
+        aliases: [
+            "سينين",
+            "seinen"
+        ]
+    },
+    {
+        id: "josei",
+        label: "جوسي",
+        aliases: [
+            "جوسي",
+            "josei"
+        ]
+    }
+];
+function normalize(value) {
+    return value.trim().toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/ؤ/g, "و").replace(/ئ/g, "ي").replace(/[^a-z0-9\u0600-\u06ff]+/g, " ").replace(/\s+/g, " ");
+}
+function matchesGenres(item, selected) {
+    if (!selected.length) return true;
+    const itemGenres = (item.genres ?? []).map((genre)=>normalize(String(genre)));
+    if (!itemGenres.length) return false;
+    return selected.some((id)=>{
+        const genre = GENRES.find((entry)=>entry.id === id);
+        if (!genre) return false;
+        return genre.aliases.some((alias)=>{
+            const needle = normalize(alias);
+            return itemGenres.some((value)=>value.includes(needle) || needle.includes(value));
+        });
+    });
+}
+function normalizedWorkType(item) {
+    const raw = normalize([
+        item.type,
+        ...item.genres ?? []
+    ].filter(Boolean).join(" "));
+    if (/رواي|web novel|light novel|\bnovel\b/.test(raw)) return "novel";
+    if (/مانهوا|\bmanhwa\b/.test(raw)) return "manhwa";
+    if (/مانها|مانهوا صيني|\bmanhua\b/.test(raw)) return "manhua";
+    if (/ويب تون|مانجا ويب|\bwebtoon\b/.test(raw)) return "webtoon";
+    if (/كوميك|\bcomic\b/.test(raw)) return "comic";
+    if (/مانجا|\bmanga\b/.test(raw)) return "manga";
+    return "";
+}
+function normalizedStatus(item) {
+    const raw = normalize(item.status ?? "");
+    if ([
+        "ongoing",
+        "مستمر",
+        "مستمره"
+    ].includes(raw)) return "ongoing";
+    if ([
+        "completed",
+        "مكتمل",
+        "مكتمله"
+    ].includes(raw)) return "completed";
+    if ([
+        "hiatus",
+        "متوقف",
+        "موسم منتهي"
+    ].includes(raw)) return "hiatus";
+    if ([
+        "cancelled",
+        "canceled",
+        "dropped",
+        "متروك",
+        "ملغي"
+    ].includes(raw)) return "cancelled";
+    return "";
+}
+function matchesMetadata(item, genres, type, status) {
+    if (!matchesGenres(item, genres)) return false;
+    if (type !== "all" && normalizedWorkType(item) !== type) return false;
+    if (status !== "all" && normalizedStatus(item) !== status) return false;
+    return true;
+}
+function needsMetadata(genres, type, status) {
+    return genres.length > 0 || type !== "all" || status !== "all";
+}
+
+return {matchesMetadata,GENRES,WORK_TYPES,STATUSES};
+})();
+function catalogGroups(items,filter) {return mergeSourceItems(items.filter(i=>(!filter.source || filter.source==='all' || i.source===filter.source) && discoveryRules.matchesMetadata(i,filter.genres||[],filter.type||'all',filter.status||'all'))); }
 const {rankRecommendations} = (()=>{
 function normalizedLabel(value) {
     return String(value ?? "").trim().replace(/\s+/g, " ").toLowerCase();

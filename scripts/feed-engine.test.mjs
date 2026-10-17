@@ -19,3 +19,13 @@ test('FYP and New entrypoints invoke native error callback rather than hang',asy
  const c=context();let result;c.nativeRequest=(id)=>c.settleRequest(id,'','offline');c.nativeResult=(id,data,error)=>{result={id,data,error};};
  await vm.runInContext('runFeed("new",{},"user",1,"run")',c);assert.equal(result.id,'run');assert.equal(result.error,'offline');
 });
+test('discovery applies website type, status, genre and source filters together',()=>{
+ const c=context();c.items=[{...item('tx:a'),status:'ongoing'},{...item('aq:b','3asq'),status:'completed'},{...item('tx:c'),type:'manga',status:'ongoing',genres:['romance']}];
+ c.filter={source:'teamx',type:'manhwa',status:'ongoing',genres:['action']};
+ const r=vm.runInContext('catalogGroups(items,filter)',c);assert.equal(r.length,1);assert.equal(r[0].primary.key,'tx:a');
+});
+test('source grouping separates numbered works and duplicate same-source titles',()=>{
+ const c=context();c.items=[{...item('tx:a'),title:'Legend of the Northern Blade 1',slug:'legend-blade-1'},{...item('aq:b','3asq'),title:'Legend of the Northern Blade 2',slug:'legend-blade-2'}];
+ assert.equal(vm.runInContext('mergeSourceItems(items).length',c),2);
+ c.items=[item('tx:first'),item('tx:second')];assert.equal(vm.runInContext('mergeSourceItems(items).length',c),2);
+});

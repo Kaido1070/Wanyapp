@@ -38,6 +38,7 @@ import JavaScriptCore
     }
     func run(_ kind: String, data: AccountData, user: String, page: Int = 1, progress: @escaping (String)->Void) async throws -> Data {
         guard scope == API.shared.generation else { throw CancellationError() }
+        guard context.objectForKeyedSubscript("runFeed")?.isObject == true else { throw APIError(message:"تعذر تحميل محرك الاقتراحات المحلي",status:0) }
         let id = UUID().uuidString
         let input = try JSONSerialization.jsonObject(with:JSONEncoder().encode(data))
         return try await withCheckedThrowingContinuation { continuation in

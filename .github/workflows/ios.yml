@@ -2,6 +2,8 @@ name: Build Rany IPA
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
@@ -31,9 +33,44 @@ jobs:
         run: |
           DEVICE=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for k,vs in d["devices"].items() if "iOS" in k for v in vs if v["name"].startswith("iPhone")))')
           echo "SIMULATOR_ID=$DEVICE" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
       - name: Run persistence and download tests
         if: "!contains(github.event.head_commit.message, '[package-only]')"
-        run: xcodebuild test -project Wany.xcodeproj -scheme Wany -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath build-simulator -resultBundlePath TestResults CODE_SIGNING_ALLOWED=NO
+        run: xcodebuild test -project Wany.xcodeproj -scheme Wany -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -destination-timeout 120 -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 90 -maximum-test-execution-time-allowance 180 -derivedDataPath build-simulator -resultBundlePath TestResults CODE_SIGNING_ALLOWED=NO
+      - name: Record isolated native cinematic preview
+        if: "!contains(github.event.head_commit.message, '[package-only]')"
+        run: |
+          mkdir -p cinematic-preview
+          xcrun simctl boot "$SIMULATOR_ID" || true
+          xcrun simctl bootstatus "$SIMULATOR_ID" -b
+          xcrun simctl install "$SIMULATOR_ID" build-simulator/Build/Products/Debug-iphonesimulator/Wany.app
+          record_intro() {
+            CASE_NAME="$1"
+            shift
+            xcrun simctl terminate "$SIMULATOR_ID" site.wany.reader || true
+            RECORD_LOG="cinematic-preview/$CASE_NAME-recording.log"
+            xcrun simctl io "$SIMULATOR_ID" recordVideo --codec=h264 "cinematic-preview/Rany-$CASE_NAME.mp4" > "$RECORD_LOG" 2>&1 &
+            RECORD_PID=$!
+            for ATTEMPT in {1..300}; do
+              if grep -q "Recording started" "$RECORD_LOG"; then break; fi
+              kill -0 "$RECORD_PID" || { cat "$RECORD_LOG"; return 1; }
+              sleep 0.1
+            done
+            grep -q "Recording started" "$RECORD_LOG" || { cat "$RECORD_LOG"; kill -INT "$RECORD_PID"; return 1; }
+            xcrun simctl launch "$SIMULATOR_ID" site.wany.reader --rany-cinematic-preview "$@"
+            sleep 10
+            kill -INT "$RECORD_PID"
+            wait "$RECORD_PID" || true
+            test -s "cinematic-preview/Rany-$CASE_NAME.mp4"
+          }
+          record_intro login
+          record_intro signed-in --rany-cinematic-signed-in
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Rany-cinematic-native-video
+          path: cinematic-preview
+          retention-days: 14
       - name: Export native presentation regression screenshots
         if: "!contains(github.event.head_commit.message, '[package-only]')"
         run: xcrun xcresulttool export attachments --path TestResults.xcresult --output-path screenshots

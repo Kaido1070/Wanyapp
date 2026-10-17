@@ -135,6 +135,7 @@ struct RanyLoginView: View {
     @State private var question = ""
     @State private var answer = ""
     @State private var busy = false
+    @State private var recovery = false
     init(creatingAccount: Bool = false) { _creating = State(initialValue:creatingAccount) }
     private enum Field: Hashable { case username,password,confirmation,question,answer }
     @FocusState private var focus: Field?
@@ -177,11 +178,13 @@ struct RanyLoginView: View {
                                 .background(LinearGradient(colors:[Theme.accent.opacity(0.24),Theme.accent.opacity(0.12)],startPoint:.topLeading,endPoint:.bottomTrailing),in:RoundedRectangle(cornerRadius:15))
                         }.buttonStyle(.plain).disabled(busy || !valid).opacity(busy || !valid ? 0.65 : 1)
                     }.padding(20).ranyGlass(radius:27).padding(.top,18).disabled(busy)
+                    if !creating { Button("نسيت كلمة المرور؟") { recovery=true }.font(.footnote).padding(.top,18) }
                     Text(creating ? "احتفظ بإجابة الأمان؛ تحتاجها لاستعادة حسابك." : "استخدم حسابك الحالي في الموقع").font(RanyTypography.font(.caption)).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.top,18)
                     Text(AppVersion.display).font(RanyTypography.font(.caption2)).foregroundStyle(.tertiary).padding(.top,20).padding(.bottom,24)
                 }.frame(maxWidth:430).frame(maxWidth:.infinity).padding(.horizontal,26).frame(minHeight:geometry.size.height,alignment:.top)
             }.scrollDismissesKeyboard(.interactively)
         }.onChange(of:username) { _,_ in created = false }
+        .sheet(isPresented:$recovery) { AccountRecoveryView() }
     }
     private func modeButton(_ title: String, isCreation: Bool) -> some View {
         Button {
