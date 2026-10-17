@@ -178,7 +178,7 @@ struct ActivityEventRow: View {
         VStack(alignment:.leading,spacing:8) {
             PublicAccountIdentity(user:event["user"])
             Text(labels[event["type"].string] ?? "نشاط").font(.caption).foregroundStyle(.secondary)
-            if let story=store.stories[event["mangaId"].string] { WanyLink(story.title) { StoryView(initial:story) } }
+            if let story=store.stories[event["mangaId"].string],story.title != story.key { WanyLink(story.title) { StoryView(initial:story) } }
             else if !event["mangaId"].string.isEmpty { Text("بيانات القصة غير متاحة حاليًا").font(.caption).foregroundStyle(.secondary) }
             if event["chapterNumber"].number>0 { Text("الفصل \(chapterNumber(event["chapterNumber"].number))").font(.caption) }
             if !event["list"]["name"].string.isEmpty { Text(event["list"]["name"].string).font(.caption) }

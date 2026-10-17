@@ -41,7 +41,8 @@ import ImageIO
         let owner=store.state?.user.id, generation=API.shared.generation
         if let owner, let value=try? await API.shared.get("/api/personalization-state",as:JSONValue.self),store.state?.user.id == owner {
             let keys=(value["readingWorks"].array+value["followed"].array).map { $0["mangaId"].string }.filter { !$0.isEmpty }
-            try? Disk.save(Array(Set(keys)).sorted(),owner:owner,name:"cinema/interests.json")
+            var seen=Set<String>(); let ordered=keys.filter { seen.insert($0).inserted }
+            try? Disk.save(ordered,owner:owner,name:"cinema/interests.json")
             for start in stride(from:0,to:min(40,keys.count),by:20) {
                 guard generation == API.shared.generation, store.state?.user.id == owner else { return }
                 if let response=try? await API.shared.get("/api/source/resolve",query:["keys":keys[start..<min(start+20,keys.count)].joined(separator:",")],as:ResolveResponse.self) {
@@ -62,7 +63,7 @@ import ImageIO
         for key in keys.prefix(12) {
             guard generation == API.shared.generation,store.state?.user.id == owner,let story=catalog[key] else { return }
             // Only public popularity results may enter the shared guest cache.
-            let folder=owner ?? "public-cinema", file=Disk.file(owner ?? "public-cinema",Disk.coverName(key))
+            let file=Disk.file(owner ?? "public-cinema",Disk.coverName(key))
             if FileManager.default.fileExists(atPath:file.path) { continue }
             if let request=try? API.shared.imageRequest(source:story.source,url:story.cover,referer:story.url,quality:.balanced),
                let (data,response)=try? await URLSession.shared.data(for:request), data.count < 8_000_000,
@@ -74,7 +75,6 @@ import ImageIO
                 try? FileManager.default.createDirectory(at:file.deletingLastPathComponent(),withIntermediateDirectories:true)
                 try? bytes.write(to:file,options:[.atomic,.completeFileProtectionUntilFirstUserAuthentication])
                 if owner != nil { store.remember(story) }
-                _ = folder
             }
         }
     }

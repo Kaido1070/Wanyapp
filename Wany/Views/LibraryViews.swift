@@ -164,6 +164,7 @@ struct FeedView: View {
     var body: some View {
         WanyScroll {
             HStack { Text(kind == "fyp" ? "مقترح لك" : "جديد").font(RanyTypography.font(.largeTitle).bold()); Spacer(); Button { Task { await store.loadFeed(kind) } } label: { Image(systemName:"arrow.clockwise") }.disabled(!store.online || store.loadingFeed) }
+            if let error=store.feedError { Text(error).font(.caption).foregroundStyle(.orange) }
             if store.loadingFeed { HStack { ProgressView(); Text(store.feedProgress).font(RanyTypography.font(.caption)) }.card() }
             if kind == "fyp" {
                 let recommendations = Array((store.state?.fyp ?? []).prefix(visible))
@@ -183,7 +184,7 @@ struct FeedView: View {
                         }
                     }.card()
                 }
-                if store.state?.newFeed?.hasMore == true { Button("الصفحة التالية") { Task { await store.loadFeed("new",page:(store.state?.newFeed?.page ?? 1)+1) } }.disabled(store.loadingFeed || !store.online) }
+                if store.state?.newFeed?.hasMore == true { Button(store.feedError == nil ? "تحميل المزيد" : "إعادة محاولة تحميل المزيد") { Task { await store.loadFeed("new",page:(store.state?.newFeed?.page ?? 1)+1) } }.disabled(store.loadingFeed || !store.online) }
             }
         }.task { if kind == "fyp" ? (store.state?.fyp.isEmpty ?? true) : store.state?.newFeed == nil { await store.loadFeed(kind) } }.refreshable { await store.loadFeed(kind) }
     }
@@ -465,20 +466,5 @@ struct ProfileAvatar: View {
                     image = value; try? FileManager.default.createDirectory(at:path.deletingLastPathComponent(),withIntermediateDirectories:true); try? data.write(to:path,options:.atomic)
                 }
             }
-    }
-}
-struct StatsView: View {
-    @EnvironmentObject var store: AppStore
-    let fields = [("storiesRead","القصص المقروءة"),("organicChapters","الفصول المقروءة"),("organicCompletedChapters","الفصول المكتملة"),("bulkChapters","الفصول المحددة دفعة واحدة"),("activeDays","أيام القراءة"),("dailyAverage","المعدل اليومي"),("currentStreak","سلسلة الأيام الحالية"),("bestStreak","أفضل سلسلة"),("accountDays","عمر الحساب بالأيام")]
-    var body: some View {
-        WanyScroll {
-            Text("إحصائيات القراءة").font(RanyTypography.font(.largeTitle).bold()).frame(maxWidth:.infinity,alignment:.leading)
-            if let state = store.state {
-                if !state.pending.isEmpty { Text("يوجد تقدم محلي بانتظار المزامنة. تتحدث الإحصائيات بعد رفعه.").font(RanyTypography.font(.caption)).foregroundStyle(.orange) }
-                LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],spacing:12) { ForEach(fields,id:\.0) { field in VStack(spacing:9) { Text(String(format:"%g",state.stats[field.0]?.number ?? 0)).font(RanyTypography.font(.largeTitle).bold()).foregroundStyle(Theme.accent); Text(field.1).font(RanyTypography.font(.caption)) }.frame(maxWidth:.infinity).card() } }
-                Text("الأيام الأخيرة").font(RanyTypography.font(.headline)).frame(maxWidth:.infinity,alignment:.leading)
-                ForEach(Array((state.stats["recentDays"]?.array ?? []).enumerated()),id:\.offset) { _,day in HStack { Text(day["day"].string); Spacer(); Text("\(Int(day["chapters"].number)) فصل") }.font(RanyTypography.font(.subheadline)).card() }
-            }
-        }.navigationTitle("الإحصائيات").refreshable { await store.refresh() }
     }
 }

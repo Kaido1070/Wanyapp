@@ -12,6 +12,7 @@ struct CinematicIntro: View {
     @Environment(\.accessibilityReduceMotion) private var reduced
     @Environment(\.scenePhase) private var phase
     @State private var images: [UIImage] = []
+    @State private var imageOwner: String?
     @State private var started: Date?
     @State private var revealed=false
     @State private var finished=false
@@ -21,7 +22,7 @@ struct CinematicIntro: View {
                 let elapsed=started.map { max(0,context.date.timeIntervalSince($0)) } ?? 0
                 let t=reduced ? 4.8 : min(4.8,elapsed/configuration.seconds*4.8)
                 let layout=CinematicLayout(size:geometry.size,origin:geometry.frame(in:.global).origin,destination:destination,configuration:configuration)
-                CinematicFrame(t:t,layout:layout,images:images,reduced:reduced,configuration:configuration)
+                CinematicFrame(t:t,layout:layout,images:state?.user.id == imageOwner ? images : [],reduced:reduced,configuration:configuration)
                 .onChange(of:t) { _,value in
                     if value >= 4 { reveal() }
                     if value >= 4.79 { finish() }
@@ -35,11 +36,12 @@ struct CinematicIntro: View {
                 if let imagesOverride { images=imagesOverride }
                 else { images=await CinematicCovers.cached(state:state,stories:stories) }
                 guard !Task.isCancelled,!finished else { return }
-                started=Date()
+                imageOwner=state?.user.id; started=Date()
                 // Independent watchdog: optional artwork must never strand the launch.
                 try? await Task.sleep(nanoseconds:UInt64((configuration.seconds+0.4)*1_000_000_000))
                 if !Task.isCancelled { finish() }
             }
+            .onChange(of:state?.user.id) { _,_ in finish() }
             .onChange(of:phase) { _,value in if value != .active { finish() } }
             .onChange(of:reduced) { _,value in if value { finish() } }
     }

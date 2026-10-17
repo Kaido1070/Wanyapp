@@ -16,6 +16,7 @@ import UIKit
     @Published var error: String?
     @Published var loadingFeed = false
     @Published var feedProgress = ""
+    @Published var feedError: String?
     @Published var chromeHidden = false
     @Published var readerActive = false
     @Published var bottomBarHeight: CGFloat = 90
@@ -283,7 +284,10 @@ import UIKit
     }
     func loadFeed(_ kind: String, page: Int = 1) async {
         guard online, !loadingFeed, let current = state else { return }
-        loadingFeed = true; defer { loadingFeed = false }
+        if kind == "new",page>1 {
+            guard let previous=state?.newFeed,previous.hasMore,page == previous.page+1 else { return }
+        }
+        loadingFeed = true; feedError=nil; defer { loadingFeed = false }
         if engine == nil { engine = FeedEngine() }
         do {
             let result = try await engine!.run(kind,data:current.data,user:current.user.id,page:page) { [weak self] text in
@@ -294,16 +298,22 @@ import UIKit
             }
             guard state?.user.id == current.user.id else { return }
             if kind == "fyp" { state?.fyp = try JSONDecoder().decode(FypSnapshot.self,from:result).recommendations; for r in state?.fyp ?? [] { remember(r.item) } }
-            else { state?.newFeed = try JSONDecoder().decode(NewFeed.self,from:result); for r in state?.newFeed?.all ?? [] { remember(r.item) } }
+            else {
+                let incoming=try JSONDecoder().decode(NewFeed.self,from:result)
+                guard incoming.page == page else { throw APIError(message:"أُعيدت صفحة غير متوقعة؛ أعد المحاولة",status:0) }
+                if page>1,let previous=state?.newFeed { state?.newFeed=previous.appending(incoming) }
+                else { state?.newFeed=incoming }
+                for r in incoming.all { remember(r.item) }
+            }
             persist()
-        } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
+        } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.feedError = error.localizedDescription } }
     }
 }
 
 extension AppStore {
     func resolveMetadata(_ keys: [String]) async {
         guard online,let owner=state?.user.id else { return }
-        let missing=Array(Set(keys.filter { !$0.isEmpty && stories[$0] == nil })).sorted()
+        let missing=Array(Set(keys.filter { !$0.isEmpty && (stories[$0] == nil || stories[$0]?.title == $0) })).sorted()
         await restoreSnapshots(missing)
         for start in stride(from:0,to:missing.count,by:40) {
             guard !Task.isCancelled,state?.user.id == owner else { return }
@@ -434,7 +444,7 @@ extension AppStore {
                 state=current
             }
             let remote=try await API.shared.get("/api/data",as:DataResponse.self).data
-            guard state?.user.id == owner else { return }; merge(remote); persist()
+            guard state?.user.id == owner else { return }; merge(remote); state?.newFeed=nil; persist()
             if !clearWork { queueSnapshot(story) }
         } catch {
             report(error)

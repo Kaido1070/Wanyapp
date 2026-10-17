@@ -51,3 +51,13 @@ Account-scoped optional event/snapshot queues extend the existing offline ledger
 Executed Phase D server reading/identity/pagination suite: 13 passed; local embedded feed/filter/group suite: 6 passed. Native ledger/opening/MIME tests added; native results await CI. CI also identified a mixed CGFloat/Double expression in the R-to-logo mask; those mask coordinates now have explicit CGFloat types.
 
 Known server contract constraint: reading/open stamps server receipt time and deduplicates a five-minute window. Original offline event times cannot be represented by this endpoint, and a lost acknowledgment retried after that window cannot offer indefinite exactly-once delivery without server idempotency support. No claim of stronger delivery semantics is made. This is tracked for the final compatibility review.
+
+## Phase E — candidate 1.3.18 (46)
+
+Activity uses the server's real 20-event maximum per page, appends older events with stable event IDs, keeps prior content during page failures and offers retry. New/friends tab resets cannot append an old response into a different feed. Personal activity is cached by owner; friend activity requires authorization. Titles resolve in batches with a snapshot-first path. Unknown upstream titles show an honest unavailable message.
+
+Stats now include the exact chapter/story/streak trophy thresholds from the website source, current earned rank, next goal, achievements and a calendar aligned to the site's UTC+3 day boundary for the last 30 days. Milestone configuration is generated alongside embedded client algorithms. No new point system or achievement thresholds are introduced. Public profile statistics remain constrained by the server's public-profile payload, not by this private dashboard.
+
+New pagination now appends groups/chapters, merges variants that share existing source keys, retains the first group's rendering identity and prior order, deduplicates source+chapter identity and preserves legitimate simultaneous source editions. Duplicate/out-of-order pages are rejected; a failed next-page request keeps the displayed feed and can retry. Server hasMore=false stops requests. First-page refresh replaces only after a successful response. The actual New selection algorithm is unchanged.
+
+Executed activity/New website suite: 22 passed; six embedded client checks passed. Added native pagination overlap, source-variant merge, UTC+3/30-day calendar and real milestone-boundary tests. Native CI remains authoritative for compilation/runtime. Device performance, actual interaction tests against an account and privacy changes made by a second device still require device/account acceptance testing.

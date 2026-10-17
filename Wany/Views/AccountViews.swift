@@ -25,26 +25,6 @@ import SwiftUI
         } catch { if requestID == token, !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
 }
-struct ActivityView: View {
-    @EnvironmentObject var store: AppStore
-    @StateObject private var page = CachedPage()
-    @State private var friends = false
-    private let labels = ["started_work":"بدأ قراءة", "progress_reached":"وصل إلى", "completed_work":"أكمل", "favorited_work":"أضاف للمفضلة", "added_to_list":"أضاف إلى قائمة", "created_list":"أنشأ قائمة"]
-    var body: some View {
-        WanyScroll {
-            Text("النشاط").font(RanyTypography.font(.largeTitle).bold())
-            Picker("النشاط",selection:$friends) { Text("نشاطي").tag(false); Text("الأصدقاء").tag(true) }.pickerStyle(.segmented).onChange(of:friends) { _,_ in Task { await load() } }
-            ForEach(Array(page.value["events"].array.enumerated()),id:\.offset) { _,event in VStack(alignment:.leading,spacing:8) {
-                HStack { Text(event["user"]["name"].string).bold(); AccountBadge(kind:event["user"]["badgeType"].string) }
-                Text(labels[event["type"].string] ?? event["type"].string).font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
-                if let story = store.stories[event["mangaId"].string] { WanyLink(story.title) { StoryView(initial:story) } }
-                if event["chapterNumber"].number > 0 { Text("الفصل \(chapterNumber(event["chapterNumber"].number))").font(RanyTypography.font(.caption)) }
-                if !event["list"]["name"].string.isEmpty { Text(event["list"]["name"].string) }
-            }.frame(maxWidth:.infinity,alignment:.leading).card() }
-        }.task { await load() }.refreshable { await load() }
-    }
-    func load() async { await page.load(friends ? "/api/activity/friends" : "/api/activity/me",store:store,query:["limit":"50","offset":"0"]) }
-}
 struct SettingsView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var downloads: Downloads
