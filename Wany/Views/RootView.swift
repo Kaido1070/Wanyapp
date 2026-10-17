@@ -26,6 +26,8 @@ struct RootView: View {
                         default: ProfileView()
                         }
                     }
+                    // Animate the selected page only; never fade or move the bottom tab bar.
+                    .opacity(tabOpacity).offset(y:tabOffset)
                     .background(RanyNavigationLifecycle(main:true))
                     .environment(\.ranyMainHeader,true)
                     .navigationTitle("").navigationBarTitleDisplayMode(.inline)
@@ -35,19 +37,22 @@ struct RootView: View {
                         if !store.online { Label("أوفلاين · تقدمك محفوظ على الجهاز",systemImage:"wifi.slash").font(RanyTypography.font(.caption)).frame(maxWidth:.infinity).padding(7).background(Theme.surface) }
                         else if store.loginRequired { Button("انتهت الجلسة · سجل الدخول لمزامنة تقدمك") { loginSheet = true }.font(RanyTypography.font(.caption)).padding(8) }
                     }
-                }
-                .id(selected)
-                .opacity(tabOpacity).offset(y:tabOffset)
-                .overlay(alignment:.bottom) {
-                    if store.mainPageVisible && !store.readerActive { HStack(spacing:0) {
+                    // This chrome belongs to the NavigationStack root, not the stack container.
+                    // UIKit therefore hides it during pushes and restores it automatically on pop,
+                    // even when a transient destination's lifecycle observer is already gone.
+                    .overlay(alignment:.bottom) {
+                        if !store.readerActive { HStack(spacing:0) {
                         ForEach(0..<5) { i in Button { select(i) } label: {
                             VStack(spacing:5) { Image(systemName:icons[i]).font(.system(size:21)); Text(titles[i]).font(.system(.caption2)) }.foregroundStyle(requested == i ? Theme.accent : .secondary).frame(maxWidth:.infinity).padding(.vertical,12)
                         } }
                     }.buttonStyle(.plain).ranyGlass(radius:24).padding(.horizontal,14).padding(.bottom,6)
                         .background(GeometryReader { proxy in Color.clear.preference(key:BottomBarHeightKey.self,value:proxy.size.height) })
                         .accessibilityIdentifier("main.bottom-bar")
+                        }
                     }
+                    .onAppear { store.mainPageVisible = true }
                 }
+                .id(selected)
             }
         }
         .onPreferenceChange(BottomBarHeightKey.self) { store.bottomBarHeight = max(90,$0) }

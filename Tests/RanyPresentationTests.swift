@@ -98,7 +98,10 @@ import UIKit
         snapshot(window,name:"Rany-activity-after-transition")
         nav.popViewController(animated:true)
         try await Task.sleep(nanoseconds:900_000_000)
-        XCTAssertTrue(store.mainPageVisible)
+        // The bar is now attached to the root destination itself, rather than relying
+        // on a delayed global visibility boolean from the popped destination.
+        XCTAssertEqual(nav.viewControllers.count,1,"A completed pop must restore the native root containing the tab bar.")
+        snapshot(window,name:"Rany-main-bar-after-pop")
     }
     func testFirstAccountIntroCompletesItsAssemblyAndHandoff() async throws {
         var arranged = false, revealed = false, finished = false
