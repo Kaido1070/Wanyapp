@@ -12,6 +12,7 @@ private struct RanyBackdropManifest: Codable, Sendable { let entries: [RanyBackd
 
 @MainActor final class RanyAmbience: ObservableObject {
     @Published private(set) var images: [UIImage] = RanyAmbience.defaults()
+    @Published private(set) var openingReady = false
     private var owner: String?
     private var generation = UUID()
     private var task: Task<Void,Never>?
@@ -29,11 +30,12 @@ private struct RanyBackdropManifest: Codable, Sendable { let entries: [RanyBackd
         return result
     }
     func attach(state: AccountState?, stories: [String:Story]) async {
-        guard owner != state?.user.id else { return }
+        guard owner != state?.user.id else { openingReady = true; return }
+        openingReady = false
         task?.cancel(); generation = UUID(); owner = state?.user.id; fingerprint = ""; activeFiles = []
         // Never leave the preceding account's artwork on screen, even for one decoded frame.
         images = Self.defaults()
-        guard let state else { return }
+        guard let state else { openingReady = true; return }
         let allowed = RanyBackdropPlan.candidates(data:state.data,stories:stories)
         let folder = Disk.folder(state.user.id), token = generation, fallback = Self.defaults()
         let prepared = await Task.detached(priority:.utility) {
@@ -42,7 +44,7 @@ private struct RanyBackdropManifest: Codable, Sendable { let entries: [RanyBackd
         }.value
         let entries = prepared.0
         guard generation == token, !Task.isCancelled else { return }
-        images = prepared.1; activeFiles = entries.map { $0.0.file }
+        images = prepared.1; activeFiles = entries.map { $0.0.file }; openingReady = true
     }
 
     func prepare(state: AccountState?, stories: [String:Story]) {
@@ -157,10 +159,15 @@ struct RanyBackdrop: View {
                 LinearGradient(colors:[Theme.background.opacity(0.12),.clear,Theme.background.opacity(0.36)],startPoint:.top,endPoint:.bottom)
             }
         }.ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
-        .task {
-            guard cinematicOpening, !paused else { return }
+        .task(id:ambience.openingReady) {
+            guard cinematicOpening, !openingFinished else { return }
+            guard !paused else { openingFinished = true; return }
+            guard ambience.openingReady else { return }
             await openingPalette.prepare(ambience.displayImages(accountID:accountID))
             do { try await Task.sleep(nanoseconds:4_400_000_000) } catch { return }
+            openingFinished = true; openingPalette.release()
+        }
+        .onChange(of:accountID) { _,_ in
             openingFinished = true; openingPalette.release()
         }
         .onChange(of:paused) { _,value in

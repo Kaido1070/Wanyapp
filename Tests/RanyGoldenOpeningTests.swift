@@ -4,6 +4,16 @@ import UIKit
 @testable import Wany
 
 @MainActor final class RanyGoldenOpeningTests: XCTestCase {
+    func testAnonymousPoolBecomesReadyWithoutNetworkAndSurvivesReattach() async {
+        let ambience = RanyAmbience()
+        XCTAssertFalse(ambience.openingReady)
+        await ambience.attach(state:nil,stories:[:])
+        XCTAssertTrue(ambience.openingReady)
+        let first = ambience.images.map(ObjectIdentifier.init)
+        await ambience.attach(state:nil,stories:[:])
+        XCTAssertEqual(ambience.images.map(ObjectIdentifier.init),first)
+    }
+
     func testCameraCompletesBeforeDistributionStarts() {
         XCTAssertEqual(RanyOpeningMotion.distribution(1.84),0)
         XCTAssertEqual(RanyOpeningMotion.camera(1.85),1,accuracy:0.000001)

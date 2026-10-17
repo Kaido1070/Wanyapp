@@ -48,7 +48,7 @@ enum RanyOpeningMotion {
             [CGRect(x:0,y:0,width:184,height:360),CGRect(x:190,y:0,width:200,height:360),CGRect(x:0,y:366,width:390,height:414)]
         ]
         let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
-        // Twelve offline sheets cover the short 9.2 fps montage; no per-frame filters.
+        // Fourteen offline sheets cover the short 9.2 fps montage; no per-frame filters.
         for n in 0..<14 {
             if Task.isCancelled { break }
             pages.append(UIGraphicsImageRenderer(size:CGSize(width:390,height:780),format:format).image { renderer in
