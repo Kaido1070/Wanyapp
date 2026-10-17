@@ -12,6 +12,7 @@ struct CinematicConfiguration {
     var retained = [0,5,6,7]
     var lighting: Double = 1
     var pageSpeed: Double = 1
+    var forceReducedMotion = false
     var seconds: Double { duration.isFinite ? min(12,max(3.8,duration)) : 4.8 }
     func shouldPlay(_ defaults: UserDefaults = .standard) -> Bool {
         playback == .coldLaunch || (playback == .once && !defaults.bool(forKey:"rany.cinematic.approved.v2"))

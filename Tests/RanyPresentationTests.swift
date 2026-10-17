@@ -172,7 +172,7 @@ import UIKit
     }
     func testReducedMotionCinematicFinishesWithoutPageRenderer() async throws {
         var finishes=0
-        let root=CinematicIntro(configuration:CinematicConfiguration(),state:nil,stories:[:],destination:nil,imagesOverride:[],onReveal:{},onFinish:{finishes+=1}).environment(\.accessibilityReduceMotion,true).environment(\.scenePhase,.active)
+        let root=CinematicIntro(configuration:CinematicConfiguration(forceReducedMotion:true),state:nil,stories:[:],destination:nil,imagesOverride:[],onReveal:{},onFinish:{finishes+=1}).environment(\.scenePhase,.active)
         let (window,previous)=show(root)
         defer { window.isHidden=true; previous?.makeKeyAndVisible() }
         try await Task.sleep(for:.seconds(1))

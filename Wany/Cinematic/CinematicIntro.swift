@@ -11,6 +11,7 @@ struct CinematicIntro: View {
     let onFinish: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduced
     @Environment(\.scenePhase) private var phase
+    private var isReduced: Bool { reduced || configuration.forceReducedMotion }
     @State private var images: [UIImage] = []
     @State private var imageOwner: String?
     @State private var started: Date?
@@ -20,9 +21,9 @@ struct CinematicIntro: View {
         GeometryReader { geometry in
             TimelineView(.animation(minimumInterval:1.0/60,paused:finished || started == nil)) { context in
                 let elapsed=started.map { max(0,context.date.timeIntervalSince($0)) } ?? 0
-                let t=reduced ? 4.8 : min(4.8,elapsed/configuration.seconds*4.8)
+                let t=isReduced ? 4.8 : min(4.8,elapsed/configuration.seconds*4.8)
                 let layout=CinematicLayout(size:geometry.size,origin:geometry.frame(in:.global).origin,destination:destination,configuration:configuration)
-                CinematicFrame(t:t,layout:layout,images:state?.user.id == imageOwner ? images : [],reduced:reduced,configuration:configuration,onReady:begin)
+                CinematicFrame(t:t,layout:layout,images:state?.user.id == imageOwner ? images : [],reduced:isReduced,configuration:configuration,onReady:begin)
                 .onChange(of:t) { _,value in
                     if value >= 4 { reveal() }
                     if value >= 4.79 { finish() }
@@ -32,7 +33,7 @@ struct CinematicIntro: View {
             .accessibilityElement(children:.ignore).accessibilityLabel("Read Any Time، Rany")
             .task {
                 guard configuration.valid else { finish(); return }
-                if reduced { reveal(); try? await Task.sleep(nanoseconds:180_000_000); finish(); return }
+                if isReduced { reveal(); try? await Task.sleep(nanoseconds:180_000_000); finish(); return }
                 if let imagesOverride { images=imagesOverride }
                 else { images=await CinematicCovers.cached(state:state,stories:stories) }
                 guard !Task.isCancelled,!finished else { return }
@@ -49,7 +50,7 @@ struct CinematicIntro: View {
             }
             .onChange(of:state?.user.id) { _,_ in finish() }
             .onChange(of:phase) { _,value in if value != .active { finish() } }
-            .onChange(of:reduced) { _,value in if value { finish() } }
+            .onChange(of:isReduced) { _,value in if value { finish() } }
     }
     private func begin() { guard started == nil,!finished else { return }; started=Date() }
     private func reveal() { guard !revealed else { return }; revealed=true; onReveal() }

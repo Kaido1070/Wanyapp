@@ -13,6 +13,7 @@ struct CinematicPreview: View {
     @State private var duration=4.8
     @State private var loadingCovers=false
     @State private var anonymous=false
+    @State private var forceReducedMotion=false
     private var login: Bool { anonymous || fixture.state == nil }
     var body: some View {
         ZStack {
@@ -21,7 +22,7 @@ struct CinematicPreview: View {
                 .environment(\.ranyMeasureMarkFrames,playing).environment(\.ranyMarkCovered,playing)
                 .disabled(true).opacity(revealed ? 1 : 0).accessibilityHidden(playing)
             if playing && ready {
-                CinematicIntro(configuration:CinematicConfiguration(duration:duration),state:login ? nil : fixture.state,stories:fixture.stories,
+                CinematicIntro(configuration:CinematicConfiguration(duration:duration,forceReducedMotion:forceReducedMotion),state:login ? nil : fixture.state,stories:fixture.stories,
                     destination:frames[login ? "login" : "header"],onReveal:{ withAnimation(.easeOut(duration:0.8)) { revealed=true } },onFinish:{ playing=false; revealed=true })
                     .id(replay)
             }
@@ -38,6 +39,7 @@ struct CinematicPreview: View {
                         Picker("المدة",selection:$duration) { Text("4.8s").tag(4.8); Text("6s").tag(6.0); Text("8s").tag(8.0) }.pickerStyle(.segmented)
                     }
                     Toggle("معاينة شاشة الدخول",isOn:$anonymous).font(.caption).onChange(of:anonymous) { _,value in fixture.state=value ? nil : store.state }
+                    Toggle("معاينة تقليل الحركة",isOn:$forceReducedMotion).font(.caption)
                     Button(loadingCovers ? "تجهيز الأغلفة…" : "تجهيز أغلفة الاهتمامات للمشاهدة التالية") {
                         loadingCovers=true
                         Task { await CinematicCovers.prefetch(store:store); fixture.stories=store.stories; loadingCovers=false }
