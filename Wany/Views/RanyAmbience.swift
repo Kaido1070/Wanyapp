@@ -161,6 +161,7 @@ struct RanyBackdrop: View {
                     let settled = presenting ? RanyOpeningMotion.glide((openingTime-3)/1.3) : 1
                     ZStack {
                         RanyBackdropArtwork(images:visibleImages,time:time,assembly:reduceMotion || lowPower ? 1 : assembly,opening:presenting ? openingPalette.artwork : nil,openingTime:openingTime)
+                            .opacity(cinematicOpening && !openingFinished && openingStartedAt == nil ? 0 : 1)
                         if presenting { RanyOpeningShade(time:openingTime).opacity(1-settled) }
                         RadialGradient(colors:[Theme.background.opacity(0.74),Theme.background.opacity(0.22),.clear],center:.center,startRadius:15,endRadius:460).opacity(settled)
                         LinearGradient(colors:[Theme.background.opacity(0.12),.clear,Theme.background.opacity(0.36)],startPoint:.top,endPoint:.bottom).opacity(settled)

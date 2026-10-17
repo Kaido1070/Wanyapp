@@ -34,6 +34,16 @@ import UIKit
         // Exceed the entire intro duration while inactive: cold launch must not consume it.
         try await Task.sleep(for:.seconds(4.6))
         XCTAssertTrue(starts.isEmpty)
+        let waiting = try XCTUnwrap(image(window).cgImage)
+        let sample = try XCTUnwrap(waiting.cropping(to:CGRect(x:CGFloat(waiting.width)/2,y:CGFloat(waiting.height)*0.35,width:1,height:1)))
+        var pixel = [UInt8](repeating:0,count:4)
+        pixel.withUnsafeMutableBytes { bytes in
+            let context = CGContext(data:bytes.baseAddress,width:1,height:1,bitsPerComponent:8,bytesPerRow:4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.draw(sample,in:CGRect(x:0,y:0,width:1,height:1))
+        }
+        for (actual,expected) in zip(pixel.prefix(3),[23,25,27]) {
+            XCTAssertEqual(Double(actual),Double(expected),accuracy:3,"Preparing the opening must show the theme, never the old colored cover cluster.")
+        }
         fixture.phase = .active
         for _ in 0..<100 {
             if !starts.isEmpty { break }
