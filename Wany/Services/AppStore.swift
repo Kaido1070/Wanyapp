@@ -125,7 +125,7 @@ import UIKit
         UserDefaults.standard.removeObject(forKey:"lastAccount"); loginRequired=false
     }
     func refresh() async {
-        guard online, let owner = state?.user.id, !syncing else { return }
+        guard online, let owner = state?.user.id, !syncing, !readingMutation else { return }
         syncing = true
         // SwiftUI can cancel its refresh task when its view changes. The account owns this sync.
         let task = Task { [weak self] in
@@ -411,7 +411,9 @@ extension AppStore {
         await readingCommand(story,chapter:nil,chapters:[chapter],clearWork:false,singleRead:chapter)
     }
     func manualUnreadGroup(_ story: Story,keys: [String]) async {
+        guard let owner=state?.user.id else { return }
         for key in Array(Set(keys.isEmpty ? [story.key] : keys)).sorted() {
+            guard state?.user.id == owner,!Task.isCancelled else { return }
             var variant=story; variant.key=key; variant.source=sourceFromStoryKey(key)
             await manualUnread(variant)
         }

@@ -57,7 +57,7 @@ struct AccountSecurityView: View {
             if let value=try? await API.shared.get("/api/security-question",as:JSONValue.self),owner == store.state?.user.id { question=value["question"].string }
         }
         .onDisappear { operation?.cancel(); clearSecrets() }
-        .onChange(of:phase) { _,value in if value != .active { clearSecrets() } }
+        .onChange(of:phase) { _,value in if value != .active { operation?.cancel(); clearSecrets() } }
     }
     private func ask(_ action: Action) { pending=action; confirm=true }
     private func clearSecrets() { currentPassword=""; newPassword=""; confirmation=""; answer=""; recoveryCode="" }
@@ -133,7 +133,7 @@ struct AccountRecoveryView: View {
                 .confirmationDialog("تعيين كلمة مرور جديدة وإبطال الجلسات السابقة؟",isPresented:$confirm,titleVisibility:.visible) { Button("تأكيد الاستعادة") { recover() }; Button("إلغاء",role:.cancel) {} }
         }.environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark)
         .onDisappear { operation?.cancel(); clearSecrets() }
-        .onChange(of:phase) { _,value in if value != .active { clearSecrets() } }
+        .onChange(of:phase) { _,value in if value != .active { operation?.cancel(); clearSecrets() } }
         .onChange(of:username) { _,_ in question=""; answer=""; code=""; success=false }
     }
     private func clearSecrets() { answer=""; code=""; password=""; confirmation="" }

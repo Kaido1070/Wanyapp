@@ -12,6 +12,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     @Environment(\.scenePhase) private var phase
     init() {
         RanyTypography.registerFont()
+        _store=StateObject(wrappedValue:Self.makeStore())
+    }
+    private static func makeStore() -> AppStore {
         let preview=ProcessInfo.processInfo.arguments.contains("--rany-cinematic-preview")
         let account=AppStore(startServices:!preview)
         if preview {
@@ -20,7 +23,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 account.state=AccountState(user:Account(id:"cinematic-preview-fixture",name:"قارئ Rany",username:"preview"))
             }
         }
-        _store=StateObject(wrappedValue:account)
+        return account
     }
     var body: some Scene {
         WindowGroup {
