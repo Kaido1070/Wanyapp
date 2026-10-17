@@ -5,6 +5,7 @@ struct CinematicPreview: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var fixture=AppStore(startServices:false)
     @StateObject private var ambience=RanyAmbience()
+    @State private var ready=false
     @State private var playing=true
     @State private var revealed=false
     @State private var frames: [String:CGRect] = [:]
@@ -19,7 +20,7 @@ struct CinematicPreview: View {
             RootView().id(fixture.state?.user.id).environmentObject(fixture).environmentObject(fixture.downloads)
                 .environment(\.ranyMeasureMarkFrames,playing).environment(\.ranyMarkCovered,playing)
                 .disabled(true).opacity(revealed ? 1 : 0).accessibilityHidden(playing)
-            if playing {
+            if playing && ready {
                 CinematicIntro(configuration:CinematicConfiguration(duration:duration),state:login ? nil : fixture.state,stories:fixture.stories,
                     destination:frames[login ? "login" : "header"],onReveal:{ withAnimation(.easeOut(duration:0.8)) { revealed=true } },onFinish:{ playing=false; revealed=true })
                     .id(replay)
@@ -44,7 +45,7 @@ struct CinematicPreview: View {
                 }.padding(14).background(.regularMaterial,in:RoundedRectangle(cornerRadius:20)).padding(.horizontal,12).padding(.bottom,90)
             }
         }
-        .onAppear { fixture.online=false; fixture.state=store.state; fixture.stories=store.stories }
+        .onAppear { fixture.online=false; fixture.state=store.state; fixture.stories=store.stories; ready=true }
         .onChange(of:store.state?.user.id) { _,_ in dismiss() }
     }
     private func restart() { frames=[:]; revealed=false; replay=UUID(); playing=true }

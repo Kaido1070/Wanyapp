@@ -6,11 +6,17 @@ struct CinematicPages: UIViewRepresentable {
     let time: Double
     var lighting: Double = 1
     var speed: Double = 1
-    func makeUIView(context: Context) -> PageStage { PageStage(images:images) }
+    var onReady: () -> Void = {}
+    func makeUIView(context: Context) -> PageStage {
+        let view=PageStage(images:images); view.onReady=onReady; return view
+    }
     func updateUIView(_ view: PageStage,context: Context) { view.render(time:time,lighting:lighting,speed:speed) }
-    static func dismantleUIView(_ view: PageStage,coordinator: ()) { view.scene=nil; view.isPlaying=false }
+    static func dismantleUIView(_ view: PageStage,coordinator: ()) { view.onReady=nil; view.delegate=nil; view.scene=nil; view.isPlaying=false }
 }
-final class PageStage: SCNView {
+final class PageStage: SCNView, SCNSceneRendererDelegate {
+    var onReady: (() -> Void)?
+    private var didSignalReady=false
+    var firstFrameReady: Bool { didSignalReady }
     private let cameraNode=SCNNode(), key=SCNNode(), bed=SCNNode()
     private var leaves: [SCNNode] = [], textures: [UIImage]
     private var aspect: CGFloat = 0
@@ -32,7 +38,14 @@ final class PageStage: SCNView {
         fill.light?.color=UIColor(red:0.46,green:0.55,blue:0.66,alpha:1); fill.light?.intensity=650
         world.rootNode.addChildNode(fill); world.rootNode.addChildNode(bed)
         for _ in 0..<3 { let node=SCNNode(); leaves.append(node); world.rootNode.addChildNode(node) }
+        delegate=self
         accessibilityIdentifier="cinematic.pages"
+    }
+    nonisolated func renderer(_ renderer: SCNSceneRenderer,didRenderScene scene: SCNScene,atTime time: TimeInterval) {
+        Task { @MainActor [weak self] in
+            guard let self,!self.didSignalReady else { return }
+            self.didSignalReady=true; let ready=self.onReady; self.onReady=nil; ready?()
+        }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func layoutSubviews() { super.layoutSubviews(); rebuild() }

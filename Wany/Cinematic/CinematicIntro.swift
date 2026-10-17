@@ -22,7 +22,7 @@ struct CinematicIntro: View {
                 let elapsed=started.map { max(0,context.date.timeIntervalSince($0)) } ?? 0
                 let t=reduced ? 4.8 : min(4.8,elapsed/configuration.seconds*4.8)
                 let layout=CinematicLayout(size:geometry.size,origin:geometry.frame(in:.global).origin,destination:destination,configuration:configuration)
-                CinematicFrame(t:t,layout:layout,images:state?.user.id == imageOwner ? images : [],reduced:reduced,configuration:configuration)
+                CinematicFrame(t:t,layout:layout,images:state?.user.id == imageOwner ? images : [],reduced:reduced,configuration:configuration,onReady:begin)
                 .onChange(of:t) { _,value in
                     if value >= 4 { reveal() }
                     if value >= 4.79 { finish() }
@@ -36,8 +36,14 @@ struct CinematicIntro: View {
                 if let imagesOverride { images=imagesOverride }
                 else { images=await CinematicCovers.cached(state:state,stories:stories) }
                 guard !Task.isCancelled,!finished else { return }
-                imageOwner=state?.user.id; started=Date()
-                // Independent watchdog: optional artwork must never strand the launch.
+                imageOwner=state?.user.id
+                if images.isEmpty { begin() }
+                // Bound preparation too; the timeline starts only after the first GPU frame.
+                try? await Task.sleep(nanoseconds:5_000_000_000)
+                if !Task.isCancelled,started == nil { finish() }
+            }
+            .task(id:started) {
+                guard started != nil else { return }
                 try? await Task.sleep(nanoseconds:UInt64((configuration.seconds+0.4)*1_000_000_000))
                 if !Task.isCancelled { finish() }
             }
@@ -45,6 +51,7 @@ struct CinematicIntro: View {
             .onChange(of:phase) { _,value in if value != .active { finish() } }
             .onChange(of:reduced) { _,value in if value { finish() } }
     }
+    private func begin() { guard started == nil,!finished else { return }; started=Date() }
     private func reveal() { guard !revealed else { return }; revealed=true; onReveal() }
     private func finish() { guard !finished else { return }; finished=true; reveal(); onFinish() }
 }
@@ -55,12 +62,13 @@ private struct CinematicFrame: View {
     let images: [UIImage]
     let reduced: Bool
     let configuration: CinematicConfiguration
+    let onReady: () -> Void
     var body: some View {
         ZStack { pages; Theme.background.opacity(backgroundOpacity(t)); letters; officialLogo; paperEdges }
     }
     @ViewBuilder private var pages: some View {
         if !reduced && !images.isEmpty {
-            CinematicPages(images:images,time:t,lighting:configuration.lighting,speed:configuration.pageSpeed)
+            CinematicPages(images:images,time:t,lighting:configuration.lighting,speed:configuration.pageSpeed,onReady:onReady)
                 .mask { Rectangle().scaleEffect(x:1,y:1-CinematicConfiguration.ease(t,3.05,3.4)) }
         }
     }

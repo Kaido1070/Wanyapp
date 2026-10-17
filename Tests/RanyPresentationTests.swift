@@ -137,6 +137,29 @@ import UIKit
         try await Task.sleep(nanoseconds:2_000_000_000)
         XCTAssertTrue(arranged); XCTAssertTrue(revealed); XCTAssertTrue(finished)
     }
+    func testSignedInCinematicPreviewPlaysBeforeHandoffAndReleasesPages() async throws {
+        let store=fixtureStore()
+        let (window,previous)=show(CinematicPreview().environmentObject(store))
+        defer { window.isHidden=true; previous?.makeKeyAndVisible() }
+        try await Task.sleep(for:.seconds(1))
+        XCTAssertTrue(descendants(window).contains { $0 is PageStage },"The account snapshot must be attached before the intro starts, rather than cancelling it as an account switch.")
+        let stage=try XCTUnwrap(descendants(window).compactMap { $0 as? PageStage }.first)
+        for _ in 0..<70 {
+            if stage.firstFrameReady { break }
+            try await Task.sleep(for:.milliseconds(100))
+        }
+        XCTAssertTrue(stage.firstFrameReady)
+        snapshot(window,name:"Rany-cinematic-first-frame")
+        try await Task.sleep(for:.milliseconds(900))
+        snapshot(window,name:"Rany-cinematic-Read-Any-Time")
+        try await Task.sleep(for:.milliseconds(1600))
+        snapshot(window,name:"Rany-cinematic-RANY")
+        try await Task.sleep(for:.milliseconds(800))
+        snapshot(window,name:"Rany-cinematic-R")
+        try await Task.sleep(for:.milliseconds(2100))
+        XCTAssertFalse(descendants(window).contains { $0 is PageStage },"The optional renderer must release after the handoff.")
+        snapshot(window,name:"Rany-cinematic-signed-in-handoff")
+    }
     private func show<V: View>(_ root: V) -> (UIWindow,UIWindow?) {
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first!
         let previous = scene.windows.first { $0.isKeyWindow }
