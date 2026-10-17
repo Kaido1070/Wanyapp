@@ -160,6 +160,49 @@ import UIKit
         XCTAssertFalse(descendants(window).contains { $0 is PageStage },"The optional renderer must release after the handoff.")
         snapshot(window,name:"Rany-cinematic-signed-in-handoff")
     }
+    func testMissingCinematicArtworkStillRevealsAndFinishes() async throws {
+        var revealed=false,finished=false
+        let config=CinematicConfiguration(duration:3.8)
+        let root=CinematicIntro(configuration:config,state:nil,stories:[:],destination:nil,imagesOverride:[],onReveal:{revealed=true},onFinish:{finished=true}).environment(\.scenePhase,.active)
+        let (window,previous)=show(root)
+        defer { window.isHidden=true; previous?.makeKeyAndVisible() }
+        for _ in 0..<60 { if finished { break }; try await Task.sleep(for:.milliseconds(100)) }
+        XCTAssertTrue(revealed); XCTAssertTrue(finished,"Missing covers must not strand the application.")
+        XCTAssertFalse(descendants(window).contains { $0 is PageStage })
+    }
+    func testReducedMotionCinematicFinishesWithoutPageRenderer() async throws {
+        var finishes=0
+        let root=CinematicIntro(configuration:CinematicConfiguration(),state:nil,stories:[:],destination:nil,imagesOverride:[],onReveal:{},onFinish:{finishes+=1}).environment(\.accessibilityReduceMotion,true).environment(\.scenePhase,.active)
+        let (window,previous)=show(root)
+        defer { window.isHidden=true; previous?.makeKeyAndVisible() }
+        try await Task.sleep(for:.seconds(1))
+        XCTAssertEqual(finishes,1); XCTAssertFalse(descendants(window).contains { $0 is PageStage })
+    }
+    func testCinematicDoesNotReplayWhenReturningFromBackground() async throws {
+        let fixture=CinematicLifecycleFixture(); var finishes=0
+        let (window,previous)=show(CinematicLifecycleTestView(fixture:fixture,finish:{finishes+=1}))
+        defer { window.isHidden=true; previous?.makeKeyAndVisible() }
+        try await Task.sleep(for:.milliseconds(200))
+        fixture.phase = .background
+        try await Task.sleep(for:.milliseconds(200))
+        XCTAssertEqual(finishes,1)
+        fixture.phase = .active
+        try await Task.sleep(for:.milliseconds(500))
+        XCTAssertEqual(finishes,1,"Resuming the same view must not begin another intro.")
+    }
+    func testCinematicStopsOnAccountSwitchAndCannotFinishTwice() async throws {
+        let fixture=CinematicLifecycleFixture(); var finishes=0
+        fixture.account=AccountState(user:Account(id:"cinema-owner-a",name:"A",username:"fixture-a"))
+        let (window,previous)=show(CinematicLifecycleTestView(fixture:fixture,finish:{finishes+=1}))
+        defer { window.isHidden=true; previous?.makeKeyAndVisible() }
+        try await Task.sleep(for:.milliseconds(200))
+        fixture.account=AccountState(user:Account(id:"cinema-owner-b",name:"B",username:"fixture-b"))
+        try await Task.sleep(for:.milliseconds(200))
+        XCTAssertEqual(finishes,1)
+        fixture.account=nil
+        try await Task.sleep(for:.milliseconds(200))
+        XCTAssertEqual(finishes,1)
+    }
     private func show<V: View>(_ root: V) -> (UIWindow,UIWindow?) {
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first!
         let previous = scene.windows.first { $0.isKeyWindow }
@@ -189,3 +232,15 @@ import UIKit
     }
 }
 
+
+@MainActor private final class CinematicLifecycleFixture: ObservableObject {
+    @Published var phase: ScenePhase = .active
+    @Published var account: AccountState?
+}
+private struct CinematicLifecycleTestView: View {
+    @ObservedObject var fixture: CinematicLifecycleFixture
+    var finish: () -> Void
+    var body: some View {
+        CinematicIntro(configuration:CinematicConfiguration(),state:fixture.account,stories:[:],destination:nil,imagesOverride:[],onReveal:{},onFinish:finish).environment(\.scenePhase,fixture.phase)
+    }
+}
