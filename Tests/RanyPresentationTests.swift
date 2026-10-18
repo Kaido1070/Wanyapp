@@ -5,6 +5,30 @@ import WebKit
 @testable import Wany
 
 @MainActor final class RanyPresentationTests: XCTestCase {
+    func testVisibleReadingToolsFitSmallAndLargePhones() throws {
+        for width in [320.0,430.0] {
+            let content=VStack(spacing:18) {
+                StoryReadingTools(canReadAll:true,disabled:false,markAll:{},clear:{})
+                ForEach([false,true],id:\.self) { completed in
+                    VStack(alignment:.leading,spacing:8) {
+                        Text("الفصل ١١٩٦ · بداية المغامرة").font(RanyTypography.font(.subheadline))
+                        ChapterReadingTools(completed:completed,disabled:false,markRead:{},markUnread:{})
+                    }.padding(14).ranyInsetGlass(radius:12)
+                }
+            }.padding(16).frame(width:width).fixedSize(horizontal:false,vertical:true)
+                .environment(\.layoutDirection,.rightToLeft)
+                .environment(\.colorScheme,.dark)
+                .background(Theme.background)
+            let renderer=ImageRenderer(content:content)
+            renderer.proposedSize=ProposedViewSize(width:width,height:nil)
+            let rendered=try XCTUnwrap(renderer.uiImage)
+            XCTAssertEqual(rendered.size.width,width,accuracy:1)
+            let attachment=XCTAttachment(image:rendered)
+            attachment.name="Rany-visible-reading-tools-\(Int(width))"
+            attachment.lifetime = .keepAlways; add(attachment)
+        }
+    }
+
     func testAvatarGridFitsCompactPhoneWithoutWastefulRows() async throws {
         let store = fixtureStore()
         let avatars: [JSONValue] = (0..<16).map { index in

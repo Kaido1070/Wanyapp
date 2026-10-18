@@ -59,10 +59,11 @@ struct StoryView: View {
                 }.frame(maxWidth:.infinity).padding(9)
             }.buttonStyle(.bordered).disabled(preparingUnread || downloads.preparing.contains(story.key) || !store.online)
             if let job = downloads.savedJobs.first(where:{$0.id == story.key}) { DownloadSummary(job:job).card() }
-            Menu("أدوات القراءة",systemImage:"checkmark.bookmark") {
-                Button("تعليم جميع الفصول كمقروءة") { confirmReadAll=true }.disabled(story.chapterListComplete != true || story.orderedChapters.isEmpty)
-                Button("مسح تقدم القصة وإعادتها لغير مقروءة",role:.destructive) { confirmClear=true }
-            }.disabled(!store.online || loading || store.readingMutation || store.syncing)
+            StoryReadingTools(
+                canReadAll:story.chapterListComplete == true && !story.orderedChapters.isEmpty,
+                disabled:!store.online || loading || store.loginRequired || store.readingMutation || store.syncing,
+                markAll:{ confirmReadAll=true },clear:{ confirmClear=true }
+            )
             HStack { Text("الفصول · \(story.chapters?.count ?? 0)").font(RanyTypography.font(.title3).bold()); Spacer(); if loading { ProgressView() }; Button { ascending.toggle() } label: { Image(systemName:"arrow.up.arrow.down") }; Button(selecting ? "إلغاء" : "تحديد") { selecting.toggle(); selected.removeAll() } }
             if let error { Text(error).font(RanyTypography.font(.caption)).foregroundStyle(.orange); Button("إعادة جلب قائمة الفصول") { Task { await refresh() } } }
             if !store.online { Text("التفاصيل محفوظة. الفصول بعلامة ✓ متاحة بدون إنترنت؛ الفصول الناقصة تحتاج اتصالًا لاستكمال الصور.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
@@ -72,24 +73,31 @@ struct StoryView: View {
             }
             LazyVStack(spacing:2) {
                 ForEach(chapters) { chapter in
-                    HStack {
-                        if selecting { Button { if selected.contains(chapter.id) { selected.remove(chapter.id) } else { selected.insert(chapter.id) } } label: { Image(systemName:selected.contains(chapter.id) ? "checkmark.circle.fill" : "circle") } }
-                        WanyLink { ReaderView(story:story,chapter:chapter) } label: {
-                            VStack(alignment:.leading,spacing:5) {
-                                Text(chapter.title).font(RanyTypography.font(.subheadline))
-                                HStack(spacing:8) {
-                                    if store.state?.data.completed.contains(story.key+":"+chapter.id) == true { Text("مقروء").foregroundStyle(Theme.accent) }
-                                    else if let percent=store.state?.data.progress[story.key+":"+chapter.id]?.percent,percent>0 { Text("\(Int(percent))٪").foregroundStyle(Theme.accent) }
-                                    if let date=chapter.publishedAt,!date.isEmpty { Text(date).foregroundStyle(.secondary) }
-                                }.font(.caption2)
-                            }.frame(maxWidth:.infinity,alignment:.leading).foregroundStyle(.primary)
+                    VStack(spacing:10) {
+                        HStack {
+                            if selecting { Button { if selected.contains(chapter.id) { selected.remove(chapter.id) } else { selected.insert(chapter.id) } } label: { Image(systemName:selected.contains(chapter.id) ? "checkmark.circle.fill" : "circle") } }
+                            WanyLink { ReaderView(story:story,chapter:chapter) } label: {
+                                VStack(alignment:.leading,spacing:5) {
+                                    Text(chapter.title).font(RanyTypography.font(.subheadline))
+                                    HStack(spacing:8) {
+                                        if store.state?.data.completed.contains(story.key+":"+chapter.id) == true { Text("مقروء").foregroundStyle(Theme.accent) }
+                                        else if let percent=store.state?.data.progress[story.key+":"+chapter.id]?.percent,percent>0 { Text("\(Int(percent))٪").foregroundStyle(Theme.accent) }
+                                        if let date=chapter.publishedAt,!date.isEmpty { Text(date).foregroundStyle(.secondary) }
+                                    }.font(.caption2)
+                                }.frame(maxWidth:.infinity,alignment:.leading).foregroundStyle(.primary)
+                            }
+                            if downloads.savedJobs.first(where:{$0.id == story.key})?.chapters.first(where:{$0.id == chapter.id})?.complete == true { Image(systemName:"checkmark.circle.fill").foregroundStyle(.green) }
+                            else { Button { Task { await downloads.enqueue(story,chapters:[chapter]) } } label: { Image(systemName:"arrow.down.circle").font(RanyTypography.font(.title3)) }.disabled(!store.online) }
                         }
-                        if downloads.savedJobs.first(where:{$0.id == story.key})?.chapters.first(where:{$0.id == chapter.id})?.complete == true { Image(systemName:"checkmark.circle.fill").foregroundStyle(.green) }
-                        else { Button { Task { await downloads.enqueue(story,chapters:[chapter]) } } label: { Image(systemName:"arrow.down.circle").font(RanyTypography.font(.title3)) }.disabled(!store.online) }
-                    }.padding(14).ranyInsetGlass(radius:12).contextMenu {
-                        Button("تعليم الفصل كمقروء",systemImage:"checkmark") { Task { await store.manualReadChapter(story,chapter:chapter.number) } }.disabled(!store.online || store.syncing || store.readingMutation)
-                        Button("إعادة الفصل إلى غير مقروء",systemImage:"arrow.uturn.backward") { Task { await store.manualUnread(story,chapter:chapter.number) } }.disabled(!store.online || store.syncing || store.readingMutation)
-                    }
+                        if !selecting {
+                            ChapterReadingTools(
+                                completed:store.state?.data.completed.contains(story.key+":"+chapter.id) == true,
+                                disabled:!store.online || loading || store.loginRequired || store.syncing || store.readingMutation,
+                                markRead:{ Task { await store.manualReadChapter(story,chapter:chapter.number) } },
+                                markUnread:{ Task { await store.manualUnread(story,chapter:chapter.number) } }
+                            )
+                        }
+                    }.padding(14).ranyInsetGlass(radius:12)
                 }
             }
         }.navigationTitle(story.title).navigationBarTitleDisplayMode(.inline)
@@ -111,5 +119,59 @@ struct StoryView: View {
         guard store.online, !loading else { return }; loading = true; defer { loading = false }
         do { let value = try await API.shared.fullSeries(selectedSource ?? initial.key); detail = value; store.remember(value); error = nil }
         catch { self.error = error.localizedDescription }
+    }
+}
+
+
+// Visible reading actions stay separate from the chapter download selection.
+struct StoryReadingTools: View {
+    let canReadAll: Bool
+    let disabled: Bool
+    let markAll: () -> Void
+    let clear: () -> Void
+
+    var body: some View {
+        VStack(alignment:.leading,spacing:8) {
+            Label("أدوات القراءة",systemImage:"checkmark.bookmark")
+                .font(RanyTypography.font(.subheadline).bold())
+            Button(action:markAll) {
+                Label("تعليم جميع الفصول كمقروءة",systemImage:"checkmark.circle")
+                    .frame(maxWidth:.infinity,minHeight:44,alignment:.leading)
+                    .contentShape(Rectangle())
+            }.foregroundStyle(Theme.accent).disabled(!canReadAll).accessibilityIdentifier("reading.markAll")
+            Divider()
+            Button(role:.destructive,action:clear) {
+                Label("مسح التقدم وإعادة القصة لغير مقروءة",systemImage:"arrow.counterclockwise")
+                    .frame(maxWidth:.infinity,minHeight:44,alignment:.leading)
+                    .contentShape(Rectangle())
+            }.foregroundStyle(.red).accessibilityIdentifier("reading.clearStory")
+        }
+        .font(RanyTypography.font(.subheadline))
+        .buttonStyle(.plain).tint(Theme.accent)
+        .padding(14).ranyInsetGlass(radius:14).disabled(disabled)
+    }
+}
+
+struct ChapterReadingTools: View {
+    let completed: Bool
+    let disabled: Bool
+    let markRead: () -> Void
+    let markUnread: () -> Void
+
+    var body: some View {
+        HStack(spacing:12) {
+            Button(action:markRead) {
+                Label(completed ? "مقروء" : "تعليم كمقروء",systemImage:completed ? "checkmark.circle.fill" : "checkmark.circle")
+                    .frame(maxWidth:.infinity,minHeight:44)
+                    .contentShape(Rectangle())
+            }.disabled(completed).accessibilityIdentifier("reading.markChapter")
+            Button(action:markUnread) {
+                Label("إعادة لغير مقروء",systemImage:"arrow.uturn.backward")
+                    .frame(maxWidth:.infinity,minHeight:44)
+                    .contentShape(Rectangle())
+            }.accessibilityIdentifier("reading.clearChapter")
+        }
+        .font(RanyTypography.font(.caption))
+        .buttonStyle(.borderless).tint(Theme.accent).disabled(disabled)
     }
 }
