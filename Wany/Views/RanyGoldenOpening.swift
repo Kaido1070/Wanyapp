@@ -26,9 +26,17 @@ import WebKit
         web.isUserInteractionEnabled = false
         web.isAccessibilityElement = false
         web.accessibilityElementsHidden = true
-        web.isHidden = true
+        // Hiding WKWebView can suspend its first animation frame. Keep its
+        // process visible and cover it natively until this account is prepared.
+        let curtain = UIView(frame:web.bounds)
+        curtain.backgroundColor = web.backgroundColor
+        curtain.autoresizingMask = [.flexibleWidth,.flexibleHeight]
+        curtain.isUserInteractionEnabled = false
+        curtain.layer.zPosition = 1
+        web.addSubview(curtain)
         web.accessibilityIdentifier = "rany.background.approved-canvas"
         context.coordinator.web = web
+        context.coordinator.curtain = curtain
         web.navigationDelegate = context.coordinator
         context.coordinator.update(self)
         if let url = Bundle.main.url(forResource:"RanyApprovedBackground",withExtension:"html"),
@@ -42,6 +50,7 @@ import WebKit
 
     @MainActor final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         weak var web: WKWebView?
+        weak var curtain: UIView?
         private var owner: String?
         private var identities: [ObjectIdentifier] = []
         private var token: String?
@@ -70,7 +79,7 @@ import WebKit
                 let next = UUID().uuidString
                 token = next; configuredToken = nil; preparedToken = nil; reportedToken = nil; urls = nil
                 // Hide and clear the preceding account before any new image is decoded.
-                web?.isHidden = true
+                curtain?.isHidden = false
                 if loaded { web?.callAsyncJavaScript("window.RanyBackground.clear(token)",arguments:["token":next],in:nil,in:.page,completionHandler:nil) }
                 let pool = Pool(images:Array(input.images.prefix(14)))
                 encoding = Task { [weak self] in
@@ -80,7 +89,7 @@ import WebKit
                     self.urls = encoded; self.configureIfPossible()
                 }
             } else if configuredToken == token {
-                if active && preparedToken == token { web?.isHidden = false }
+                if active && preparedToken == token { curtain?.isHidden = true }
                 web?.callAsyncJavaScript("window.RanyBackground.setActive(active)",arguments:["active":active],in:nil,in:.page,completionHandler:nil)
             } else { configureIfPossible() }
         }
@@ -111,10 +120,10 @@ import WebKit
             switch body["event"] as? String {
             case "prepared":
                 preparedToken = token
-                if active { web?.isHidden = false }
+                if active { curtain?.isHidden = true }
             case "started":
                 guard active else { return }
-                web?.isHidden = false
+                curtain?.isHidden = true
                 if reportedToken != token {
                     reportedToken = token
                     let elapsed = body["time"] as? Double ?? 0
