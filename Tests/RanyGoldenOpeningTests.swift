@@ -63,6 +63,33 @@ import WebKit
         let attachment=XCTAttachment(image:image); attachment.name="Rany-gold-title-white-artwork"; attachment.lifetime = .keepAlways; add(attachment)
     }
 
+    func testCanvasHoldsItsFirstPageUntilNativeTitleIsReady() async throws {
+        let covers=try (1...14).map { try XCTUnwrap(UIImage(named:"RanyDefault\($0)")) }
+        let prepared=expectation(description:"Static page prepared"), started=expectation(description:"Joint opening starts")
+        var didPrepare=false,didStart=false
+        let root=RanyApprovedBackground(images:covers,accountID:nil,canStart:true,playOpening:true,typographyReady:false,onPrepared:{
+            if !didPrepare { didPrepare=true; prepared.fulfill() }
+        },onStarted:{ _ in if !didStart { didStart=true; started.fulfill() } },onFailure:{ XCTFail("The opening preparation must succeed.") })
+        let scene=try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous=scene.windows.first { $0.isKeyWindow },window=UIWindow(windowScene:scene)
+        window.frame=scene.coordinateSpace.bounds;window.rootViewController=UIHostingController(rootView:root);window.makeKeyAndVisible()
+        defer { window.isHidden=true;window.rootViewController=nil;previous?.makeKeyAndVisible() }
+        await fulfillment(of:[prepared],timeout:25)
+        func descendants(_ view:UIView)->[UIView] { [view]+view.subviews.flatMap(descendants) }
+        let web=try XCTUnwrap(descendants(window).compactMap { $0 as? WKWebView }.first)
+        try await Task.sleep(for:.milliseconds(500))
+        let heldValue=try await approvedJavaScript(web,"return window.RanyBackground.state()")
+        let held=try XCTUnwrap(heldValue as? [String:Any])
+        XCTAssertEqual(held["started"] as? Bool,false)
+        XCTAssertEqual(held["openingStarts"] as? Int,0)
+        XCTAssertEqual(held["time"] as? Double,0)
+        _ = try await approvedJavaScript(web,"window.RanyBackground.setTypographyReady(true); return true")
+        await fulfillment(of:[started],timeout:10)
+        let runningValue=try await approvedJavaScript(web,"return window.RanyBackground.state()")
+        let running=try XCTUnwrap(runningValue as? [String:Any])
+        XCTAssertEqual(running["openingStarts"] as? Int,1)
+    }
+
     func testAnonymousPoolBecomesReadyWithoutNetworkAndSurvivesReattach() async {
         let ambience = RanyAmbience()
         XCTAssertFalse(ambience.openingReady)

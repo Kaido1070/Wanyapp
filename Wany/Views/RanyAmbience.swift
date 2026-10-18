@@ -140,6 +140,8 @@ struct RanyBackdrop: View {
     var accountID: String?
     var assembly: Double = 1
     var cinematicOpening = false
+    var openingTitleReady = true
+    var onOpeningPrepared: () -> Void = {}
     var onOpeningReady: (Date) -> Void = { _ in }
     @State private var openingFinished = false
     @State private var openingStartedAt: Date?
@@ -157,7 +159,7 @@ struct RanyBackdrop: View {
             Theme.background
             if enabled && !reading && !reduceTransparency {
                 if approved {
-                    RanyApprovedBackground(images:visibleImages,accountID:accountID,canStart:!paused && ambience.isOpeningReady(accountID:accountID),playOpening:openingStartedAt == nil && !openingFinished,onStarted:{ date in
+                    RanyApprovedBackground(images:visibleImages,accountID:accountID,canStart:!paused && ambience.isOpeningReady(accountID:accountID),playOpening:openingStartedAt == nil && !openingFinished,typographyReady:openingTitleReady,onPrepared:onOpeningPrepared,onStarted:{ date in
                         guard openingStartedAt == nil else { return }
                         openingStartedAt = date; onOpeningReady(date)
                     },onFailure:{
@@ -223,6 +225,8 @@ struct RanyBackdropHost: UIViewControllerRepresentable {
     let accountID: String?
     let assembly: Double
     var cinematicOpening = false
+    var openingTitleReady = true
+    var onOpeningPrepared: () -> Void = {}
     var onOpeningReady: (Date) -> Void = { _ in }
     var phase: ScenePhase = .active
     func makeUIViewController(context: Context) -> UIHostingController<AnyView> {
@@ -236,7 +240,7 @@ struct RanyBackdropHost: UIViewControllerRepresentable {
         withTransaction(context.transaction) { controller.rootView = scene(context) }
     }
     private func scene(_ context: Context) -> AnyView {
-        AnyView(RanyBackdrop(ambience:ambience,reading:reading,accountID:accountID,assembly:assembly,cinematicOpening:cinematicOpening,onOpeningReady:onOpeningReady)
+        AnyView(RanyBackdrop(ambience:ambience,reading:reading,accountID:accountID,assembly:assembly,cinematicOpening:cinematicOpening,openingTitleReady:openingTitleReady,onOpeningPrepared:onOpeningPrepared,onOpeningReady:onOpeningReady)
             .environment(\.self,context.environment)
             // A nested UIHostingController owns a separate scene environment.
             // Carry the outer scene's activity as an explicit representable input.

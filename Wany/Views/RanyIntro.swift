@@ -135,14 +135,16 @@ struct RanyExperience: View {
     @State private var assembly: Double = 0
     @State private var opening = true
     @State private var backgroundReady = false
+    @State private var backgroundPrepared = false
+    @State private var typographyReady = false
     @State private var openingStartedAt: Date?
     @State private var revealed = false
     @State private var glassProgress: Double = 0
     var body: some View {
         ZStack {
-            RanyBackdropHost(ambience:ambience,reading:store.readerActive,accountID:store.state?.user.id,assembly:assembly,cinematicOpening:!cinematicConfiguration.shouldPlay(),onOpeningReady:{ date in
+            RanyBackdropHost(ambience:ambience,reading:store.readerActive,accountID:store.state?.user.id,assembly:assembly,cinematicOpening:!cinematicConfiguration.shouldPlay(),openingTitleReady:!opening || typographyReady,onOpeningPrepared:{ backgroundPrepared=true },onOpeningReady:{ date in
                 guard !backgroundReady else { return }
-                openingStartedAt = date; backgroundReady = true; onOpeningStart(date)
+                openingStartedAt = date; backgroundPrepared = true; backgroundReady = true; onOpeningStart(date)
             },phase:phase).frame(maxWidth:.infinity,maxHeight:.infinity).ignoresSafeArea()
             RootView().id(store.state?.user.id).environment(\.ranyGlassProgress,glassProgress).environment(\.ranyMeasureMarkFrames,opening || store.enteringAccount).environment(\.ranyMarkCovered,opening || store.enteringAccount).opacity((opening && !revealed) || (store.enteringAccount && !revealed) ? 0 : 1)
                 .animation(.easeOut(duration:reduceMotion ? 0.05 : 0.42),value:revealed)
@@ -156,8 +158,8 @@ struct RanyExperience: View {
                         Task { await CinematicCovers.prefetch(store:store) }
                     })
                 } else {
-                if let openingStartedAt {
-                    RanyOpeningTypography(startedAt:openingStartedAt,destination:markFrames[store.state == nil ? "login" : "header"],firstAccount:store.firstArrival,onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ opening = false; if store.firstArrival { store.completeAccountArrival() } })
+                if backgroundPrepared {
+                    RanyOpeningTypography(startedAt:openingStartedAt,destination:markFrames[store.state == nil ? "login" : "header"],firstAccount:store.firstArrival,onPrepared:{ typographyReady=true },onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ opening = false; if store.firstArrival { store.completeAccountArrival() } })
                 }
                 }
             } else if store.enteringAccount {
@@ -216,9 +218,10 @@ struct RanyOpeningTimeline {
     }
 }
 struct RanyOpeningTypography: View {
-    let startedAt: Date
+    let startedAt: Date?
     let destination: CGRect?
     var firstAccount = false
+    var onPrepared: () -> Void = {}
     let onArrange: () -> Void
     let onReveal: () -> Void
     let onFinish: () -> Void
@@ -229,8 +232,8 @@ struct RanyOpeningTypography: View {
     @State private var finished=false
     var body: some View {
         GeometryReader { geometry in
-            TimelineView(.animation(minimumInterval:1.0/60,paused:finished || reduced)) { context in
-                let time=reduced ? 4.8 : RanyOpeningTimeline.typographyTime(elapsed:context.date.timeIntervalSince(startedAt))
+            TimelineView(.animation(minimumInterval:1.0/60,paused:finished || reduced || startedAt == nil)) { context in
+                let time=reduced ? 4.8 : max(0.23,startedAt.map { RanyOpeningTimeline.typographyTime(elapsed:context.date.timeIntervalSince($0)) } ?? 0.23)
                 let layout=CinematicLayout(size:geometry.size,origin:geometry.frame(in:.global).origin,destination:destination,configuration:CinematicConfiguration(),centerFraction:0.44)
                 ZStack {
                     CinematicTypography(t:time,layout:layout,configuration:CinematicConfiguration())
@@ -240,15 +243,27 @@ struct RanyOpeningTypography: View {
                             Text("مكتبتك الجديدة جاهزة").font(RanyTypography.font(.footnote)).foregroundStyle(.secondary)
                         }.position(x:geometry.size.width/2,y:geometry.size.height*0.44+145)
                     }
-                }.onChange(of:time,initial:true) { _,value in if !reduced { advance(value) } }
+                }.onChange(of:time,initial:true) { _,value in if !reduced && startedAt != nil { advance(value) } }
+            }
+            .task(id:startedAt) {
+                if let startedAt {
+                    let remaining=reduced ? 0.18 : max(0,RanyOpeningTimeline.duration-Date().timeIntervalSince(startedAt))+0.4
+                    do { try await Task.sleep(for:.seconds(remaining)) } catch { return }
+                    advance(4.8)
+                } else {
+                    // Warm the actual glyphs and masks before releasing the canvas clock.
+                    let layout=CinematicLayout(size:geometry.size,origin:.zero,destination:nil,configuration:CinematicConfiguration(),centerFraction:0.44)
+                    let renderer=ImageRenderer(content:CinematicTypography(t:0.23,layout:layout,configuration:CinematicConfiguration()).frame(width:geometry.size.width,height:geometry.size.height))
+                    renderer.scale=1
+                    _ = renderer.uiImage
+                    // A deliberate opening hold presents the complete name over the
+                    // static first page; all motion remains paused until this finishes.
+                    do { try await Task.sleep(for:.milliseconds(400)) } catch { return }
+                    onPrepared()
+                }
             }
         }.ignoresSafeArea().environment(\.layoutDirection,.leftToRight).allowsHitTesting(false)
             .accessibilityElement(children:.ignore).accessibilityLabel("Read Any Time، Rany")
-            .task {
-                let remaining=reduced ? 0.18 : max(0,RanyOpeningTimeline.duration-Date().timeIntervalSince(startedAt))+0.4
-                do { try await Task.sleep(for:.seconds(remaining)) } catch { return }
-                advance(4.8)
-            }
             .onChange(of:phase) { _,value in if value != .active { advance(4.8) } }
     }
     private func advance(_ time: Double) {

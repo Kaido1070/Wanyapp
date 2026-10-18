@@ -62,15 +62,16 @@ function draw(t){
 
 // END UNMODIFIED APPROVED DRAWING
 // Native lifecycle and local image transport only; drawing above is unchanged.
-let token='',active=false,started=false,allowOpening=true,announced=false,announceNext=false,openingStarts=0,lastDraw=-Infinity;
+let token='',active=false,titleReady=true,started=false,allowOpening=true,announced=false,announceNext=false,openingStarts=0,lastDraw=-Infinity;
 function signal(event,extra={}){window.webkit?.messageHandlers.ranyBackground.postMessage({event,token,...extra})}
 function clear(nextToken){cancelAnimationFrame(raf);playing=false;ready=false;started=false;announced=false;announceNext=false;token=nextToken;imgs=[];inkImages=[];elapsed=0;ctx.setTransform(2,0,0,2,0,0);ctx.fillStyle='#191b1d';ctx.fillRect(0,0,W,H)}
-function begin(){if(!active||!ready||playing)return;if(!started){elapsed=allowOpening?0:4.3;started=true;if(allowOpening)openingStarts++}anchor=performance.now()-elapsed*1000;playing=true;announceNext=true;lastDraw=-Infinity;raf=requestAnimationFrame(tick)}
+function begin(){if(!active||!ready||playing||(allowOpening&&!titleReady))return;if(!started){elapsed=allowOpening?0:4.3;started=true;if(allowOpening)openingStarts++}anchor=performance.now()-elapsed*1000;playing=true;announceNext=true;lastDraw=-Infinity;raf=requestAnimationFrame(tick)}
 function tick(now){if(!playing||!active||!ready)return;elapsed=(now-anchor)/1000;if(elapsed<4.3||now-lastDraw>=1000/24){draw(elapsed);lastDraw=now;if(announceNext){announceNext=false;announced=true;signal('started',{time:elapsed})}}raf=requestAnimationFrame(tick)}
 function setActive(value){active=value;if(!value){cancelAnimationFrame(raf);playing=false;if(started&&announced){elapsed=Math.max(4.3,elapsed);draw(elapsed)}else if(!announced){started=false;elapsed=0}}else begin()}
-async function configure(payload){clear(payload.token);const mine=token;active=payload.active;allowOpening=payload.opening;try{const decoded=await Promise.all(payload.images.map(url=>new Promise((resolve,reject)=>{const im=new Image();im.onload=()=>resolve(im);im.onerror=reject;im.src=url})));if(token!==mine)return;if(!decoded.length)throw Error('Empty cover pool');imgs=decoded;prepareInk();ready=true;signal('prepared');begin()}catch(error){if(token===mine)signal('error')}}
+async function configure(payload){clear(payload.token);const mine=token;active=payload.active;allowOpening=payload.opening;titleReady=payload.titleReady!==false;try{const decoded=await Promise.all(payload.images.map(url=>new Promise((resolve,reject)=>{const im=new Image();im.onload=()=>resolve(im);im.onerror=reject;im.src=url})));if(token!==mine)return;if(!decoded.length)throw Error('Empty cover pool');imgs=decoded;prepareInk();ready=true;draw(allowOpening?0:4.3);signal('prepared');begin()}catch(error){if(token===mine)signal('error')}}
 async function freeze(time){cancelAnimationFrame(raf);playing=false;elapsed=time;draw(time);await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));return state()}
+function setTypographyReady(value){titleReady=value;if(value)begin()}
 function state(){return{token,ready,active,started,openingStarts,time:elapsed,images:imgs.length}}
-window.RanyBackground={configure,setActive,clear,freeze,state};
+window.RanyBackground={configure,setActive,setTypographyReady,clear,freeze,state};
 })();
 </script></body></html>

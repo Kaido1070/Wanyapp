@@ -9,6 +9,8 @@ import WebKit
     let accountID: String?
     let canStart: Bool
     let playOpening: Bool
+    var typographyReady = true
+    var onPrepared: () -> Void = {}
     let onStarted: (Date) -> Void
     var onFailure: () -> Void = {}
 
@@ -63,6 +65,9 @@ import WebKit
         private var failed = false
         private var active = false
         private var opening = true
+        private var typographyReady = true
+        private var preparedReportedToken: String?
+        private var onPrepared: () -> Void = {}
         private var onStarted: (Date) -> Void = { _ in }
         private var onFailure: () -> Void = {}
         private var encoding: Task<Void,Never>?
@@ -70,7 +75,8 @@ import WebKit
 
         func update(_ input: RanyApprovedBackground) {
             guard !disposed, !failed else { return }
-            active = input.canStart; opening = input.playOpening
+            active = input.canStart; opening = input.playOpening; typographyReady = input.typographyReady
+            onPrepared = input.onPrepared
             onStarted = input.onStarted; onFailure = input.onFailure
             let nextIdentities = input.images.map(ObjectIdentifier.init)
             if token == nil || owner != input.accountID || identities != nextIdentities {
@@ -89,8 +95,8 @@ import WebKit
                     self.urls = encoded; self.configureIfPossible()
                 }
             } else if configuredToken == token {
-                if active && preparedToken == token { curtain?.isHidden = true }
-                web?.callAsyncJavaScript("window.RanyBackground.setActive(active)",arguments:["active":active],in:nil,in:.page,completionHandler:nil)
+                if active && preparedToken == token { revealPrepared() }
+                web?.callAsyncJavaScript("window.RanyBackground.setActive(active); window.RanyBackground.setTypographyReady(titleReady)",arguments:["titleReady":typographyReady,"active":active],in:nil,in:.page,completionHandler:nil)
             } else { configureIfPossible() }
         }
         nonisolated private static func encode(_ pool: Pool) -> [String] {
@@ -105,7 +111,7 @@ import WebKit
         private func configureIfPossible() {
             guard !disposed, !failed, loaded, let token, let urls, configuredToken != token, let web else { return }
             configuredToken = token
-            let payload: [String:Any] = ["token":token,"images":urls,"active":active,"opening":opening]
+            let payload: [String:Any] = ["token":token,"images":urls,"active":active,"opening":opening,"titleReady":typographyReady]
             web.callAsyncJavaScript("await window.RanyBackground.configure(payload); return true",arguments:["payload":payload],in:nil,in:.page) { [weak self] result in
                 guard let self, self.token == token, !self.disposed else { return }
                 if case .failure = result { self.fail() }
@@ -120,7 +126,7 @@ import WebKit
             switch body["event"] as? String {
             case "prepared":
                 preparedToken = token
-                if active { curtain?.isHidden = true }
+                if active { revealPrepared() }
             case "started":
                 guard active else { return }
                 curtain?.isHidden = true
@@ -131,6 +137,16 @@ import WebKit
                 }
             case "error": fail()
             default: break
+            }
+        }
+        private func revealPrepared() {
+            curtain?.isHidden = true
+            guard preparedReportedToken != token else { return }
+            preparedReportedToken = token
+            let prepared = onPrepared, mine = token
+            Task { @MainActor [weak self] in
+                guard let self, !self.disposed, self.token == mine else { return }
+                prepared()
             }
         }
         func fail() {
