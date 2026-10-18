@@ -141,51 +141,45 @@ struct RanyBackdrop: View {
     var assembly: Double = 1
     var cinematicOpening = false
     var onOpeningReady: (Date) -> Void = { _ in }
-    @StateObject private var openingPalette = RanyOpeningPalette()
     @State private var openingFinished = false
     @State private var openingStartedAt: Date?
+    @State private var rendererFailed = false
+    @State private var accountTransition = false
     @AppStorage(RanyAppearanceKeys.background) private var enabled = true
     @State private var elapsed: TimeInterval = 0
     @State private var resumedAt = Date()
     @State private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
     private var paused: Bool { !enabled || reading || scenePhase != .active || reduceMotion || reduceTransparency || lowPower }
+    private var approved: Bool { cinematicOpening && !reduceMotion && !reduceTransparency && !lowPower && !rendererFailed && !accountTransition }
     var body: some View {
         let visibleImages = ambience.displayImages(accountID:accountID)
         ZStack {
             Theme.background
             if enabled && !reading && !reduceTransparency {
-                TimelineView(.animation(minimumInterval:cinematicOpening && !openingFinished ? 1.0/60.0 : 1.0/24.0,paused:paused)) { timeline in
-                    let time = elapsed + (paused ? 0 : max(0,timeline.date.timeIntervalSince(resumedAt)))
-                    let openingTime = openingStartedAt.map { max(0,timeline.date.timeIntervalSince($0)) } ?? 0
-                    let presenting = cinematicOpening && !openingFinished && !paused && openingPalette.artwork != nil && openingTime < RanyOpeningMotion.duration
-                    let settled = presenting ? RanyOpeningMotion.glide((openingTime-3)/1.3) : 1
-                    ZStack {
-                        RanyBackdropArtwork(images:visibleImages,time:time,assembly:reduceMotion || lowPower ? 1 : assembly,opening:presenting ? openingPalette.artwork : nil,openingTime:openingTime)
-                            .opacity(cinematicOpening && !openingFinished && openingStartedAt == nil ? 0 : 1)
-                        if presenting { RanyOpeningShade(time:openingTime).opacity(1-settled) }
-                        RadialGradient(colors:[Theme.background.opacity(0.74),Theme.background.opacity(0.22),.clear],center:.center,startRadius:15,endRadius:460).opacity(settled)
-                        LinearGradient(colors:[Theme.background.opacity(0.12),.clear,Theme.background.opacity(0.36)],startPoint:.top,endPoint:.bottom).opacity(settled)
+                if approved {
+                    RanyApprovedBackground(images:visibleImages,accountID:accountID,canStart:!paused && ambience.isOpeningReady(accountID:accountID),playOpening:openingStartedAt == nil && !openingFinished,onStarted:{ date in
+                        guard openingStartedAt == nil else { return }
+                        openingStartedAt = date; onOpeningReady(date)
+                    },onFailure:{
+                        rendererFailed = true; openingFinished = true; onOpeningReady(Date())
+                    })
+                } else {
+                    TimelineView(.animation(minimumInterval:1.0/24.0,paused:paused)) { timeline in
+                        RanyBackdropArtwork(images:visibleImages,time:elapsed + (paused ? 0 : max(0,timeline.date.timeIntervalSince(resumedAt))),assembly:reduceMotion || lowPower ? 1 : assembly)
                     }
+                    RadialGradient(colors:[Theme.background.opacity(0.74),Theme.background.opacity(0.22),.clear],center:.center,startRadius:15,endRadius:460)
+                    LinearGradient(colors:[Theme.background.opacity(0.12),.clear,Theme.background.opacity(0.36)],startPoint:.top,endPoint:.bottom)
                 }
             }
         }.ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
-        .task(id:"\(accountID ?? "guest")|\(ambience.isOpeningReady(accountID:accountID))|\(paused)") {
+        .task(id:approved && enabled) {
             guard cinematicOpening, !openingFinished else { return }
-            guard enabled, !reduceMotion, !reduceTransparency, !lowPower else { openingFinished = true; onOpeningReady(Date()); return }
-            guard !paused, ambience.isOpeningReady(accountID:accountID) else { return }
-            await openingPalette.prepare(ambience.displayImages(accountID:accountID))
-            guard !Task.isCancelled, openingPalette.artwork != nil else { return }
-            let started = Date()
-            openingStartedAt = started; onOpeningReady(started)
-            do { try await Task.sleep(nanoseconds:4_400_000_000) } catch { return }
-            openingFinished = true; openingPalette.release()
+            if !enabled || !approved { openingFinished = true; onOpeningReady(Date()) }
         }
-        .onChange(of:accountID) { _,_ in
-            openingPalette.release()
-            if openingStartedAt != nil { openingFinished = true; onOpeningReady(Date()) }
-        }
+        // Login/account transitions keep the native 1.3.29 assembly behavior.
+        .onChange(of:accountID) { _,_ in if openingStartedAt != nil { openingFinished = true; accountTransition = true } }
         .onChange(of:paused) { _,value in
-            if value && cinematicOpening && openingStartedAt != nil { openingFinished = true; openingPalette.release() }
+            if value && openingStartedAt != nil { openingFinished = true }
             if value { elapsed += max(0,Date().timeIntervalSince(resumedAt)) }
             else { resumedAt = Date() }
         }
@@ -198,15 +192,9 @@ struct RanyBackdropArtwork: View, Animatable {
     let images: [UIImage]
     let time: TimeInterval
     var assembly: Double
-    var opening: RanyOpeningPalette.Artwork? = nil
-    var openingTime: TimeInterval = 0
     var animatableData: Double { get { assembly } set { assembly = newValue } }
     var body: some View {
         Canvas(opaque:false,rendersAsynchronously:true) { context,size in
-            if let opening, openingTime < RanyOpeningMotion.duration {
-                RanyGoldenOpening.draw(context:context,size:size,time:openingTime,artwork:opening,backdropTime:time)
-                return
-            }
             let order = CGFloat(min(1,max(0,assembly)))
             let width = min(min(size.width*0.30,size.height*0.15),190), height = width*248/180
             for (i,image) in images.prefix(RanyIdentity.maxBackdropCovers).enumerated() {

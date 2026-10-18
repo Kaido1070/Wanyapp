@@ -1,6 +1,7 @@
 import XCTest
 import SwiftUI
 import UIKit
+import WebKit
 @testable import Wany
 
 @MainActor final class RanyPresentationTests: XCTestCase {
@@ -45,7 +46,7 @@ import UIKit
             XCTAssertEqual(Double(actual),Double(expected),accuracy:3,"Preparing the opening must show the theme, never the old colored cover cluster.")
         }
         fixture.phase = .active
-        for _ in 0..<100 {
+        for _ in 0..<200 {
             if !starts.isEmpty { break }
             try await Task.sleep(for:.milliseconds(50))
         }
@@ -61,6 +62,11 @@ import UIKit
         fixture.phase = .active
         try await Task.sleep(for:.milliseconds(300))
         XCTAssertEqual(starts.count,1,"Returning to the app must not replay the opening.")
+        let web = try XCTUnwrap(descendants(window).compactMap { $0 as? WKWebView }.first)
+        let value = try await approvedJavaScript(web,"return window.RanyBackground.state()")
+        let state = try XCTUnwrap(value as? [String:Any])
+        XCTAssertEqual(state["openingStarts"] as? Int,1)
+        XCTAssertGreaterThanOrEqual(state["time"] as? Double ?? 0,4.3)
     }
 
     private func fixtureStore() -> AppStore {

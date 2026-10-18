@@ -29,6 +29,12 @@ jobs:
         run: node --test scripts/check-release.test.mjs
       - name: Verify shared feed algorithms
         run: node --test scripts/feed-engine.test.mjs
+      - name: Verify exact approved background source
+        run: node --test scripts/approved-background.test.mjs
+      - name: Render approved visual reference fixtures
+        run: |
+          npm install --prefix "$RUNNER_TEMP/rany-reference" --no-save --ignore-scripts @napi-rs/canvas@0.1.100
+          NODE_PATH="$RUNNER_TEMP/rany-reference/node_modules" node scripts/render-approved-background.cjs
       - name: Generate Xcode project
         run: |
           brew install xcodegen

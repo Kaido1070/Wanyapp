@@ -1,0 +1,3 @@
+The frozen `rany-gold-smooth-transition.html` is the selected background reference. Its complete drawing block is preserved byte for byte in the app resource; only the native lifecycle and offline image transport wrap it. Do not replace its drawing with an approximation.
+
+CI renders the reference at seven fixed times with `@napi-rs/canvas@0.1.100` before Xcode generation. The iPhone test compares WKWebView snapshots against those reference images and attaches both sides. Generated PNGs are ignored by Git and are test resources only. Locally, install that package outside the repo, set NODE_PATH to its node_modules, and run `node scripts/render-approved-background.cjs` before generating the Xcode project.

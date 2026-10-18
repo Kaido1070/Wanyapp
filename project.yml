@@ -9,8 +9,8 @@ settings:
     TARGETED_DEVICE_FAMILY: '1,2'
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     CODE_SIGNING_ALLOWED: NO
-    MARKETING_VERSION: '1.3.31'
-    CURRENT_PROJECT_VERSION: '59'
+    MARKETING_VERSION: '1.3.32'
+    CURRENT_PROJECT_VERSION: '60'
 targets:
   Wany:
     info:
@@ -33,6 +33,7 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
     dependencies:
+      - sdk: WebKit.framework
       - sdk: JavaScriptCore.framework
       - sdk: Security.framework
       - sdk: Network.framework
