@@ -34,7 +34,10 @@ test('the opening clock stays frozen until native typography acknowledges prepar
  clock+=1200;api.setActive(true);
  assert.equal(api.state().time,0);assert.equal(api.state().openingStarts,0);
  api.setTypographyReady(true);assert.equal(api.state().openingStarts,1);
- clock+=16;const [id,tick]=frames.entries().next().value;frames.delete(id);tick(clock);
+ // A queued first RAF can be delayed by cold WebKit/compositor startup.
+ clock+=1200;const [id,tick]=frames.entries().next().value;frames.delete(id);tick(clock);
+ assert.equal(api.state().time,0,'Waiting for the first actual frame must not consume any opening phase.');
+ clock+=16;const [nextId,nextTick]=frames.entries().next().value;frames.delete(nextId);nextTick(clock);
  assert.ok(Math.abs(api.state().time-0.016)<0.001);
  assert.equal(events.filter(x=>x.event==='started').length,1);
  api.setTypographyReady(true);api.setActive(false);api.setActive(true);

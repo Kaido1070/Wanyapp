@@ -100,6 +100,9 @@ struct CinematicTypography: View {
                 .shadow(color:.black.opacity(0.55),radius:7,x:0,y:2)
             officialLogo
         }
+        // Every value is sampled from the shared clock. Parent glass/assembly
+        // transactions must not interpolate these positions or masks a second time.
+        .transaction { transaction in transaction.animation=nil; transaction.disablesAnimations=true }
     }
     private var letters: some View {
         ForEach(Array(configuration.displayTitle.enumerated()),id:\.offset) { index,letter in

@@ -127,7 +127,7 @@ jobs:
             done
             grep -q "Recording started" "$RECORD_LOG" || { cat "$RECORD_LOG"; return 1; }
             xcrun simctl launch "$SIMULATOR_ID" site.wany.reader --rany-opening-fixture "$@"
-            sleep 10
+            sleep 20
             kill -INT "$RECORD_PID"
             wait "$RECORD_PID" || true
             trap - EXIT
