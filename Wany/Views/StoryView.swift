@@ -12,17 +12,21 @@ struct StoryView: View {
     @State private var loading = false
     @State private var error: String?
     @State private var query = ""
-    @State private var ascending = true
+    @State private var ascending = false
+    @State private var chapterPage = 1
     @State private var selecting = false
     @State private var listPicker = false
     @State private var preparingUnread = false
     @State private var selected: Set<String> = []
     var story: Story { detail ?? store.stories[selectedSource ?? initial.key] ?? initial }
     var chapters: [Chapter] {
-        let result = story.orderedChapters.filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || $0.id.contains(query) }
+        let numberQuery=query.map { $0.wholeNumberValue.map { String($0) } ?? String($0) }.joined()
+        let result = story.orderedChapters.filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) || $0.id.contains(numberQuery) }
         return ascending ? result : result.reversed()
     }
+    var page: StoryChapterPage { StoryChapterPage(chapters:chapters,requested:chapterPage) }
     var body: some View {
+        ScrollViewReader { proxy in
         WanyScroll {
             HStack(alignment:.top,spacing:18) {
                 CoverView(story:story).frame(width:112,height:164).clipShape(RoundedRectangle(cornerRadius:16))
@@ -59,52 +63,53 @@ struct StoryView: View {
                 }.frame(maxWidth:.infinity).padding(9)
             }.buttonStyle(.bordered).disabled(preparingUnread || downloads.preparing.contains(story.key) || !store.online)
             if let job = downloads.savedJobs.first(where:{$0.id == story.key}) { DownloadSummary(job:job).card() }
+            HStack {
+                Text("الفصول · \(story.chapters?.count ?? 0)").font(RanyTypography.font(.title3).bold())
+                Spacer()
+                if loading { ProgressView() }
+                Button(selecting ? "إلغاء" : "تحديد للتنزيل") { selecting.toggle(); selected.removeAll() }
+                    .font(RanyTypography.font(.caption))
+            }.id("chapters-top")
+            Button { ascending.toggle() } label: {
+                Label(ascending ? "من الأقدم للأحدث" : "من الأحدث للأقدم",systemImage:"arrow.up.arrow.down")
+                    .frame(maxWidth:.infinity,minHeight:44)
+            }.buttonStyle(.bordered)
+            if let error { Text(error).font(RanyTypography.font(.caption)).foregroundStyle(.orange); Button("إعادة جلب قائمة الفصول") { Task { await refresh() } } }
+            if !store.online { Text("التفاصيل محفوظة. الفصول بعلامة ✓ متاحة بدون إنترنت؛ الفصول الناقصة تحتاج اتصالًا لاستكمال الصور.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
+            TextField("ابحث برقم الفصل أو عنوانه",text:$query).textFieldStyle(.plain).padding(13).ranyInsetGlass(radius:14).keyboardType(.default)
             StoryReadingTools(
                 canReadAll:story.chapterListComplete == true && !story.orderedChapters.isEmpty,
                 disabled:!store.online || loading || store.loginRequired || store.readingMutation || store.syncing,
                 markAll:{ confirmReadAll=true },clear:{ confirmClear=true }
             )
-            HStack { Text("الفصول · \(story.chapters?.count ?? 0)").font(RanyTypography.font(.title3).bold()); Spacer(); if loading { ProgressView() }; Button { ascending.toggle() } label: { Image(systemName:"arrow.up.arrow.down") }; Button(selecting ? "إلغاء" : "تحديد") { selecting.toggle(); selected.removeAll() } }
-            if let error { Text(error).font(RanyTypography.font(.caption)).foregroundStyle(.orange); Button("إعادة جلب قائمة الفصول") { Task { await refresh() } } }
-            if !store.online { Text("التفاصيل محفوظة. الفصول بعلامة ✓ متاحة بدون إنترنت؛ الفصول الناقصة تحتاج اتصالًا لاستكمال الصور.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
-            TextField("ابحث برقم الفصل أو عنوانه",text:$query).textFieldStyle(.plain).padding(13).ranyInsetGlass(radius:14).keyboardType(.default)
+            StoryChapterPagination(page:page.number,pages:page.count) { goToPage($0,proxy:proxy) }
             if selecting {
                 HStack { Button("تحديد الكل") { selected = Set(chapters.map(\.id)) }; Spacer(); Button("تحميل \(selected.count) فصل") { let list = chapters.filter { selected.contains($0.id) }; Task { await downloads.enqueue(story,chapters:list) }; selecting = false }.disabled(selected.isEmpty || !store.online) }
             }
-            LazyVStack(spacing:2) {
-                ForEach(chapters) { chapter in
-                    VStack(spacing:10) {
-                        HStack {
-                            if selecting { Button { if selected.contains(chapter.id) { selected.remove(chapter.id) } else { selected.insert(chapter.id) } } label: { Image(systemName:selected.contains(chapter.id) ? "checkmark.circle.fill" : "circle") } }
-                            WanyLink { ReaderView(story:story,chapter:chapter) } label: {
-                                VStack(alignment:.leading,spacing:5) {
-                                    Text(chapter.title).font(RanyTypography.font(.subheadline))
-                                    HStack(spacing:8) {
-                                        if store.state?.data.completed.contains(story.key+":"+chapter.id) == true { Text("مقروء").foregroundStyle(Theme.accent) }
-                                        else if let percent=store.state?.data.progress[story.key+":"+chapter.id]?.percent,percent>0 { Text("\(Int(percent))٪").foregroundStyle(Theme.accent) }
-                                        if let date=chapter.publishedAt,!date.isEmpty { Text(date).foregroundStyle(.secondary) }
-                                    }.font(.caption2)
-                                }.frame(maxWidth:.infinity,alignment:.leading).foregroundStyle(.primary)
-                            }
-                            if downloads.savedJobs.first(where:{$0.id == story.key})?.chapters.first(where:{$0.id == chapter.id})?.complete == true { Image(systemName:"checkmark.circle.fill").foregroundStyle(.green) }
-                            else { Button { Task { await downloads.enqueue(story,chapters:[chapter]) } } label: { Image(systemName:"arrow.down.circle").font(RanyTypography.font(.title3)) }.disabled(!store.online) }
-                        }
-                        if !selecting {
-                            ChapterReadingTools(
-                                completed:store.state?.data.completed.contains(story.key+":"+chapter.id) == true,
-                                disabled:!store.online || loading || store.loginRequired || store.syncing || store.readingMutation,
-                                markRead:{ Task { await store.manualReadChapter(story,chapter:chapter.number) } },
-                                markUnread:{ Task { await store.manualUnread(story,chapter:chapter.number) } }
-                            )
-                        }
-                    }.padding(14).ranyInsetGlass(radius:12)
+            LazyVStack(spacing:0) {
+                ForEach(page.chapters) { chapter in
+                    StoryChapterRow(story:story,chapter:chapter,loading:loading,selecting:selecting,selected:$selected)
                 }
+            }.padding(.horizontal,12).ranyInsetGlass(radius:14)
+            if chapters.isEmpty && !loading {
+                Text(query.isEmpty ? "لا توجد فصول متاحة" : "لا توجد فصول مطابقة للبحث")
+                    .font(RanyTypography.font(.subheadline)).foregroundStyle(.secondary)
             }
+            StoryChapterPagination(page:page.number,pages:page.count) { goToPage($0,proxy:proxy) }
         }.navigationTitle(story.title).navigationBarTitleDisplayMode(.inline)
             .confirmationDialog("تعليم جميع الفصول كمقروءة؟",isPresented:$confirmReadAll,titleVisibility:.visible) { Button("تأكيد تعليم \(story.chapters?.count ?? 0) فصل") { Task { await store.manualRead(story,chapters:story.orderedChapters.map(\.number)) } }; Button("إلغاء",role:.cancel) {} }
             .confirmationDialog("مسح تقدم هذه القصة؟",isPresented:$confirmClear,titleVisibility:.visible) { Button("مسح التقدم",role:.destructive) { Task { await store.manualUnreadGroup(story,keys:sourceKeys) } }; Button("إلغاء",role:.cancel) {} } message: { Text("يُحذف سجل وتقدم القراءة لكل المصادر المرتبطة بهذه القصة عبر الموقع. تبقى الملفات المحملة والمفضلة والقوائم.") }
             .sheet(isPresented:$listPicker) { StoryListPicker(story:story) }
             .task { await refresh() }.refreshable { await refresh() }
+            .onChange(of:query) { _,_ in chapterPage=1 }
+            .onChange(of:ascending) { _,_ in chapterPage=1 }
+            .onChange(of:story.key) { _,_ in chapterPage=1; selected.removeAll(); selecting=false }
+            .onChange(of:chapters.count) { _,_ in chapterPage=page.number }
+        }
+    }
+    private func goToPage(_ value: Int,proxy: ScrollViewProxy) {
+        chapterPage=min(max(1,value),page.count)
+        proxy.scrollTo("chapters-top",anchor:.top)
     }
     private func switchSource(_ key: String) async {
         guard key != story.key,store.online,!loading else { return }
@@ -131,24 +136,17 @@ struct StoryReadingTools: View {
     let clear: () -> Void
 
     var body: some View {
-        VStack(alignment:.leading,spacing:8) {
-            Label("أدوات القراءة",systemImage:"checkmark.bookmark")
-                .font(RanyTypography.font(.subheadline).bold())
+        HStack(spacing:10) {
             Button(action:markAll) {
-                Label("تعليم جميع الفصول كمقروءة",systemImage:"checkmark.circle")
-                    .frame(maxWidth:.infinity,minHeight:44,alignment:.leading)
-                    .contentShape(Rectangle())
-            }.foregroundStyle(Theme.accent).disabled(!canReadAll).accessibilityIdentifier("reading.markAll")
-            Divider()
+                Label("تحديد الكل كمقروء",systemImage:"checkmark")
+                    .frame(maxWidth:.infinity,minHeight:44)
+            }.disabled(!canReadAll).accessibilityIdentifier("reading.markAll")
             Button(role:.destructive,action:clear) {
-                Label("مسح التقدم وإعادة القصة لغير مقروءة",systemImage:"arrow.counterclockwise")
-                    .frame(maxWidth:.infinity,minHeight:44,alignment:.leading)
-                    .contentShape(Rectangle())
-            }.foregroundStyle(.red).accessibilityIdentifier("reading.clearStory")
+                Text("مسح تقدم القراءة").frame(maxWidth:.infinity,minHeight:44)
+            }.accessibilityIdentifier("reading.clearStory")
         }
-        .font(RanyTypography.font(.subheadline))
-        .buttonStyle(.plain).tint(Theme.accent)
-        .padding(14).ranyInsetGlass(radius:14).disabled(disabled)
+        .font(RanyTypography.font(.caption))
+        .buttonStyle(.bordered).tint(Theme.accent).disabled(disabled)
     }
 }
 
@@ -159,19 +157,115 @@ struct ChapterReadingTools: View {
     let markUnread: () -> Void
 
     var body: some View {
-        HStack(spacing:12) {
-            Button(action:markRead) {
-                Label(completed ? "مقروء" : "تعليم كمقروء",systemImage:completed ? "checkmark.circle.fill" : "checkmark.circle")
-                    .frame(maxWidth:.infinity,minHeight:44)
-                    .contentShape(Rectangle())
-            }.disabled(completed).accessibilityIdentifier("reading.markChapter")
-            Button(action:markUnread) {
-                Label("إعادة لغير مقروء",systemImage:"arrow.uturn.backward")
-                    .frame(maxWidth:.infinity,minHeight:44)
-                    .contentShape(Rectangle())
-            }.accessibilityIdentifier("reading.clearChapter")
+        Button(action:completed ? markUnread : markRead) {
+            Text(completed ? "مقروء ✓" : "غير مقروء")
+                .font(RanyTypography.font(.caption))
+                .frame(minWidth:72,minHeight:44)
         }
-        .font(RanyTypography.font(.caption))
-        .buttonStyle(.borderless).tint(Theme.accent).disabled(disabled)
+        .buttonStyle(.plain).foregroundStyle(Theme.accent)
+        .overlay(RoundedRectangle(cornerRadius:10).stroke(Theme.accent.opacity(0.22)))
+        .disabled(disabled)
+        .accessibilityLabel(completed ? "مقروء، إعادة الفصل إلى غير مقروء" : "غير مقروء، تعليم الفصل كمقروء")
+        .accessibilityIdentifier("reading.toggleChapter")
+    }
+}
+
+// The website slices the ordered chapter list into groups of 100.
+struct StoryChapterPage {
+    static let size=100
+    let number: Int
+    let count: Int
+    let chapters: [Chapter]
+    init(chapters: [Chapter],requested: Int) {
+        count=max(1,(chapters.count + Self.size - 1)/Self.size)
+        number=min(max(1,requested),count)
+        let start=min((number-1)*Self.size,chapters.count)
+        self.chapters=Array(chapters[start..<min(start+Self.size,chapters.count)])
+    }
+}
+
+struct StoryChapterPagination: View {
+    let page: Int
+    let pages: Int
+    let onPage: (Int) -> Void
+    var body: some View {
+        if pages > 1 {
+            HStack(spacing:8) {
+                Button("السابق") { onPage(page-1) }.disabled(page <= 1)
+                Spacer(minLength:0)
+                Picker("صفحة \(page) من \(pages)",selection:Binding(get:{ page },set:onPage)) {
+                    ForEach(1...pages,id:\.self) { value in Text("\(value)").tag(value) }
+                }.labelsHidden().pickerStyle(.menu)
+                    .accessibilityLabel("اختيار صفحة الفصول، صفحة \(page) من \(pages)")
+                Text("من \(pages)").foregroundStyle(.secondary)
+                Spacer(minLength:0)
+                Button("التالي") { onPage(page+1) }.disabled(page >= pages)
+            }
+            .font(RanyTypography.font(.caption)).buttonStyle(.bordered)
+            .frame(minHeight:44).tint(Theme.accent)
+        }
+    }
+}
+
+enum StoryChapterDate {
+    static func display(_ value: String) -> String? {
+        let parser=ISO8601DateFormatter()
+        parser.formatOptions=[.withInternetDateTime,.withFractionalSeconds]
+        var date=parser.date(from:value)
+        if date == nil { parser.formatOptions=[.withInternetDateTime]; date=parser.date(from:value) }
+        if date == nil {
+            let plain=DateFormatter(); plain.locale=Locale(identifier:"en_US_POSIX")
+            plain.calendar=Calendar(identifier:.gregorian); plain.timeZone=TimeZone(secondsFromGMT:0)
+            plain.dateFormat="yyyy-MM-dd"; plain.isLenient=false
+            if value.count == 10 { date=plain.date(from:value) }
+        }
+        guard let date else { return nil }
+        let output=DateFormatter(); output.locale=Locale(identifier:"en_GB")
+        output.calendar=Calendar(identifier:.gregorian); output.timeZone=TimeZone(secondsFromGMT:0)
+        output.dateFormat="dd/MM/yyyy"
+        return output.string(from:date)
+    }
+}
+
+struct StoryChapterRow: View {
+    @EnvironmentObject var store: AppStore
+    @EnvironmentObject var downloads: Downloads
+    let story: Story
+    let chapter: Chapter
+    let loading: Bool
+    let selecting: Bool
+    @Binding var selected: Set<String>
+    var body: some View {
+        VStack(spacing:0) {
+            HStack(spacing:8) {
+                if selecting { Button { if selected.contains(chapter.id) { selected.remove(chapter.id) } else { selected.insert(chapter.id) } } label: { Image(systemName:selected.contains(chapter.id) ? "checkmark.circle.fill" : "circle") } }
+                WanyLink { ReaderView(story:story,chapter:chapter) } label: {
+                    VStack(alignment:.leading,spacing:5) {
+                        Text(chapter.title).font(RanyTypography.font(.subheadline)).lineLimit(2)
+                        HStack(spacing:8) {
+                            if store.state?.data.completed.contains(story.key+":"+chapter.id) == true { Text("مقروء").foregroundStyle(Theme.accent) }
+                            else if let percent=store.state?.data.progress[story.key+":"+chapter.id]?.percent,percent>0 { Text("\(Int(percent))٪").foregroundStyle(Theme.accent) }
+                            if let date=chapter.publishedAt.flatMap(StoryChapterDate.display) { Text(date).foregroundStyle(.secondary) }
+                        }.font(.caption2)
+                    }.frame(maxWidth:.infinity,alignment:.leading).foregroundStyle(.primary)
+                }
+                if !selecting {
+                    ChapterReadingTools(
+                        completed:store.state?.data.completed.contains(story.key+":"+chapter.id) == true,
+                        disabled:!store.online || loading || store.loginRequired || store.syncing || store.readingMutation,
+                        markRead:{ Task { await store.manualReadChapter(story,chapter:chapter.number) } },
+                        markUnread:{ Task { await store.manualUnread(story,chapter:chapter.number) } }
+                    )
+                }
+                if downloads.savedJobs.first(where:{$0.id == story.key})?.chapters.first(where:{$0.id == chapter.id})?.complete == true {
+                    Image(systemName:"checkmark.circle.fill").foregroundStyle(.green).frame(width:44,height:44)
+                } else {
+                    Button { Task { await downloads.enqueue(story,chapters:[chapter]) } } label: {
+                        Image(systemName:"arrow.down.circle").font(RanyTypography.font(.title3)).frame(width:44,height:44)
+                    }.buttonStyle(.borderless).disabled(!store.online)
+                }
+            }.padding(.vertical,10)
+            Divider()
+        }
     }
 }

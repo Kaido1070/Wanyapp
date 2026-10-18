@@ -2,6 +2,36 @@ import XCTest
 @testable import Wany
 
 @MainActor final class ReadingParityTests: XCTestCase {
+    func testChapterPagesPreserveEveryDecimalChapterInBothSortOrders() {
+        let chapters=(1...205).map { Chapter(number:Double($0)/10,title:"Chapter \($0)") }
+        for ordered in [chapters,Array(chapters.reversed())] {
+            let pages=(1...3).map { StoryChapterPage(chapters:ordered,requested:$0) }
+            XCTAssertEqual(pages.map { $0.chapters.count },[100,100,5])
+            XCTAssertEqual(pages.flatMap { $0.chapters }.map(\.id),ordered.map(\.id))
+            XCTAssertEqual(Set(pages.flatMap { $0.chapters }.map(\.id)).count,205)
+            XCTAssertEqual(pages[1].chapters.first?.id,ordered[100].id)
+        }
+    }
+    func testChapterPageClampsEmptyListsAndShrinkingSearchResults() {
+        let chapters=(1...101).map { Chapter(number:Double($0),title:"Chapter \($0)") }
+        XCTAssertEqual(StoryChapterPage(chapters:[],requested:28).number,1)
+        XCTAssertEqual(StoryChapterPage(chapters:[],requested:28).count,1)
+        XCTAssertTrue(StoryChapterPage(chapters:[],requested:28).chapters.isEmpty)
+        XCTAssertEqual(StoryChapterPage(chapters:chapters,requested:0).number,1)
+        XCTAssertEqual(StoryChapterPage(chapters:chapters,requested:99).chapters.map(\.number),[101])
+        let filtered=StoryChapterPage(chapters:Array(chapters.prefix(3)),requested:28)
+        XCTAssertEqual(filtered.number,1)
+        XCTAssertEqual(filtered.chapters.count,3)
+        XCTAssertEqual(StoryChapterPage(chapters:Array(chapters.prefix(100)),requested:2).count,1)
+    }
+    func testChapterDatesAreReadableWithoutInventingMissingDates() {
+        XCTAssertEqual(StoryChapterDate.display("2025-12-19T00:00:00.000Z"),"19/12/2025")
+        XCTAssertEqual(StoryChapterDate.display("2026-10-13T00:00:00Z"),"13/10/2026")
+        XCTAssertEqual(StoryChapterDate.display("2020-02-22"),"22/02/2020")
+        XCTAssertNil(StoryChapterDate.display(""))
+        XCTAssertNil(StoryChapterDate.display("not a date"))
+    }
+
     func testOpeningIsPersistedWithoutMarkingCompletion() throws {
         let store=AppStore(startServices:false); store.online=false
         let owner="test-open-"+UUID().uuidString; store.state=AccountState(user:Account(id:owner,name:"fixture",username:"fixture"))
