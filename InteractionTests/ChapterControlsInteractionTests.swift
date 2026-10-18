@@ -39,7 +39,11 @@ final class ChapterControlsInteractionTests: XCTestCase {
         XCTAssertTrue(thirdPage.waitForExistence(timeout:5))
         thirdPage.tap()
         XCTAssertEqual(app.staticTexts["fixture.page"].label,"3")
-        app.switches["fixture.disabled"].tap()
+        let disabled=app.switches["fixture.disabled"]
+        // RTL SwiftUI exposes the whole label row as the switch frame. Tap the
+        // actual thumb at the leading physical edge, not the label's center.
+        disabled.coordinate(withNormalizedOffset:CGVector(dx:0.07,dy:0.5)).tap()
+        XCTAssertEqual(disabled.value as? String,"1")
         XCTAssertFalse(read.isEnabled)
         XCTAssertFalse(all.isEnabled)
         XCTAssertFalse(clear.isEnabled)
