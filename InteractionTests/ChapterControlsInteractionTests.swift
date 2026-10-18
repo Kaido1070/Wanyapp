@@ -38,6 +38,8 @@ final class ChapterControlsInteractionTests: XCTestCase {
         let thirdPage=app.buttons["3"].firstMatch
         XCTAssertTrue(thirdPage.waitForExistence(timeout:5))
         thirdPage.tap()
+        let menuClosed=XCTNSPredicateExpectation(predicate:NSPredicate(format:"exists == false"),object:thirdPage)
+        XCTAssertEqual(XCTWaiter.wait(for:[menuClosed],timeout:5),.completed,"Selecting a page must dismiss its menu before the next touch.")
         XCTAssertEqual(app.staticTexts["fixture.page"].label,"3")
         let disabled=app.switches["fixture.disabled"]
         // RTL SwiftUI exposes the whole label row as the switch frame. Tap the

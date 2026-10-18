@@ -199,12 +199,22 @@ struct StoryChapterPagination: View {
                 pageButton("السابق",enabled:page > 1) { onPage(page-1) }
                 Spacer(minLength:0)
                 Text("صفحة")
-                Picker("صفحة \(page) من \(pages)",selection:Binding(get:{ page },set:onPage)) {
-                    ForEach(1...pages,id:\.self) { value in Text("\(value)").tag(value) }
-                }.labelsHidden().pickerStyle(.menu)
-                    .frame(minWidth:44,minHeight:44).contentShape(Rectangle())
-                    .accessibilityIdentifier("reading.page.select")
-                    .accessibilityLabel("اختيار صفحة الفصول، صفحة \(page) من \(pages)")
+                Menu {
+                    ForEach(1...pages,id:\.self) { value in
+                        Button { onPage(value) } label: {
+                            if value == page { Label("\(value)",systemImage:"checkmark") }
+                            else { Text("\(value)") }
+                        }
+                    }
+                } label: {
+                    HStack(spacing:5) {
+                        Text("\(page)").monospacedDigit().lineLimit(1)
+                        Image(systemName:"chevron.up.chevron.down")
+                    }.frame(minWidth:72,minHeight:44).contentShape(Rectangle())
+                }
+                .menuActionDismissBehavior(.enabled).buttonStyle(.plain)
+                .accessibilityIdentifier("reading.page.select")
+                .accessibilityLabel("اختيار صفحة الفصول، صفحة \(page) من \(pages)")
                 Text("من \(pages)").foregroundStyle(.secondary)
                 Spacer(minLength:0)
                 pageButton("التالي",enabled:page < pages) { onPage(page+1) }
