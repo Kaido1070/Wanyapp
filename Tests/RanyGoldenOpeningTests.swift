@@ -87,6 +87,6 @@ import WebKit
 
 @MainActor func approvedJavaScript(_ web: WKWebView,_ script: String,arguments: [String:Any] = [:]) async throws -> Any {
     try await withCheckedThrowingContinuation { continuation in
-        web.callAsyncJavaScript(script,arguments:arguments,in:nil,contentWorld:.page) { result in continuation.resume(with:result) }
+        web.callAsyncJavaScript(script,arguments:arguments,in:nil,in:.page) { result in continuation.resume(with:result) }
     }
 }

@@ -70,7 +70,7 @@ import WebKit
                 token = next; configuredToken = nil; preparedToken = nil; reportedToken = nil; urls = nil
                 // Hide and clear the preceding account before any new image is decoded.
                 web?.isHidden = true
-                if loaded { web?.callAsyncJavaScript("window.RanyBackground.clear(token)",arguments:["token":next],in:nil,contentWorld:.page,completionHandler:nil) }
+                if loaded { web?.callAsyncJavaScript("window.RanyBackground.clear(token)",arguments:["token":next],in:nil,in:.page,completionHandler:nil) }
                 let pool = Pool(images:Array(input.images.prefix(14)))
                 encoding = Task { [weak self] in
                     let worker = Task.detached(priority:.userInitiated) { Self.encode(pool) }
@@ -80,7 +80,7 @@ import WebKit
                 }
             } else if configuredToken == token {
                 if active && preparedToken == token { web?.isHidden = false }
-                web?.callAsyncJavaScript("window.RanyBackground.setActive(active)",arguments:["active":active],in:nil,contentWorld:.page,completionHandler:nil)
+                web?.callAsyncJavaScript("window.RanyBackground.setActive(active)",arguments:["active":active],in:nil,in:.page,completionHandler:nil)
             } else { configureIfPossible() }
         }
         nonisolated private static func encode(_ pool: Pool) -> [String] {
@@ -96,7 +96,7 @@ import WebKit
             guard !disposed, !failed, loaded, let token, let urls, configuredToken != token, let web else { return }
             configuredToken = token
             let payload: [String:Any] = ["token":token,"images":urls,"active":active,"opening":opening]
-            web.callAsyncJavaScript("await window.RanyBackground.configure(payload); return true",arguments:["payload":payload],in:nil,contentWorld:.page) { [weak self] result in
+            web.callAsyncJavaScript("await window.RanyBackground.configure(payload); return true",arguments:["payload":payload],in:nil,in:.page) { [weak self] result in
                 guard let self, self.token == token, !self.disposed else { return }
                 if case .failure = result { self.fail() }
             }
