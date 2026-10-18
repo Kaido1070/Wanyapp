@@ -140,13 +140,15 @@ struct StoryReadingTools: View {
             Button(action:markAll) {
                 Label("تحديد الكل كمقروء",systemImage:"checkmark")
                     .frame(maxWidth:.infinity,minHeight:44)
+                    .overlay(RoundedRectangle(cornerRadius:10).stroke(Theme.accent.opacity(0.22)))
             }.disabled(!canReadAll).accessibilityIdentifier("reading.markAll")
             Button(role:.destructive,action:clear) {
                 Text("مسح تقدم القراءة").frame(maxWidth:.infinity,minHeight:44)
+                    .overlay(RoundedRectangle(cornerRadius:10).stroke(Theme.accent.opacity(0.22)))
             }.accessibilityIdentifier("reading.clearStory")
         }
         .font(RanyTypography.font(.caption))
-        .buttonStyle(.bordered).tint(Theme.accent).disabled(disabled)
+        .buttonStyle(.plain).foregroundStyle(Theme.accent).disabled(disabled)
     }
 }
 
@@ -191,19 +193,27 @@ struct StoryChapterPagination: View {
     var body: some View {
         if pages > 1 {
             HStack(spacing:8) {
-                Button("السابق") { onPage(page-1) }.disabled(page <= 1)
+                pageButton("السابق",enabled:page > 1) { onPage(page-1) }
                 Spacer(minLength:0)
+                Text("صفحة")
                 Picker("صفحة \(page) من \(pages)",selection:Binding(get:{ page },set:onPage)) {
                     ForEach(1...pages,id:\.self) { value in Text("\(value)").tag(value) }
                 }.labelsHidden().pickerStyle(.menu)
                     .accessibilityLabel("اختيار صفحة الفصول، صفحة \(page) من \(pages)")
                 Text("من \(pages)").foregroundStyle(.secondary)
                 Spacer(minLength:0)
-                Button("التالي") { onPage(page+1) }.disabled(page >= pages)
+                pageButton("التالي",enabled:page < pages) { onPage(page+1) }
             }
-            .font(RanyTypography.font(.caption)).buttonStyle(.bordered)
+            .font(RanyTypography.font(.caption))
             .frame(minHeight:44).tint(Theme.accent)
         }
+    }
+    private func pageButton(_ title: String,enabled: Bool,action: @escaping () -> Void) -> some View {
+        Button(action:action) {
+            Text(title).frame(minWidth:48,minHeight:44)
+                .overlay(RoundedRectangle(cornerRadius:10).stroke(Theme.accent.opacity(0.22)))
+        }.buttonStyle(.plain).foregroundStyle(Theme.accent)
+            .disabled(!enabled).opacity(enabled ? 1 : 0.4)
     }
 }
 

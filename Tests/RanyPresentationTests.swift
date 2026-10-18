@@ -5,7 +5,7 @@ import WebKit
 @testable import Wany
 
 @MainActor final class RanyPresentationTests: XCTestCase {
-    func testVisibleReadingToolsFitSmallAndLargePhones() throws {
+    func testVisibleReadingToolsFitSmallAndLargePhones() async throws {
         let store=fixtureStore(); store.online=true
         let story=Story(key:"tx:chapter-preview",source:"teamx",slug:"chapter-preview",type:"manga",url:"",title:"Preview",cover:"",genres:[])
         let examples=[Chapter(number:408.3,title:"الفصل 408.3 · بداية المغامرة",publishedAt:"2026-10-13T00:00:00Z"),Chapter(number:408.2,title:"الفصل 408.2 · عنوان فصل طويل لاختبار العرض على الشاشة الصغيرة",publishedAt:"2026-10-12T00:00:00Z")]
@@ -26,9 +26,16 @@ import WebKit
                 .environment(\.layoutDirection,.rightToLeft)
                 .environment(\.colorScheme,.dark)
                 .background(Theme.background)
-            let renderer=ImageRenderer(content:content)
-            renderer.proposedSize=ProposedViewSize(width:width,height:nil)
-            let rendered=try XCTUnwrap(renderer.uiImage)
+            // Menu-backed controls require real UIKit hosting, not ImageRenderer.
+            let root=ZStack(alignment:.top) { Theme.background.ignoresSafeArea(); content }
+                .tint(Theme.accent).preferredColorScheme(.dark)
+            let (window,previous)=show(root)
+            defer { window.isHidden=true; window.rootViewController=nil; previous?.makeKeyAndVisible() }
+            window.frame=CGRect(x:0,y:0,width:width,height:700)
+            window.rootViewController?.view.frame=window.bounds
+            window.layoutIfNeeded()
+            try await Task.sleep(for:.milliseconds(300))
+            let rendered=image(window)
             XCTAssertEqual(rendered.size.width,width,accuracy:1)
             let attachment=XCTAttachment(image:rendered)
             attachment.name="Rany-website-chapter-layout-\(Int(width))"
