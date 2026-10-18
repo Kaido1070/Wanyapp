@@ -50,6 +50,13 @@ import WebKit
             if !starts.isEmpty { break }
             try await Task.sleep(for:.milliseconds(50))
         }
+        if starts.isEmpty {
+            snapshot(window,name:"Rany-production-start-failure")
+            if let web = descendants(window).compactMap({ $0 as? WKWebView }).first {
+                let state = try await approvedJavaScript(web,"return window.RanyBackground.state()")
+                XCTFail("Production background did not start: \(state), hidden=\(web.isHidden), frame=\(web.frame)")
+            }
+        }
         let started = try XCTUnwrap(starts.first,"The production host must prepare and start the golden background.")
         for (time,name) in [(0.3,"pages"),(1.65,"pullback"),(2.4,"distribution"),(4.6,"handoff")] {
             let remaining = time-Date().timeIntervalSince(started)

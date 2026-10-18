@@ -142,7 +142,7 @@ struct RanyExperience: View {
             RanyBackdropHost(ambience:ambience,reading:store.readerActive,accountID:store.state?.user.id,assembly:assembly,cinematicOpening:!cinematicConfiguration.shouldPlay(),onOpeningReady:{ date in
                 guard !backgroundReady else { return }
                 backgroundReady = true; onOpeningStart(date)
-            }).frame(maxWidth:.infinity,maxHeight:.infinity).ignoresSafeArea()
+            },phase:phase).frame(maxWidth:.infinity,maxHeight:.infinity).ignoresSafeArea()
             RootView().id(store.state?.user.id).environment(\.ranyGlassProgress,glassProgress).environment(\.ranyMeasureMarkFrames,opening || store.enteringAccount).environment(\.ranyMarkCovered,opening || store.enteringAccount).opacity((opening && !revealed) || (store.enteringAccount && !revealed) ? 0 : 1)
                 .animation(.easeOut(duration:reduceMotion ? 0.05 : 0.42),value:revealed)
                 .allowsHitTesting(!opening && !store.enteringAccount)

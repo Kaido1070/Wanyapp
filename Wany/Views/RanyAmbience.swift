@@ -224,6 +224,7 @@ struct RanyBackdropHost: UIViewControllerRepresentable {
     let assembly: Double
     var cinematicOpening = false
     var onOpeningReady: (Date) -> Void = { _ in }
+    var phase: ScenePhase = .active
     func makeUIViewController(context: Context) -> UIHostingController<AnyView> {
         let controller = UIHostingController(rootView:scene(context))
         controller.view.backgroundColor = .clear
@@ -236,6 +237,9 @@ struct RanyBackdropHost: UIViewControllerRepresentable {
     }
     private func scene(_ context: Context) -> AnyView {
         AnyView(RanyBackdrop(ambience:ambience,reading:reading,accountID:accountID,assembly:assembly,cinematicOpening:cinematicOpening,onOpeningReady:onOpeningReady)
-            .environment(\.self,context.environment))
+            .environment(\.self,context.environment)
+            // A nested UIHostingController owns a separate scene environment.
+            // Carry the outer scene's activity as an explicit representable input.
+            .environment(\.scenePhase,phase))
     }
 }
