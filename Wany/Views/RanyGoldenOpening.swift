@@ -22,6 +22,7 @@ import WebKit
         web.backgroundColor = UIColor(red:25/255,green:27/255,blue:29/255,alpha:1)
         web.scrollView.backgroundColor = web.backgroundColor
         web.scrollView.isScrollEnabled = false
+        web.scrollView.contentInsetAdjustmentBehavior = .never
         web.isUserInteractionEnabled = false
         web.isAccessibilityElement = false
         web.accessibilityElementsHidden = true
