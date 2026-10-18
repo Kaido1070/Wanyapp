@@ -16,7 +16,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     }
     private static func makeStore() -> AppStore {
         let preview=ProcessInfo.processInfo.arguments.contains("--rany-cinematic-preview")
-        let fixture=ProcessInfo.processInfo.arguments.contains("--rany-opening-fixture")
+        var fixture=ProcessInfo.processInfo.arguments.contains("--rany-opening-fixture")
+        #if DEBUG
+        fixture = fixture || ProcessInfo.processInfo.arguments.contains("--rany-chapter-controls-fixture")
+        #endif
         let account=AppStore(startServices:!preview && !fixture)
         if preview || fixture {
             account.online=false
@@ -28,6 +31,15 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     }
     var body: some Scene {
         WindowGroup {
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--rany-chapter-controls-fixture") { ChapterControlsFixture() }
+            else { applicationContent }
+            #else
+            applicationContent
+            #endif
+        }
+    }
+    private var applicationContent: some View {
             Group {
                 if ProcessInfo.processInfo.arguments.contains("--rany-cinematic-preview") { CinematicPreview().environmentObject(store) }
                 else { RanyExperience().environmentObject(store).environmentObject(store.downloads)
@@ -39,6 +51,5 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 }
                 }
             }
-        }
     }
 }

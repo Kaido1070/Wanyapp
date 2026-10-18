@@ -49,11 +49,22 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: Wany
+  WanyInteractionTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [InteractionTests]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Wany
+    dependencies:
+      - target: Wany
 schemes:
   Wany:
     build:
       targets:
         Wany: all
         WanyTests: [test]
+        WanyInteractionTests: [test]
     test:
-      targets: [WanyTests]
+      targets: [WanyTests,WanyInteractionTests]

@@ -140,15 +140,17 @@ struct StoryReadingTools: View {
             Button(action:markAll) {
                 Label("تحديد الكل كمقروء",systemImage:"checkmark")
                     .frame(maxWidth:.infinity,minHeight:44)
+                    .contentShape(Rectangle())
                     .overlay(RoundedRectangle(cornerRadius:10).stroke(Theme.accent.opacity(0.22)))
-            }.disabled(!canReadAll).accessibilityIdentifier("reading.markAll")
+            }.disabled(!canReadAll).opacity(canReadAll ? 1 : 0.45).accessibilityIdentifier("reading.markAll")
             Button(role:.destructive,action:clear) {
                 Text("مسح تقدم القراءة").frame(maxWidth:.infinity,minHeight:44)
+                    .contentShape(Rectangle())
                     .overlay(RoundedRectangle(cornerRadius:10).stroke(Theme.accent.opacity(0.22)))
             }.accessibilityIdentifier("reading.clearStory")
         }
-        .font(RanyTypography.font(.caption))
-        .buttonStyle(.plain).foregroundStyle(Theme.accent).disabled(disabled)
+        .font(RanyTypography.font(.footnote))
+        .buttonStyle(.plain).foregroundStyle(Theme.accent).disabled(disabled).opacity(disabled ? 0.45 : 1)
     }
 }
 
@@ -161,12 +163,13 @@ struct ChapterReadingTools: View {
     var body: some View {
         Button(action:completed ? markUnread : markRead) {
             Text(completed ? "مقروء ✓" : "غير مقروء")
-                .font(RanyTypography.font(.caption))
+                .font(RanyTypography.font(.footnote))
                 .frame(minWidth:72,minHeight:44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain).foregroundStyle(Theme.accent)
         .overlay(RoundedRectangle(cornerRadius:10).stroke(Theme.accent.opacity(0.22)))
-        .disabled(disabled)
+        .disabled(disabled).opacity(disabled ? 0.45 : 1)
         .accessibilityLabel(completed ? "مقروء، إعادة الفصل إلى غير مقروء" : "غير مقروء، تعليم الفصل كمقروء")
         .accessibilityIdentifier("reading.toggleChapter")
     }
@@ -199,6 +202,8 @@ struct StoryChapterPagination: View {
                 Picker("صفحة \(page) من \(pages)",selection:Binding(get:{ page },set:onPage)) {
                     ForEach(1...pages,id:\.self) { value in Text("\(value)").tag(value) }
                 }.labelsHidden().pickerStyle(.menu)
+                    .frame(minWidth:44,minHeight:44).contentShape(Rectangle())
+                    .accessibilityIdentifier("reading.page.select")
                     .accessibilityLabel("اختيار صفحة الفصول، صفحة \(page) من \(pages)")
                 Text("من \(pages)").foregroundStyle(.secondary)
                 Spacer(minLength:0)
@@ -211,9 +216,11 @@ struct StoryChapterPagination: View {
     private func pageButton(_ title: String,enabled: Bool,action: @escaping () -> Void) -> some View {
         Button(action:action) {
             Text(title).frame(minWidth:48,minHeight:44)
+                .contentShape(Rectangle())
                 .overlay(RoundedRectangle(cornerRadius:10).stroke(Theme.accent.opacity(0.22)))
         }.buttonStyle(.plain).foregroundStyle(Theme.accent)
             .disabled(!enabled).opacity(enabled ? 1 : 0.4)
+            .accessibilityIdentifier(title == "التالي" ? "reading.page.next" : "reading.page.previous")
     }
 }
 
@@ -248,7 +255,7 @@ struct StoryChapterRow: View {
     var body: some View {
         VStack(spacing:0) {
             HStack(spacing:8) {
-                if selecting { Button { if selected.contains(chapter.id) { selected.remove(chapter.id) } else { selected.insert(chapter.id) } } label: { Image(systemName:selected.contains(chapter.id) ? "checkmark.circle.fill" : "circle") } }
+                if selecting { Button { if selected.contains(chapter.id) { selected.remove(chapter.id) } else { selected.insert(chapter.id) } } label: { Image(systemName:selected.contains(chapter.id) ? "checkmark.circle.fill" : "circle").frame(width:44,height:44).contentShape(Rectangle()) } }
                 WanyLink { ReaderView(story:story,chapter:chapter) } label: {
                     VStack(alignment:.leading,spacing:5) {
                         Text(chapter.title).font(RanyTypography.font(.subheadline)).lineLimit(2)
@@ -256,8 +263,8 @@ struct StoryChapterRow: View {
                             if store.state?.data.completed.contains(story.key+":"+chapter.id) == true { Text("مقروء").foregroundStyle(Theme.accent) }
                             else if let percent=store.state?.data.progress[story.key+":"+chapter.id]?.percent,percent>0 { Text("\(Int(percent))٪").foregroundStyle(Theme.accent) }
                             if let date=chapter.publishedAt.flatMap(StoryChapterDate.display) { Text(date).foregroundStyle(.secondary) }
-                        }.font(.caption2)
-                    }.frame(maxWidth:.infinity,alignment:.leading).foregroundStyle(.primary)
+                        }.font(RanyTypography.font(.caption))
+                    }.frame(maxWidth:.infinity,minHeight:44,alignment:.leading).contentShape(Rectangle()).foregroundStyle(.primary)
                 }
                 if !selecting {
                     ChapterReadingTools(
@@ -271,7 +278,7 @@ struct StoryChapterRow: View {
                     Image(systemName:"checkmark.circle.fill").foregroundStyle(.green).frame(width:44,height:44)
                 } else {
                     Button { Task { await downloads.enqueue(story,chapters:[chapter]) } } label: {
-                        Image(systemName:"arrow.down.circle").font(RanyTypography.font(.title3)).frame(width:44,height:44)
+                        Image(systemName:"arrow.down.circle").font(RanyTypography.font(.title3)).frame(width:44,height:44).contentShape(Rectangle())
                     }.buttonStyle(.borderless).disabled(!store.online)
                 }
             }.padding(.vertical,10)
@@ -279,3 +286,29 @@ struct StoryChapterRow: View {
         }
     }
 }
+
+#if DEBUG
+// Offline fixture for real simulator taps; excluded from Release builds.
+struct ChapterControlsFixture: View {
+    @State private var completed=false
+    @State private var page=1
+    @State private var disabled=false
+    @State private var action="none"
+    var body: some View {
+        VStack(spacing:18) {
+            Text("الفصول").font(RanyTypography.font(.title3).bold())
+            StoryReadingTools(canReadAll:true,disabled:disabled,markAll:{ action="read-all" },clear:{ action="clear-all" })
+            HStack {
+                Text("الفصل 408.3").font(RanyTypography.font(.subheadline)).frame(maxWidth:.infinity,alignment:.leading)
+                ChapterReadingTools(completed:completed,disabled:disabled,markRead:{ completed=true },markUnread:{ completed=false })
+            }
+            StoryChapterPagination(page:page,pages:3,onPage:{ page=$0 })
+            Text(String(page)).accessibilityIdentifier("fixture.page")
+            Text(action).accessibilityIdentifier("fixture.action")
+            Toggle("إيقاف الأدوات",isOn:$disabled).accessibilityIdentifier("fixture.disabled")
+            Spacer()
+        }.padding(18).background(Theme.background.ignoresSafeArea())
+            .environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark).tint(Theme.accent)
+    }
+}
+#endif
