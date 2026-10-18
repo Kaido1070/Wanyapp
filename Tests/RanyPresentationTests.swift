@@ -58,7 +58,7 @@ import WebKit
             }
         }
         let started = try XCTUnwrap(starts.first,"The production host must prepare and start the golden background.")
-        for (time,name) in [(0.3,"pages"),(1.65,"pullback"),(2.4,"distribution"),(4.6,"handoff")] {
+        for (time,name) in [(0.12,"0_12s"),(0.25,"0_25s"),(0.5,"0_50s"),(0.8,"0_80s"),(1.08,"1_08s"),(1.3,"1_30s"),(1.65,"1_65s"),(2.05,"2_05s"),(2.4,"distribution"),(2.85,"R"),(3.4,"mark"),(4.6,"handoff")] {
             let remaining = time-Date().timeIntervalSince(started)
             if remaining > 0 { try await Task.sleep(for:.seconds(remaining)) }
             snapshot(window,name:"Rany-production-golden-\(name)")

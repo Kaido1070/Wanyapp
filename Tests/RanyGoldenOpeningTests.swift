@@ -5,6 +5,64 @@ import WebKit
 @testable import Wany
 
 @MainActor final class RanyGoldenOpeningTests: XCTestCase {
+    func testTypographySharesApprovedBackgroundBeatsWithoutSkippingReadableHolds() {
+        XCTAssertEqual(RanyOpeningTimeline.typographyTime(elapsed:-1),0)
+        XCTAssertEqual(RanyOpeningTimeline.typographyTime(elapsed:1.85),2.3,accuracy:0.001)
+        XCTAssertEqual(RanyOpeningTimeline.typographyTime(elapsed:3.1),3.4,accuracy:0.001)
+        XCTAssertEqual(RanyOpeningTimeline.typographyTime(elapsed:4.3),4.8,accuracy:0.001)
+        var previous=0.0
+        for time in stride(from:0.0,through:5,by:0.01) {
+            let current=RanyOpeningTimeline.typographyTime(elapsed:time)
+            XCTAssertGreaterThanOrEqual(current,previous)
+            XCTAssertLessThan(current-previous,0.04,"A delayed frame must sample a continuous timeline, not jump between staged animations.")
+            previous=current
+        }
+        let layout=CinematicLayout(size:CGSize(width:390,height:780),origin:.zero,destination:nil,configuration:CinematicConfiguration(),centerFraction:0.44)
+        for time in [1.85,2.0,2.2,2.35] {
+            for index in CinematicConfiguration().retained {
+                XCTAssertEqual(layout.cut(index:index,t:RanyOpeningTimeline.typographyTime(elapsed:time)),0)
+            }
+        }
+    }
+
+    func testOpeningGoldRemainsReadableOverBrightArtwork() throws {
+        let size=CGSize(width:390,height:780)
+        let layout=CinematicLayout(size:size,origin:.zero,destination:nil,configuration:CinematicConfiguration(),centerFraction:0.44)
+        let renderer=ImageRenderer(content:ZStack {
+            Color.white
+            CinematicTypography(t:0.8,layout:layout,configuration:CinematicConfiguration())
+        }.frame(width:size.width,height:size.height))
+        renderer.scale=1
+        let image=try XCTUnwrap(renderer.uiImage), data=try pixels(image)
+        var red:CGFloat=0,green:CGFloat=0,blue:CGFloat=0,alpha:CGFloat=0
+        UIColor(RanyTypography.brandColor).getRed(&red,green:&green,blue:&blue,alpha:&alpha)
+        let gold=[Double(red)*255,Double(green)*255,Double(blue)*255]
+        func luminance(_ components:[Double]) -> Double {
+            let linear=components.map { value -> Double in let v=value/255; return v<=0.04045 ? v/12.92 : pow((v+0.055)/1.055,2.4) }
+            return linear[0]*0.2126+linear[1]*0.7152+linear[2]*0.0722
+        }
+        let ink=luminance(gold)
+        var checked=0,readable=0
+        for y in 8..<772 {
+            for x in 8..<382 {
+                let offset=(y*390+x)*4
+                guard (0..<3).allSatisfy({ abs(Double(data[offset+$0])-gold[$0])<10 }) else { continue }
+                var background=0.0,found=false
+                for (dx,dy) in [(-6,0),(6,0),(0,-6),(0,6)] {
+                    let index=((y+dy)*390+x+dx)*4
+                    let values=(0..<3).map { Double(data[index+$0]) }
+                    if (values.max() ?? 0)-(values.min() ?? 0)<3 {
+                        background=max(background,luminance(values)); found=true
+                    }
+                }
+                if found { checked+=1; if (ink+0.05)/(background+0.05)>=3 { readable+=1 } }
+            }
+        }
+        XCTAssertGreaterThan(checked,50,"The original gold lettering must actually render.")
+        XCTAssertGreaterThan(Double(readable)/Double(max(1,checked)),0.95,"Large title strokes need at least 3:1 local contrast even on white covers.")
+        let attachment=XCTAttachment(image:image); attachment.name="Rany-gold-title-white-artwork"; attachment.lifetime = .keepAlways; add(attachment)
+    }
+
     func testAnonymousPoolBecomesReadyWithoutNetworkAndSurvivesReattach() async {
         let ambience = RanyAmbience()
         XCTAssertFalse(ambience.openingReady)

@@ -135,13 +135,14 @@ struct RanyExperience: View {
     @State private var assembly: Double = 0
     @State private var opening = true
     @State private var backgroundReady = false
+    @State private var openingStartedAt: Date?
     @State private var revealed = false
     @State private var glassProgress: Double = 0
     var body: some View {
         ZStack {
             RanyBackdropHost(ambience:ambience,reading:store.readerActive,accountID:store.state?.user.id,assembly:assembly,cinematicOpening:!cinematicConfiguration.shouldPlay(),onOpeningReady:{ date in
                 guard !backgroundReady else { return }
-                backgroundReady = true; onOpeningStart(date)
+                openingStartedAt = date; backgroundReady = true; onOpeningStart(date)
             },phase:phase).frame(maxWidth:.infinity,maxHeight:.infinity).ignoresSafeArea()
             RootView().id(store.state?.user.id).environment(\.ranyGlassProgress,glassProgress).environment(\.ranyMeasureMarkFrames,opening || store.enteringAccount).environment(\.ranyMarkCovered,opening || store.enteringAccount).opacity((opening && !revealed) || (store.enteringAccount && !revealed) ? 0 : 1)
                 .animation(.easeOut(duration:reduceMotion ? 0.05 : 0.42),value:revealed)
@@ -155,7 +156,9 @@ struct RanyExperience: View {
                         Task { await CinematicCovers.prefetch(store:store) }
                     })
                 } else {
-                RanyIntro(accountTransition:false,loginDestination:store.state == nil,firstAccount:store.firstArrival,start:backgroundReady || cinematicConfiguration.shouldPlay(),destinationFrame:markFrames[store.state == nil ? "login" : "header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ opening = false; if store.firstArrival { store.completeAccountArrival() } })
+                if let openingStartedAt {
+                    RanyOpeningTypography(startedAt:openingStartedAt,destination:markFrames[store.state == nil ? "login" : "header"],firstAccount:store.firstArrival,onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ opening = false; if store.firstArrival { store.completeAccountArrival() } })
+                }
                 }
             } else if store.enteringAccount {
                 RanyIntro(accountTransition:true,loginDestination:false,firstAccount:store.firstArrival,destinationFrame:markFrames["header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ store.completeAccountArrival() })
@@ -191,4 +194,66 @@ struct RanyExperience: View {
         withAnimation(reduceMotion ? nil : .timingCurve(0.22,0.72,0.2,1,duration:1.25)) { assembly = 1 }
     }
 
+}
+
+// The canvas reports the timestamp of its first drawn frame. Text samples that
+// same clock, so web preparation and delayed SwiftUI frames cannot consume or
+// restart a separate chain of letter animations.
+struct RanyOpeningTimeline {
+    static let duration = 4.3
+    // Match the approved canvas pullback (1.08–1.85) and settled layout (3.1).
+    static let beats: [(seconds:Double,typography:Double)] = [
+        (0,0),(0.2,0.23),(1.08,1.1),(1.45,2),(1.85,2.3),
+        (2.35,2.7),(2.75,3.16),(3.1,3.4),(3.32,3.76),(3.55,4),(4.3,4.8)
+    ]
+    static func typographyTime(elapsed: Double) -> Double {
+        let time=max(0,elapsed)
+        for (a,b) in zip(beats,beats.dropFirst()) where time<=b.seconds {
+            let progress=(time-a.seconds)/(b.seconds-a.seconds)
+            return a.typography+(b.typography-a.typography)*progress
+        }
+        return 4.8
+    }
+}
+struct RanyOpeningTypography: View {
+    let startedAt: Date
+    let destination: CGRect?
+    var firstAccount = false
+    let onArrange: () -> Void
+    let onReveal: () -> Void
+    let onFinish: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduced
+    @Environment(\.scenePhase) private var phase
+    @State private var arranged=false
+    @State private var revealed=false
+    @State private var finished=false
+    var body: some View {
+        GeometryReader { geometry in
+            TimelineView(.animation(minimumInterval:1.0/60,paused:finished || reduced)) { context in
+                let time=reduced ? 4.8 : RanyOpeningTimeline.typographyTime(elapsed:context.date.timeIntervalSince(startedAt))
+                let layout=CinematicLayout(size:geometry.size,origin:geometry.frame(in:.global).origin,destination:destination,configuration:CinematicConfiguration(),centerFraction:0.44)
+                ZStack {
+                    CinematicTypography(t:time,layout:layout,configuration:CinematicConfiguration())
+                    if firstAccount && time>=3.76 && time<4 {
+                        VStack(spacing:9) {
+                            Text("أهلًا بأول حكاية لك").font(.system(size:22,weight:.medium))
+                            Text("مكتبتك الجديدة جاهزة").font(RanyTypography.font(.footnote)).foregroundStyle(.secondary)
+                        }.position(x:geometry.size.width/2,y:geometry.size.height*0.44+145)
+                    }
+                }.onChange(of:time,initial:true) { _,value in if !reduced { advance(value) } }
+            }
+        }.ignoresSafeArea().environment(\.layoutDirection,.leftToRight).allowsHitTesting(false)
+            .accessibilityElement(children:.ignore).accessibilityLabel("Read Any Time، Rany")
+            .task {
+                let remaining=reduced ? 0.18 : max(0,RanyOpeningTimeline.duration-Date().timeIntervalSince(startedAt))+0.4
+                do { try await Task.sleep(for:.seconds(remaining)) } catch { return }
+                advance(4.8)
+            }
+            .onChange(of:phase) { _,value in if value != .active { advance(4.8) } }
+    }
+    private func advance(_ time: Double) {
+        if time>=2 && !arranged { arranged=true; onArrange() }
+        if time>=4 && !revealed { revealed=true; onReveal() }
+        if time>=4.8 && !finished { finished=true; onFinish() }
+    }
 }

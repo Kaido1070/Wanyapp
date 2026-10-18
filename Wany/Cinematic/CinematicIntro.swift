@@ -65,23 +65,13 @@ private struct CinematicFrame: View {
     let configuration: CinematicConfiguration
     let onReady: () -> Void
     var body: some View {
-        ZStack { pages; Theme.background.opacity(backgroundOpacity(t)); letters; officialLogo; paperEdges }
+        ZStack { pages; Theme.background.opacity(backgroundOpacity(t)); CinematicTypography(t:t,layout:layout,configuration:configuration); paperEdges }
     }
     @ViewBuilder private var pages: some View {
         if !reduced && !images.isEmpty {
             CinematicPages(images:images,time:t,lighting:configuration.lighting,speed:configuration.pageSpeed,onReady:onReady)
                 .mask { Rectangle().scaleEffect(x:1,y:1-CinematicConfiguration.ease(t,3.05,3.4)) }
         }
-    }
-    private var letters: some View {
-        ForEach(Array(configuration.displayTitle.enumerated()),id:\.offset) { index,letter in
-            if letter != " " { CinematicLetter(index:index,letter:letter,t:t,layout:layout,configuration:configuration) }
-        }
-    }
-    private var officialLogo: some View {
-        RanyMark(size:layout.logoSize(t),illuminated:t>3.76 && t<3.95)
-            .mask(alignment:.leading) { Rectangle().scaleEffect(x:CinematicConfiguration.p(t,3.4,3.76),y:1,anchor:.leading) }
-            .position(layout.logoPoint(t))
     }
     @ViewBuilder private var paperEdges: some View {
         if !reduced {
@@ -96,17 +86,45 @@ private struct CinematicFrame: View {
         return max(opening*0.92,0.34+closing*0.66)*handoff
     }
 }
+// Shared deterministic lettering; the approved canvas keeps its own drawing.
+struct CinematicTypography: View {
+    let t: Double
+    let layout: CinematicLayout
+    let configuration: CinematicConfiguration
+    var body: some View {
+        ZStack {
+            RadialGradient(colors:[.black.opacity(0.8),.black.opacity(0.7),.clear],center:UnitPoint(x:0.5,y:layout.centerFraction),startRadius:20,endRadius:max(180,layout.size.width*0.9))
+                .opacity(1-CinematicConfiguration.ease(t,4,4.8))
+            letters
+                .shadow(color:.black.opacity(0.95),radius:1.5,x:0,y:1)
+                .shadow(color:.black.opacity(0.55),radius:7,x:0,y:2)
+            officialLogo
+        }
+    }
+    private var letters: some View {
+        ForEach(Array(configuration.displayTitle.enumerated()),id:\.offset) { index,letter in
+            if letter != " " { CinematicLetter(index:index,letter:letter,t:t,layout:layout,configuration:configuration) }
+        }
+    }
+    private var officialLogo: some View {
+        RanyMark(size:layout.logoSize(t),illuminated:t>3.76 && t<3.95)
+            .mask(alignment:.leading) { Rectangle().scaleEffect(x:CinematicConfiguration.p(t,3.4,3.76),y:1,anchor:.leading) }
+            .position(layout.logoPoint(t))
+    }
+}
 private struct CinematicLetter: View {
     let index: Int
     let letter: Character
     let t: Double
     let layout: CinematicLayout
     let configuration: CinematicConfiguration
-    private var visible: Bool { t >= 0.58 && (configuration.retained.contains(index) || t < 2.13) && (index == 0 || t < 3.14) }
+    private var visible: Bool { t >= 0.08 && (configuration.retained.contains(index) || t < 2.13) && (index == 0 || t < 3.14) }
     private var glyph: Text { Text(String(letter)).font(Font.custom(RanyIdentity.fontName,fixedSize:100)).foregroundColor(RanyTypography.brandColor) }
     var body: some View {
         glyph
-            .fixedSize().mask {
+            .fixedSize()
+            .mask(alignment:.leading) { Rectangle().scaleEffect(x:CinematicConfiguration.p(t,0.08,0.23),y:1,anchor:.leading) }
+            .mask {
                 GeometryReader { box in
                     let cut=layout.cut(index:index,t:t)
                     Rectangle().frame(width:box.size.width*CGFloat(1-cut)).offset(x:box.size.width*CGFloat(cut))
@@ -147,6 +165,7 @@ struct CinematicLayout {
     let origin: CGPoint
     let destination: CGRect?
     let configuration: CinematicConfiguration
+    var centerFraction: CGFloat = 0.46
     private var letters: [Character] { Array(configuration.displayTitle) }
     func width(_ index: Int) -> CGFloat {
         let font=UIFont(name:RanyIdentity.fontName,size:100) ?? .systemFont(ofSize:100)
@@ -156,7 +175,7 @@ struct CinematicLayout {
     private var titleScale: CGFloat {
         min(0.46,(size.width-48)/max(1,rows.map { $0.reduce(CGFloat(0)) { $0+width($1) } }.max() ?? 1))
     }
-    private var center: CGPoint { CGPoint(x:size.width/2,y:size.height*0.46) }
+    private var center: CGPoint { CGPoint(x:size.width/2,y:size.height*centerFraction) }
     private var finalPoint: CGPoint { destination.map { CGPoint(x:$0.midX-origin.x,y:$0.midY-origin.y) } ?? center }
     func logoPoint(_ t: Double) -> CGPoint {
         let p=CinematicConfiguration.ease(t,4,4.8)
