@@ -24,10 +24,12 @@ struct RanyLogoIntro: View {
     var destination: CGRect?
     var source: CGRect?
     var onStart: (Date) -> Void = { _ in }
+    var reduceMotionOverride: Bool? = nil
     let onReveal: () -> Void
     let onFinish: () -> Void
     @Environment(\.scenePhase) private var phase
-    @Environment(\.accessibilityReduceMotion) private var reduced
+    @Environment(\.accessibilityReduceMotion) private var systemReduced
+    private var reduced: Bool { reduceMotionOverride ?? systemReduced }
     @State private var startedAt: Date?
     @State private var revealed=false
     @State private var finished=false

@@ -19,8 +19,8 @@ import UIKit
     }
     func testMarkReducedMotionAndMissingDestinationAlwaysFinish() async throws {
         var reveals=0,finishes=0
-        let root=RanyLogoIntro(onReveal:{reveals += 1},onFinish:{finishes += 1})
-            .environment(\.scenePhase,.active).environment(\.accessibilityReduceMotion,true)
+        let root=RanyLogoIntro(reduceMotionOverride:true,onReveal:{reveals += 1},onFinish:{finishes += 1})
+            .environment(\.scenePhase,.active)
         let scene=try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous=scene.windows.first { $0.isKeyWindow },window=UIWindow(windowScene:scene)
         window.frame=scene.coordinateSpace.bounds; window.rootViewController=UIHostingController(rootView:root); window.makeKeyAndVisible()
