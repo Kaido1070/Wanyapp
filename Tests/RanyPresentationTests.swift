@@ -72,6 +72,7 @@ import WebKit
         defer { window.isHidden=true; previous?.makeKeyAndVisible() }
         try await Task.sleep(for:.seconds(0.4))
         XCTAssertTrue(starts.isEmpty)
+        XCTAssertFalse(descendants(window).contains { $0 is WKWebView },"Cold background setup must wait for the native mark handoff.")
         fixture.phase = .active
         for _ in 0..<60 { if !starts.isEmpty { break }; try await Task.sleep(for:.milliseconds(50)) }
         let started=try XCTUnwrap(starts.first)
@@ -79,6 +80,9 @@ import WebKit
             let remaining=time-Date().timeIntervalSince(started)
             if remaining>0 { try await Task.sleep(for:.seconds(remaining)) }
             snapshot(window,name:"Rany-logo-opening-\(time)")
+            if time <= 0.85 {
+                XCTAssertFalse(descendants(window).contains { $0 is WKWebView },"WebKit must not consume the appearance and shine interval.")
+            }
         }
         var backgroundState:[String:Any]?
         for _ in 0..<100 {
