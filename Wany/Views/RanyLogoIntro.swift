@@ -53,7 +53,7 @@ struct RanyLogoIntro: View {
                     if startedAt != nil && time >= duration { finish() }
                 }
             }
-        }.ignoresSafeArea().allowsHitTesting(false)
+        }.ignoresSafeArea().environment(\.layoutDirection,.leftToRight).allowsHitTesting(false)
             .accessibilityElement(children:.ignore).accessibilityLabel(RanyIdentity.name)
             .accessibilityIdentifier("rany.logo.opening")
             .task(id:phase) {

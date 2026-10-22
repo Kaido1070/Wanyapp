@@ -28,6 +28,34 @@ import UIKit
         try await Task.sleep(for:.milliseconds(500))
         XCTAssertEqual(reveals,1); XCTAssertEqual(finishes,1)
     }
+    func testArabicInterfaceDoesNotMirrorPhysicalLogoDestination() async throws {
+        let scene=try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous=scene.windows.first { $0.isKeyWindow },window=UIWindow(windowScene:scene)
+        window.frame=scene.coordinateSpace.bounds
+        let width=window.bounds.width,height=window.bounds.height
+        let root=RanyLogoIntro(destination:CGRect(x:width-60,y:80,width:32,height:32),onReveal:{},onFinish:{})
+            .environment(\.scenePhase,.active).environment(\.layoutDirection,.rightToLeft)
+        window.rootViewController=UIHostingController(rootView:root);window.makeKeyAndVisible()
+        defer { window.isHidden=true;window.rootViewController=nil;previous?.makeKeyAndVisible() }
+        try await Task.sleep(for:.milliseconds(1450))
+        let format=UIGraphicsImageRendererFormat();format.scale=1
+        let image=UIGraphicsImageRenderer(size:window.bounds.size,format:format).image { _ in
+            window.drawHierarchy(in:window.bounds,afterScreenUpdates:true)
+        }
+        let cg=try XCTUnwrap(image.cgImage),w=Int(width),h=Int(height)
+        var bytes=[UInt8](repeating:0,count:w*h*4)
+        let context=try XCTUnwrap(CGContext(data:&bytes,width:w,height:h,bitsPerComponent:8,bytesPerRow:w*4,
+            space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue|CGBitmapInfo.byteOrder32Big.rawValue))
+        context.draw(cg,in:CGRect(x:0,y:0,width:width,height:height))
+        var count=0,totalX=0
+        for y in 0..<h { for x in 0..<w {
+            let i=(y*w+x)*4,r=Int(bytes[i]),g=Int(bytes[i+1]),b=Int(bytes[i+2])
+            if r>140,g>100,b<190,r>g,g>b+10 { count+=1;totalX+=x }
+        } }
+        XCTAssertGreaterThan(count,10,"The official gold mark must render.")
+        XCTAssertGreaterThan(Double(totalX)/Double(max(1,count)),Double(width)*0.65,"Global screen coordinates must remain physical in an Arabic interface.")
+        let attachment=XCTAttachment(image:image);attachment.name="Rany-logo-physical-right-destination";attachment.lifetime = .keepAlways;add(attachment)
+    }
     func testOriginalFilesAreByteIdenticalAndDecoderNeverUpscales() throws {
         let owner="quality-original-"+UUID().uuidString
         let url=Disk.file(owner,"page.png")
