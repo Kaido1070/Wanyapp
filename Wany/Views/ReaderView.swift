@@ -20,6 +20,8 @@ struct ReaderView: View {
     @State private var scrollDirection = ReaderScrollDirection(revealDistance:288)
     @State private var activeChapter: Chapter?
     @State private var choosingChapter = false
+    @State private var choosingQuality = false
+    @State private var confirmQualityReload = false
     @State private var chapterQuery = ""
     @State private var headerHeight: CGFloat = 160
     @State private var saveTask: Task<Void,Never>?
@@ -38,7 +40,7 @@ struct ReaderView: View {
                     ReaderChapterScroll(id:payload.id,endTitle:"نهاية الفصل \(chapterNumber(payload.number))",
                         urls:payload.pages.indices.map { downloads.pageURL(payload,index:$0) },
                         ratios:pageRatios,initialPage:restoredPage(payload),
-                        nextTitle:nextChapter.map { "الفصل التالي \($0.id)" },online:store.online,
+                        nextTitle:nextChapter.map { "الفصل التالي \($0.id)" },online:store.online,quality:downloads.quality,
                         onNext:{ if let next = nextChapter { open(next) } },onBack:{ leaveReader() },
                         onRetry:{ downloads.retryChapter(payload) },
                         onInvalid:{ downloads.invalidatePage(payload,index:$0) },
@@ -61,7 +63,14 @@ struct ReaderView: View {
                             if let payload { Text("\((currentPage ?? 0)+1) / \(payload.pages.count)").font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
                         }
                         Spacer(minLength:8)
-                        if let payload { Button { downloads.retryChapter(payload) } label: { Label("الصور الناقصة",systemImage:"arrow.clockwise").font(RanyTypography.font(.caption)) }.disabled(!store.online) }
+                        if let payload {
+                            Menu {
+                                Button("جودة الصور: \(downloads.quality.label)",systemImage:"photo.badge.checkmark") { choosingQuality=true }
+                                Button("إعادة تحميل الصور الناقصة",systemImage:"arrow.clockwise") { downloads.retryChapter(payload) }.disabled(!store.online)
+                            } label: {
+                                Image(systemName:"slider.horizontal.3").frame(width:44,height:44).contentShape(Rectangle())
+                            }.menuActionDismissBehavior(.enabled).accessibilityLabel("جودة الصور وإعادة التحميل")
+                        }
                     }
                     HStack(spacing:12) {
                         Button { if let previous = previousChapter { open(previous) } } label: { Label("السابق",systemImage:"chevron.right") }.disabled(previousChapter == nil)
@@ -78,6 +87,7 @@ struct ReaderView: View {
             }
         }.toolbar(.hidden,for:.navigationBar).toolbar(.hidden,for:.tabBar)
         .sheet(isPresented:$choosingChapter) { chapterPicker }
+        .sheet(isPresented:$choosingQuality) { qualitySettings }
         .confirmationDialog("هل قرأت الفصول السابقة؟",isPresented:$catchupPrompt,titleVisibility:.visible) {
             Button("تعليم الفصول السابقة كمقروءة") { Task { await store.manualRead(story,chapters:previousUnread) } }.disabled(!store.online || store.syncing || store.readingMutation)
             Button("لاحقًا",role:.cancel) {}
@@ -94,6 +104,32 @@ struct ReaderView: View {
             savePosition()
             Task { await store.syncProgress() }
         }
+    }
+    var qualitySettings: some View {
+        NavigationStack {
+            Form {
+                Section("جودة القراءة والتنزيل") {
+                    ImageQualityChoices(selected:downloads.quality,select:{ downloads.quality=$0 })
+                }
+                Section {
+                    Text("تغيير الاختيار يطبق على الصور الجديدة. لتحسين فصل محمل سابقًا، أعد تنزيله بالجودة المختارة. الدقة المتاحة تعتمد على المصدر.")
+                        .font(RanyTypography.font(.footnote)).foregroundStyle(.secondary)
+                    if let payload {
+                        if let issue=downloads.qualityError(payload) { Text(issue).font(RanyTypography.font(.caption)).foregroundStyle(.orange) }
+                        if downloads.isQualityUpgrade(payload) {
+                            Label("الجودة الجديدة في قائمة التنزيل؛ الصور السابقة تبقى متاحة",systemImage:"arrow.down.circle")
+                            Button("إعادة محاولة الصور الناقصة") { downloads.retryChapter(payload) }.disabled(!store.online)
+                        }
+                        Button("إعادة تنزيل هذا الفصل بجودة \(downloads.quality.label)") { confirmQualityReload=true }.disabled(!store.online)
+                    }
+                }
+            }.navigationTitle("جودة الصور").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement:.confirmationAction) { Button("تم") { choosingQuality=false } } }
+                .confirmationDialog("إعادة تنزيل صور الفصل؟",isPresented:$confirmQualityReload,titleVisibility:.visible) {
+                    Button("تنزيل بجودة \(downloads.quality.label)") { if let payload { downloads.redownload(payload,quality:downloads.quality) } }
+                    Button("إلغاء",role:.cancel) {}
+                } message: { Text("قد يزيد استهلاك البيانات والمساحة. لن تُحذف الصور الحالية قبل اكتمال البديل، ولن يتغير تقدم قراءتك.") }
+        }.environment(\.layoutDirection,.rightToLeft).tint(Theme.accent)
     }
     var chapterPicker: some View {
         NavigationStack {
@@ -146,7 +182,7 @@ struct ReaderView: View {
         var result: [Int:CGFloat] = [:]
         for index in value.pages.indices {
             if let metadata = value.pageMeta, metadata.indices.contains(index), let w = metadata[index].width, let h = metadata[index].height, w > 0, h > 0 { result[index] = CGFloat(h/w) }
-            let file = Disk.file(owner,Disk.imageName(value.id,index))
+            let file = downloads.pageURL(value,index:index) ?? Disk.file(owner,Disk.imageName(value.id,index))
             if let source = CGImageSourceCreateWithURL(file as CFURL,nil), let properties = CGImageSourceCopyPropertiesAtIndex(source,0,nil) as? [CFString:Any],
                let w = properties[kCGImagePropertyPixelWidth] as? NSNumber, let h = properties[kCGImagePropertyPixelHeight] as? NSNumber, w.doubleValue > 0, h.doubleValue > 0 {
                 result[index] = CGFloat(h.doubleValue/w.doubleValue)

@@ -64,6 +64,7 @@ struct APIError: LocalizedError {
         if url.hasPrefix("/api/work-snapshots/cover") {
             let components = URLComponents(string:url)!
             var q: [String:String] = [:]; components.queryItems?.forEach { q[$0.name] = $0.value }
+            if components.path == "/api/source/image", let quality { q["quality"]=quality.rawValue }
             var r = try request(components.path,query:q); r.setValue("image/*",forHTTPHeaderField:"Accept"); return r
         }
         let original = source == "teamx" ? url.replacingOccurrences(of:"thumbnail_",with:"") : url

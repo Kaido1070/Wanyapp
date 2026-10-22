@@ -1,6 +1,18 @@
 import XCTest
 
 final class ChapterControlsInteractionTests: XCTestCase {
+    func testImageQualityChoicesRespondWithoutNetworkOrAccount() {
+        let app=XCUIApplication(); app.launchArguments=["--rany-image-quality-fixture"]; app.launch()
+        let original=app.buttons["reader.quality.original"]
+        XCTAssertTrue(original.waitForExistence(timeout:15))
+        original.tap()
+        XCTAssertEqual(app.staticTexts["fixture.quality"].label,"original")
+        let attachment=XCTAttachment(screenshot:app.screenshot())
+        attachment.name="Rany-original-quality-choice"; attachment.lifetime = .keepAlways; add(attachment)
+        app.buttons["reader.quality.high"].tap()
+        XCTAssertEqual(app.staticTexts["fixture.quality"].label,"high")
+    }
+
     func testChapterButtonEdgesBulkActionsAndPageControlsRespondToTaps() {
         let app=XCUIApplication()
         app.launchArguments=["--rany-chapter-controls-fixture"]

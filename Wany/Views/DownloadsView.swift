@@ -34,9 +34,15 @@ struct DownloadsView: View {
     @EnvironmentObject var downloads: Downloads
     @State private var removing: String?
     @State private var filter = "الكل"
+    @State private var qualityJob: String?
     var body: some View {
         WanyScroll {
             HStack { Text("تنزيلاتي").font(RanyTypography.font(.largeTitle).bold()); Spacer(); Text(byteLabel(downloads.savedJobs.reduce(0){$0+$1.bytes})).font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
+            Menu {
+                ForEach(ImageQuality.allCases) { quality in Button(quality.label) { downloads.quality=quality } }
+            } label: { Label("جودة التنزيل: \(downloads.quality.label)",systemImage:"photo").frame(minHeight:44).contentShape(Rectangle()) }
+                .menuActionDismissBehavior(.enabled)
+            Text("لتحسين ملفات محملة سابقًا، استخدم إعادة التنزيل داخل القصة المحفوظة.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
             Picker("التنزيلات",selection:$filter) { Text("الكل").tag("الكل"); Text("مكتمل").tag("مكتمل"); Text("غير مكتمل").tag("غير مكتمل") }.pickerStyle(.segmented)
             if downloads.savedJobs.isEmpty { EmptyState(icon:"arrow.down.circle",title:"مكتبتك بدون إنترنت",detail:"افتح قصة واضغط تحميل القصة كاملة، أو حمّل الفصول التي تختارها.") }
             ForEach(downloads.savedJobs.filter { filter == "الكل" || (filter == "مكتمل" ? $0.complete : !$0.complete) }) { job in
@@ -48,9 +54,16 @@ struct DownloadsView: View {
                         Spacer(); Button(role:.destructive) { removing = job.id } label: { Image(systemName:"trash") }
                     }
                     DownloadSummary(job:job)
+                    Button { qualityJob=job.id } label: {
+                        Label("إعادة التنزيل بجودة \(downloads.quality.label)",systemImage:"arrow.down.circle").frame(minHeight:44).contentShape(Rectangle())
+                    }.font(RanyTypography.font(.caption)).disabled(!downloads.online)
                 }.card()
             }
         }.navigationTitle("التنزيلات")
+        .confirmationDialog("إعادة تنزيل الفصول المحفوظة بجودة \(downloads.quality.label)؟",isPresented:Binding(get:{qualityJob != nil},set:{if !$0 {qualityJob=nil}}),titleVisibility:.visible) {
+            Button("إعادة التنزيل") { if let key=qualityJob { downloads.redownloadSaved(key,quality:downloads.quality) }; qualityJob=nil }
+            Button("إلغاء",role:.cancel) { qualityJob=nil }
+        } message: { Text("قد يزيد استهلاك البيانات والمساحة. تبقى الصور السابقة متاحة حتى يكتمل كل بديل، ويظل تقدم القراءة محفوظًا.") }
         .confirmationDialog("حذف الصور المحملة؟ سيبقى تقدم القراءة محفوظًا.",isPresented:Binding(get:{removing != nil},set:{if !$0 { removing = nil }})) { Button("حذف التنزيل",role:.destructive) { if let removing { downloads.remove(removing) }; removing = nil } }
     }
 }

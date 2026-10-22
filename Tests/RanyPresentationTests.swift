@@ -63,55 +63,38 @@ import WebKit
         attachment.name = "Rany-avatar-grid-320"; attachment.lifetime = .keepAlways; add(attachment)
     }
 
-    func testProductionGoldenOpeningWaitsForActiveSceneThenPlaysOnce() async throws {
-        let store = fixtureStore(), fixture = CinematicLifecycleFixture()
+    func testProductionLogoOpeningWaitsForActiveSceneThenPlaysOnce() async throws {
+        let store=fixtureStore(),fixture=CinematicLifecycleFixture()
         fixture.phase = .inactive
-        var starts: [Date] = []
-        let root = GoldenProductionLifecycleView(fixture:fixture,store:store,onStart:{ starts.append($0) })
-        let (window,previous) = show(root)
-        defer { window.isHidden = true; previous?.makeKeyAndVisible() }
-        // Exceed the entire intro duration while inactive: cold launch must not consume it.
-        try await Task.sleep(for:.seconds(4.6))
+        var starts:[Date]=[]
+        let root=GoldenProductionLifecycleView(fixture:fixture,store:store,onStart:{ starts.append($0) })
+        let (window,previous)=show(root)
+        defer { window.isHidden=true; previous?.makeKeyAndVisible() }
+        try await Task.sleep(for:.seconds(0.4))
         XCTAssertTrue(starts.isEmpty)
-        let waiting = try XCTUnwrap(image(window).cgImage)
-        let sample = try XCTUnwrap(waiting.cropping(to:CGRect(x:CGFloat(waiting.width)/2,y:CGFloat(waiting.height)*0.35,width:1,height:1)))
-        var pixel = [UInt8](repeating:0,count:4)
-        pixel.withUnsafeMutableBytes { bytes in
-            let context = CGContext(data:bytes.baseAddress,width:1,height:1,bitsPerComponent:8,bytesPerRow:4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue)!
-            context.draw(sample,in:CGRect(x:0,y:0,width:1,height:1))
-        }
-        for (actual,expected) in zip(pixel.prefix(3),[23,25,27]) {
-            XCTAssertEqual(Double(actual),Double(expected),accuracy:3,"Preparing the opening must show the theme, never the old colored cover cluster.")
-        }
         fixture.phase = .active
-        for _ in 0..<200 {
-            if !starts.isEmpty { break }
+        for _ in 0..<60 { if !starts.isEmpty { break }; try await Task.sleep(for:.milliseconds(50)) }
+        let started=try XCTUnwrap(starts.first)
+        for time in [0.15,0.5,0.85,1.1,1.45,1.9] {
+            let remaining=time-Date().timeIntervalSince(started)
+            if remaining>0 { try await Task.sleep(for:.seconds(remaining)) }
+            snapshot(window,name:"Rany-logo-opening-\(time)")
+        }
+        var backgroundState:[String:Any]?
+        for _ in 0..<100 {
+            if let web=descendants(window).compactMap({$0 as? WKWebView}).first(where:{$0.accessibilityIdentifier == "rany.background.approved-canvas"}),
+               let value=try? await approvedJavaScript(web,"return window.RanyBackground ? window.RanyBackground.state() : null"),
+               let state=value as? [String:Any],state["ready"] as? Bool == true { backgroundState=state; break }
             try await Task.sleep(for:.milliseconds(50))
         }
-        if starts.isEmpty {
-            snapshot(window,name:"Rany-production-start-failure")
-            if let web = descendants(window).compactMap({ $0 as? WKWebView }).first {
-                let state = try await approvedJavaScript(web,"return window.RanyBackground.state()")
-                XCTFail("Production background did not start: \(state), hidden=\(web.isHidden), frame=\(web.frame)")
-            }
-        }
-        let started = try XCTUnwrap(starts.first,"The production host must prepare and start the golden background.")
-        for (time,name) in [(0.12,"0_12s"),(0.25,"0_25s"),(0.5,"0_50s"),(0.8,"0_80s"),(1.08,"1_08s"),(1.3,"1_30s"),(1.65,"1_65s"),(2.05,"2_05s"),(2.4,"distribution"),(2.85,"R"),(3.4,"mark"),(4.6,"handoff")] {
-            let remaining = time-Date().timeIntervalSince(started)
-            if remaining > 0 { try await Task.sleep(for:.seconds(remaining)) }
-            snapshot(window,name:"Rany-production-golden-\(name)")
-        }
+        XCTAssertEqual(backgroundState?["openingStarts"] as? Int,0,"The approved wallpaper must start settled without replaying page turns.")
+        XCTAssertFalse(descendants(window).contains { $0 is PageStage })
         XCTAssertEqual(descendants(window).filter { $0.accessibilityIdentifier == "rany.background.renderer" }.count,1)
         fixture.phase = .inactive
         try await Task.sleep(for:.milliseconds(100))
         fixture.phase = .active
-        try await Task.sleep(for:.milliseconds(300))
-        XCTAssertEqual(starts.count,1,"Returning to the app must not replay the opening.")
-        let web = try XCTUnwrap(descendants(window).compactMap { $0 as? WKWebView }.first)
-        let value = try await approvedJavaScript(web,"return window.RanyBackground.state()")
-        let state = try XCTUnwrap(value as? [String:Any])
-        XCTAssertEqual(state["openingStarts"] as? Int,1)
-        XCTAssertGreaterThanOrEqual(state["time"] as? Double ?? 0,4.3)
+        try await Task.sleep(for:.milliseconds(200))
+        XCTAssertEqual(starts.count,1)
     }
 
     private func fixtureStore() -> AppStore {

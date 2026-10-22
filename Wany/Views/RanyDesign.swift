@@ -104,6 +104,7 @@ extension View { func ranyInsetGlass(radius: CGFloat = 15) -> some View { modifi
 struct RanyMark: View {
     var size: CGFloat = 96
     var illuminated = false
+    var shineProgress: CGFloat? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.ranyMarkCovered) private var covered
     @State private var shine: CGFloat = -1.5
@@ -112,7 +113,7 @@ struct RanyMark: View {
             .ranyGlass(radius:size*0.25)
             .overlay {
                 LinearGradient(colors:[.clear,.white.opacity(0.18),.clear],startPoint:.leading,endPoint:.trailing)
-                    .frame(width:size*0.42,height:size*1.7).rotationEffect(.degrees(23)).offset(x:shine*size)
+                    .frame(width:size*0.42,height:size*1.7).rotationEffect(.degrees(23)).offset(x:(shineProgress ?? shine)*size)
             }.clipShape(RoundedRectangle(cornerRadius:size*0.25,style:.continuous)).accessibilityLabel(RanyIdentity.name)
             .environment(\.ranyGlassProgress,1)
             .opacity(covered ? 0 : 1)

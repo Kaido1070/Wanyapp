@@ -52,8 +52,13 @@ struct SettingsView: View {
                 Text("التنزيلات والمساحة").font(RanyTypography.font(.headline))
                 Toggle("التنزيل عبر Wi-Fi فقط",isOn:Binding(get:{downloads.wifiOnly},set:{downloads.wifiOnly = $0}))
                 Divider()
-                Picker("جودة الصور",selection:Binding(get:{downloads.quality},set:{downloads.quality = $0})) { ForEach(ImageQuality.allCases) { quality in Text(quality.label).tag(quality) } }
-                Text("المتوازنة والعالية تطلبان تصغير الصورة على الخادم قبل تنزيلها. يظهر عدد الصور المصغرة في التنزيلات عندما يدعم الخادم المعالجة؛ وإلا تُصغر محليًا.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
+                Menu {
+                    ForEach(ImageQuality.allCases) { quality in Button(quality.label) { downloads.quality=quality } }
+                } label: {
+                    HStack { Text("جودة الصور"); Spacer(); Text(downloads.quality.label).foregroundStyle(Theme.accent) }
+                        .frame(minHeight:44).contentShape(Rectangle())
+                }.menuActionDismissBehavior(.enabled).buttonStyle(.plain)
+                Text("اختر الأصلية لحفظ ملف المصدر دون ضغط إضافي، أو العالية لوضوح أعلى بحجم أقل. تغيير الجودة لا يستعيد تفاصيل الملفات القديمة؛ أعد تنزيلها من القارئ أو التنزيلات.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
                 settingsRow("التنزيلات المحفوظة",value:byteLabel(downloads.savedJobs.reduce(0){$0+$1.bytes}))
                 settingsRow("صور القراءة المؤقتة",value:byteLabel(downloads.temporaryBytes))
                 Text("صور القراءة العادية تُحذف بعد 3 دقائق من مغادرة الفصل، أو عند فتح التطبيق مجددًا إذا كان مغلقًا. تقدمك يبقى محفوظًا.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary)

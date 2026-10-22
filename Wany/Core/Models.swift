@@ -162,6 +162,11 @@ struct ImageRecord: Codable, Identifiable {
     var done = false
     var failure: String?
     var edgeOptimized: Bool?
+    var quality: String?
+    var fallbackFile: String?
+    var fallbackBytes: Int64?
+    var storedFiles: [String] { [file] + (fallbackFile.map { [$0] } ?? []) }
+    var storageBytes: Int64 { bytes + (fallbackBytes ?? 0) }
     var attempts = 0
     var id: String { file }
 }
@@ -172,6 +177,7 @@ struct ChapterDownload: Codable, Identifiable {
     var error: String?
     var keepOffline: Bool?
     var expiresAt: Date?
+    var requestedQuality: String?
     var saved: Bool { keepOffline != false }
     var id: String { chapter.id }
     var complete: Bool { payload != nil && !images.isEmpty && images.allSatisfy(\.done) }
@@ -196,7 +202,7 @@ struct DownloadJob: Codable, Identifiable {
     var completedChapters: Int { requestedChapters.filter(\.complete).count }
     var remainingChapters: Int { requestedChapters.count - completedChapters }
     var downloadedBytes: Int64 { requestedChapters.flatMap(\.images).reduce(0) { $0 + $1.bytes } }
-    var bytes: Int64 { chapters.filter(\.saved).flatMap(\.images).reduce(0) { $0 + $1.bytes } }
+    var bytes: Int64 { chapters.filter(\.saved).flatMap(\.images).reduce(0) { $0 + $1.storageBytes } }
     var total: Int64? {
         let images = requestedChapters.flatMap(\.images)
         guard chapterListComplete, requestedChapters.allSatisfy({ $0.payload != nil }), !images.isEmpty,

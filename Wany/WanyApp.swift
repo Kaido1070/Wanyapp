@@ -18,7 +18,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         let preview=ProcessInfo.processInfo.arguments.contains("--rany-cinematic-preview")
         var fixture=ProcessInfo.processInfo.arguments.contains("--rany-opening-fixture")
         #if DEBUG
-        fixture = fixture || ProcessInfo.processInfo.arguments.contains("--rany-chapter-controls-fixture")
+        fixture = fixture || ProcessInfo.processInfo.arguments.contains("--rany-chapter-controls-fixture") || ProcessInfo.processInfo.arguments.contains("--rany-image-quality-fixture")
         #endif
         let account=AppStore(startServices:!preview && !fixture)
         if preview || fixture {
@@ -32,7 +32,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     var body: some Scene {
         WindowGroup {
             #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("--rany-chapter-controls-fixture") { ChapterControlsFixture() }
+            if ProcessInfo.processInfo.arguments.contains("--rany-image-quality-fixture") { ImageQualityFixture() }
+            else if ProcessInfo.processInfo.arguments.contains("--rany-chapter-controls-fixture") { ChapterControlsFixture() }
             else { applicationContent }
             #else
             applicationContent

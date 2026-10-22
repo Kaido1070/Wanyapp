@@ -134,36 +134,24 @@ struct RanyExperience: View {
     @State private var markFrames: [String:CGRect] = [:]
     @State private var assembly: Double = 0
     @State private var opening = true
-    @State private var backgroundReady = false
-    @State private var backgroundPrepared = false
-    @State private var typographyReady = false
-    @State private var openingStartedAt: Date?
     @State private var revealed = false
     @State private var glassProgress: Double = 0
     var body: some View {
         ZStack {
-            RanyBackdropHost(ambience:ambience,reading:store.readerActive,accountID:store.state?.user.id,assembly:assembly,cinematicOpening:!cinematicConfiguration.shouldPlay(),openingTitleReady:!opening || typographyReady,onOpeningPrepared:{ backgroundPrepared=true },onOpeningReady:{ date in
-                guard !backgroundReady else { return }
-                openingStartedAt = date; backgroundPrepared = true; backgroundReady = true; onOpeningStart(date)
-            },phase:phase).frame(maxWidth:.infinity,maxHeight:.infinity).ignoresSafeArea()
+            RanyBackdropHost(ambience:ambience,reading:store.readerActive,accountID:store.state?.user.id,assembly:assembly,cinematicOpening:true,skipOpeningSequence:true,phase:phase)
+                .frame(maxWidth:.infinity,maxHeight:.infinity).ignoresSafeArea()
             RootView().id(store.state?.user.id).environment(\.ranyGlassProgress,glassProgress).environment(\.ranyMeasureMarkFrames,opening || store.enteringAccount).environment(\.ranyMarkCovered,opening || store.enteringAccount).opacity((opening && !revealed) || (store.enteringAccount && !revealed) ? 0 : 1)
                 .animation(.easeOut(duration:reduceMotion ? 0.05 : 0.42),value:revealed)
                 .allowsHitTesting(!opening && !store.enteringAccount)
                 .accessibilityHidden(opening || store.enteringAccount)
             if opening {
-                if cinematicConfiguration.shouldPlay() && store.error == nil && !store.loginRequired {
-                    CinematicIntro(configuration:cinematicConfiguration,state:store.state,stories:store.stories,destination:markFrames[store.state == nil ? "login" : "header"],onReveal:{ arrangeArtwork(); revealContent() },onFinish:{
-                        opening=false; UserDefaults.standard.set(true,forKey:"rany.cinematic.approved.v2")
-                        if store.firstArrival { store.completeAccountArrival() }
-                        Task { await CinematicCovers.prefetch(store:store) }
-                    })
-                } else {
-                if backgroundPrepared {
-                    RanyOpeningTypography(startedAt:openingStartedAt,destination:markFrames[store.state == nil ? "login" : "header"],firstAccount:store.firstArrival,onPrepared:{ typographyReady=true },onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ opening = false; if store.firstArrival { store.completeAccountArrival() } })
-                }
-                }
+                RanyLogoIntro(destination:markFrames[store.state == nil ? "login" : "header"],onStart:onOpeningStart,onReveal:{
+                    assembly=1; revealContent()
+                },onFinish:{ opening=false; if store.firstArrival { store.completeAccountArrival() } })
             } else if store.enteringAccount {
-                RanyIntro(accountTransition:true,loginDestination:false,firstAccount:store.firstArrival,destinationFrame:markFrames["header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ store.completeAccountArrival() })
+                RanyLogoIntro(destination:markFrames["header"],source:markFrames["login"],onReveal:{
+                    assembly=1; revealContent()
+                },onFinish:{ store.completeAccountArrival() })
             }
         }.font(RanyTypography.font(.body))
         .onPreferenceChange(RanyMarkFrameKey.self) { frames in
@@ -181,8 +169,8 @@ struct RanyExperience: View {
             if !store.readerActive { ambience.prepare(state:store.state,stories:store.stories) }
         }
         .onChange(of:store.enteringAccount) { _,value in if value { revealed = false; assembly = 0; glassProgress = 0 } }
-        .onChange(of:store.error) { _,error in if error != nil && cinematicConfiguration.shouldPlay() { opening=false; arrangeArtwork(); revealContent() } }
-        .onChange(of:store.loginRequired) { _,needed in if needed && cinematicConfiguration.shouldPlay() { opening=false; arrangeArtwork(); revealContent() } }
+        .onChange(of:store.error) { _,error in if opening && error != nil { opening=false; arrangeArtwork(); revealContent() } }
+        .onChange(of:store.loginRequired) { _,needed in if opening && needed { opening=false; arrangeArtwork(); revealContent() } }
         .onChange(of:phase) { _,value in
             if value == .background { ambience.activateWhileHidden(state:store.state,stories:store.stories) }
         }

@@ -24,7 +24,7 @@ struct UpdatesView: View {
         List {
             Section("الإصدار المثبت") { LabeledContent("Rany",value:"\(AppVersion.version) · بناء \(AppVersion.build)").listRowBackground(Theme.surface.opacity(0.25)) }
             Section("معاينة الافتتاحية") {
-                Button("تشغيل المعاينة السينمائية",systemImage:"play.rectangle") { cinematicPreview=true }
+                Button("معاينة علامة البداية",systemImage:"play.rectangle") { cinematicPreview=true }
                     .accessibilityIdentifier("cinematic.open-preview").listRowBackground(Theme.surface.opacity(0.25))
             }
             ForEach(AppVersion.releases) { release in
@@ -38,6 +38,6 @@ struct UpdatesView: View {
                 }
             }
         }.scrollContentBackground(.hidden).ranyClearNavigation().navigationTitle("سجل التحديثات")
-        .fullScreenCover(isPresented:$cinematicPreview) { CinematicPreview() }
+        .fullScreenCover(isPresented:$cinematicPreview) { RanyLogoPreview() }
     }
 }
