@@ -4,6 +4,15 @@ import UIKit
 @testable import Wany
 
 @MainActor final class LogoAndImageQualityTests: XCTestCase {
+    func testSystemLaunchUsesTheSameDarkSurfaceAsTheMark() throws {
+        let launch=try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey:"UILaunchScreen") as? [String:Any])
+        XCTAssertEqual(launch["UIColorName"] as? String,"RanyLaunchBackground")
+        let color=try XCTUnwrap(UIColor(named:"RanyLaunchBackground"))
+        var r:CGFloat=0,g:CGFloat=0,b:CGFloat=0,a:CGFloat=0
+        XCTAssertTrue(color.getRed(&r,green:&g,blue:&b,alpha:&a))
+        XCTAssertEqual(r,23.0/255,accuracy:0.001);XCTAssertEqual(g,25.0/255,accuracy:0.001)
+        XCTAssertEqual(b,27.0/255,accuracy:0.001);XCTAssertEqual(a,1,accuracy:0.001)
+    }
     func testMarkTravelsFromCenterToMeasuredSafeAreaDestination() {
         for size in [CGSize(width:320,height:568),CGSize(width:430,height:932)] {
             let origin=CGPoint(x:0,y:18)

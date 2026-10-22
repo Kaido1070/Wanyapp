@@ -20,6 +20,8 @@ targets:
       path: Wany/Info.plist
       properties:
         UIAppFonts: [RanyScript.otf]
+        UILaunchScreen:
+          UIColorName: RanyLaunchBackground
     type: application
     platform: iOS
     sources:
@@ -31,7 +33,6 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Rany
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.books
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
