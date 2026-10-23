@@ -55,7 +55,7 @@ import Observation
         if let owner = UserDefaults.standard.string(forKey:"lastAccount") {
             state = Disk.read(AccountState.self,owner:owner,name:"account.json")
             accountID = state?.user.id // Observers do not run inside init.
-            if state != nil { loadStories(owner); downloads.attach(owner); firstArrival = UserDefaults.standard.bool(forKey:"rany.firstArrival."+owner) }
+            if state != nil { loadStories(owner); downloads.attachInBackground(owner); firstArrival = UserDefaults.standard.bool(forKey:"rany.firstArrival."+owner) }
         }
         monitor.pathUpdateHandler = { [weak self] path in
             Task { @MainActor in
@@ -114,6 +114,13 @@ import Observation
             merged.snapshotOriginalCover=story.cover; merged.cover=old.cover
         }
         if let old = stories[story.key], old.chapterListComplete == true, story.chapterListComplete != true { merged.chapters = old.chapters; merged.chapterListComplete = true; merged.chapterPageCount = old.chapterPageCount }
+        // Lightweight list cards carry no description or genres; keep the saved ones so
+        // a story opened offline still shows its details.
+        if let old = stories[story.key] {
+            if (merged.description ?? "").isEmpty, let saved = old.description, !saved.isEmpty { merged.description = saved }
+            if merged.genres.isEmpty && !old.genres.isEmpty { merged.genres = old.genres }
+            if merged.status == nil { merged.status = old.status }
+        }
         guard stories[story.key] != merged else { return }
         stories[story.key] = merged
         libraryRevision += 1
@@ -289,7 +296,7 @@ import Observation
         }
         state = current; persist()
     }
-    func downloadUnread(_ story: Story) async {
+    func downloadUnread(_ story: Story, quality: ImageQuality? = nil) async {
         guard online, let owner = state?.user.id, !loginRequired else {
             error = "تحميل الفصول يحتاج اتصالًا وجلسة دخول صالحة"; return
         }
@@ -302,7 +309,7 @@ import Observation
             guard let current = state else { return }
             let unread = current.unreadChapters(in:full)
             guard !unread.isEmpty else { downloads.notice = "جميع فصول هذه القصة مقروءة؛ لا توجد فصول غير مقروءة للتحميل"; return }
-            await downloads.enqueue(full,chapters:unread,unreadOnly:true)
+            await downloads.enqueue(full,chapters:unread,unreadOnly:true,quality:quality)
         } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
     func toggleFavorite(_ story: Story) async {
@@ -326,7 +333,11 @@ import Observation
     func cacheLibrary() {
         guard metadataTask == nil, let current = state, online else { return }
         let owner = current.user.id
-        let keys = Array(Set(current.data.favorites + current.data.library.map(\.mangaId)))
+        // Currently-reading and favorite stories first, so their full details (description,
+        // chapters) are saved for offline use before the rest of the library.
+        let reading = current.data.library.filter { $0.status == "reading" }.sorted { ($0.lastReadAt ?? $0.updatedAt) > ($1.lastReadAt ?? $1.updatedAt) }.map(\.mangaId)
+        var seen = Set<String>()
+        let keys = (reading + current.data.favorites + current.data.library.map(\.mangaId)).filter { seen.insert($0).inserted }
         let token = UUID(); metadataToken = token
         metadataTask = Task { [weak self] in
             guard let self else { return }; defer { if self.metadataToken == token { self.metadataTask = nil; self.metadataToken = nil } }

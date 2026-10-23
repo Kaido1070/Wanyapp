@@ -54,7 +54,11 @@ struct ReaderScrollObserver: UIViewRepresentable {
                         self.observed = scroll
                         self.observation = scroll.observe(\.contentOffset, options: [.initial, .new]) { [weak self] scroll, _ in
                             let offset = scroll.contentOffset.y + scroll.adjustedContentInset.top
-                            let moving = scroll.isDragging || scroll.isDecelerating
+                            // The rubber-band zone past either end is not a scroll direction: reacting
+                            // to it (hiding the tab bar changes the insets) makes the page bounce in a loop.
+                            let end = max(0,scroll.contentSize.height+scroll.adjustedContentInset.top+scroll.adjustedContentInset.bottom-scroll.bounds.height)
+                            let bouncing = offset < 0 || offset > end
+                            let moving = (scroll.isDragging || scroll.isDecelerating) && !bouncing
                             DispatchQueue.main.async { [weak self] in self?.onScroll?(offset, moving) }
                         }
                         return

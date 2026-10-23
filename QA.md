@@ -92,3 +92,13 @@ Automated checks cover download accounting, persistent account separation, progr
 - Reading statistics: the headline number, streak strip and three tiles fit without the large title gap; check large Dynamic Type.
 
 - Story page over a bright, busy wallpaper with glass set to شفاف: the description, every button and the chapter tools stay clearly readable; disabled buttons dim but remain legible.
+
+## 1.4.7
+
+- Security page and other long pages: scroll hard to the bottom and top repeatedly; the page must settle without bouncing up and down, and the bottom bar must not flicker.
+- Reader: read through a long chapter, scrolling down steadily; the position must never jump back to the top. End-of-chapter card title is fully visible at large text sizes.
+- Profile › تعديل: a sheet opens; the tab bar and other pages are unreachable until حفظ or إلغاء. The badge sits next to the name; @username is readable.
+- Story page: "خيارات القراءة" (⋯) in the top bar holds mark-all-read and clear progress, each with confirmation; nothing destructive sits beside the chapter list.
+- Every download button asks for balanced / high / original before starting; the chosen quality is used for those chapters.
+- Offline: open a currently-reading or favourite story; its description and genres are shown.
+- Cold launch with a large downloads library: the first screen appears without delay.

@@ -75,6 +75,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         return URLSession(configuration:c,delegate:delegate,delegateQueue:nil)
     }()
     @ObservationIgnored private var fastFallback: [String:Task<Void,Never>] = [:]
+    @ObservationIgnored private var ledgerToken: UUID?
     @ObservationIgnored private var active: [String: URLSessionDownloadTask] = [:]
     @ObservationIgnored private var workers: [String: Task<Void,Never>] = [:]
     @ObservationIgnored private var workerTokens: [String:UUID] = [:]
@@ -114,31 +115,56 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         restored = true; updateNetwork()
     }
     func attach(_ userID: String?) {
+        beginAttach(userID)
+        finishAttach(userID,userID.map { Self.loadLedger($0) } ?? [])
+    }
+    // Launch path: the ledger is decoded and every page file is checked off the main
+    // thread (a large library has thousands), so the first screen is not held up.
+    func attachInBackground(_ userID: String) {
+        beginAttach(userID)
+        let token = UUID(); ledgerToken = token
+        Task { [weak self] in
+            let loaded = await Task.detached(priority:.userInitiated) { Self.loadLedger(userID) }.value
+            guard let self, self.owner == userID, self.ledgerToken == token else { return }
+            self.ledgerToken = nil
+            // Keep any chapter opened while the ledger was loading.
+            let opened = self.jobs.filter { job in !loaded.contains { $0.id == job.id } }
+            self.finishAttach(userID,loaded+opened)
+        }
+    }
+    private func beginAttach(_ userID: String?) {
+        ledgerToken = nil
         workers.values.forEach { $0.cancel() }; workers.removeAll(); workerTokens.removeAll(); preparing.removeAll()
         // Logout suspends existing transfers. Their account-tagged files cannot enter another account.
         for (key, task) in active where !key.hasPrefix((userID ?? "<none>") + ":") { task.suspend() }
         readerPriority = nil
         owner = userID; speedSamples.removeAll(); liveBytes.removeAll(); speed = 0
-        jobs = userID.flatMap { Disk.read([DownloadJob].self,owner:$0,name:"downloads.json") } ?? []
-        if let userID {
-            for j in jobs.indices { for c in jobs[j].chapters.indices { for i in jobs[j].chapters[c].images.indices {
-                let page = jobs[j].chapters[c].images[i]
-                if page.done && !FileManager.default.fileExists(atPath:Disk.file(userID,page.file).path) {
-                    jobs[j].chapters[c].images[i].done = false; jobs[j].chapters[c].images[i].bytes = 0
-                }
-            } } }
-        }
+        jobs = []
+    }
+    private func finishAttach(_ userID: String?, _ loaded: [DownloadJob]) {
+        jobs = loaded
         for j in jobs.indices { for c in jobs[j].chapters.indices where !jobs[j].chapters[c].saved && jobs[j].chapters[c].expiresAt == nil {
             jobs[j].chapters[c].expiresAt = Date().addingTimeInterval(180)
         } }
         cleanTemporary(); persist(); resumePreparations(); pump()
     }
+    nonisolated private static func loadLedger(_ userID: String) -> [DownloadJob] {
+        var jobs = Disk.read([DownloadJob].self,owner:userID,name:"downloads.json") ?? []
+        for j in jobs.indices { for c in jobs[j].chapters.indices { for i in jobs[j].chapters[c].images.indices {
+            let page = jobs[j].chapters[c].images[i]
+            if page.done && !FileManager.default.fileExists(atPath:Disk.file(userID,page.file).path) {
+                jobs[j].chapters[c].images[i].done = false; jobs[j].chapters[c].images[i].bytes = 0
+            }
+        } } }
+        return jobs
+    }
     func persist() {
-        guard let owner else { return }
+        // Never overwrite the saved ledger with a partial one while it is still loading.
+        guard let owner, ledgerToken == nil else { return }
         do { try Disk.save(jobs,owner:owner,name:"downloads.json") } catch { notice = "تعذر حفظ قائمة التنزيل: " + error.localizedDescription }
         lastSaved = Date()
     }
-    func enqueue(_ story: Story, chapters: [Chapter]? = nil, unreadOnly: Bool = false) async {
+    func enqueue(_ story: Story, chapters: [Chapter]? = nil, unreadOnly: Bool = false, quality chosen: ImageQuality? = nil) async {
         guard let owner else { return }
         let account = owner
         if preparing.contains(story.key) { return }
@@ -175,6 +201,14 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
                 jobs[index].chapterListComplete = true
             } else {
                 jobs.append(DownloadJob(id:story.key,story:full,chapters:selected.map { ChapterDownload(chapter:$0) },wholeStory:chapters == nil,chapterListComplete:true,activeChapterIDs:unreadOnly ? selected.map(\.id) : nil,selectionMode:unreadOnly ? "unread" : nil))
+            }
+            // The quality picked for this download applies to its not-yet-complete chapters.
+            if let chosen, let index = jobs.firstIndex(where:{$0.id == story.key}) {
+                let ids = Set(selected.map(\.id))
+                for c in jobs[index].chapters.indices where ids.contains(jobs[index].chapters[c].id) && !jobs[index].chapters[c].complete {
+                    jobs[index].chapters[c].requestedQuality = chosen.rawValue
+                    for i in jobs[index].chapters[c].images.indices where !jobs[index].chapters[c].images[i].done { jobs[index].chapters[c].images[i].quality = chosen.rawValue }
+                }
             }
             try Disk.save(full,owner:owner,name:"stories/"+Disk.hash(story.key)+".json")
             persist(); prepare(story.key); pump()

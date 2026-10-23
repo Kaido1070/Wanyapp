@@ -27,10 +27,17 @@ final class ChapterControlsInteractionTests: XCTestCase {
         read.coordinate(withNormalizedOffset:CGVector(dx:0.92,dy:0.5)).tap()
         XCTAssertTrue(read.label.hasPrefix("غير مقروء"))
 
-        let all=app.buttons["reading.markAll"],clear=app.buttons["reading.clearStory"]
-        XCTAssertGreaterThanOrEqual(all.frame.height,44)
+        // Bulk actions are behind the reading-tools menu, away from the chapter rows.
+        let tools=app.buttons["reading.tools"]
+        XCTAssertGreaterThanOrEqual(tools.frame.height,44)
+        tools.tap()
+        let all=app.buttons["reading.markAll"]
+        XCTAssertTrue(all.waitForExistence(timeout:5))
         all.tap()
         XCTAssertEqual(app.staticTexts["fixture.action"].label,"read-all")
+        tools.tap()
+        let clear=app.buttons["reading.clearStory"]
+        XCTAssertTrue(clear.waitForExistence(timeout:5))
         clear.tap()
         XCTAssertEqual(app.staticTexts["fixture.action"].label,"clear-all")
 
@@ -59,7 +66,6 @@ final class ChapterControlsInteractionTests: XCTestCase {
         disabled.coordinate(withNormalizedOffset:CGVector(dx:0.07,dy:0.5)).tap()
         XCTAssertEqual(disabled.value as? String,"1")
         XCTAssertFalse(read.isEnabled)
-        XCTAssertFalse(all.isEnabled)
-        XCTAssertFalse(clear.isEnabled)
+        XCTAssertFalse(tools.isEnabled,"Disabled reading tools must not open their bulk actions.")
     }
 }

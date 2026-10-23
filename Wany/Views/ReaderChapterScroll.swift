@@ -103,6 +103,7 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
         footer.layer.cornerRadius = 22; footer.layer.cornerCurve = .continuous
         footer.layer.borderWidth = 1; footer.layer.borderColor = UIColor(white:1,alpha:0.12).cgColor
         endLabel.text = "نهاية الفصل"; endLabel.textColor = .white; endLabel.textAlignment = .center
+        endLabel.numberOfLines = 0; endLabel.setContentCompressionResistancePriority(.required,for:.vertical)
         endLabel.font = .preferredFont(forTextStyle:.headline); endLabel.adjustsFontForContentSizeCategory = true
         var nextStyle = UIButton.Configuration.filled()
         nextStyle.baseBackgroundColor = gold; nextStyle.baseForegroundColor = .black; nextStyle.cornerStyle = .large
@@ -198,8 +199,14 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
             retries[index].frame = CGRect(x:0,y:y+height/2+12,width:layoutWidth,height:44)
             y += height
         }
-        footer.frame = CGRect(x:16,y:y+28,width:max(1,layoutWidth-32),height:190)
-        canvas.frame = CGRect(x:0,y:0,width:layoutWidth,height:y+236)
+        // Size the end card from its content (title, two 50 pt buttons, margins) so the
+        // title is never clipped, including at large Dynamic Type sizes.
+        let footerWidth = max(1,layoutWidth-32)
+        let fitted = footer.systemLayoutSizeFitting(CGSize(width:footerWidth,height:UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority:.required,verticalFittingPriority:.fittingSizeLevel)
+        let footerHeight = max(200,ceil(fitted.height))
+        footer.frame = CGRect(x:16,y:y+28,width:footerWidth,height:footerHeight)
+        canvas.frame = CGRect(x:0,y:0,width:layoutWidth,height:y+footerHeight+64)
         contentSize = canvas.bounds.size
         setZoomScale(scale,animated:false)
         let selected = restored ? oldPage : min(max(0,initialPage),max(0,tiles.count-1))

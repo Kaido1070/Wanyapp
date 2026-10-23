@@ -228,12 +228,6 @@ struct ProfileView: View {
     @State private var adding = false
     @State private var busy = false
     @State private var editingProfile = false
-    @State private var editingName = false
-    @State private var draftName = ""
-    @State private var draftAvatarID: String?
-    @State private var pickingAvatar = false
-    @State private var savingProfile = false
-    @FocusState private var nameFocused: Bool
     private var visibleLists: [JSONValue] {
         let visibility=Dictionary(listSections.filter { $0.sectionType == "custom_list" }.map { ($0.referenceId ?? "",$0.isVisible) },uniquingKeysWith:{ _,b in b })
         return lists.value["lists"].array.filter { visibility[$0["id"].string] ?? true }
@@ -260,13 +254,10 @@ struct ProfileView: View {
         .onChange(of:tab) { _,value in if value == "lists" { Task { await loadLists(); await loadSelectedList() } } }
         .onChange(of:listID) { _,_ in Task { await loadSelectedList() } }
         .sheet(isPresented:$adding,onDismiss:{ Task { await loadSelectedList(); await loadLists() } }) { AddStoriesToListView(id:listID) }
-        .sheet(isPresented:$pickingAvatar) {
-            NavigationStack {
-                AvatarPickerView(onSelect:{ avatarID in draftAvatarID = avatarID },initialAvatarID:draftAvatarID)
-                    .environment(store)
-                    .environment(store.downloads)
-                    .toolbar { ToolbarItem(placement:.topBarLeading) { Button("إغلاق") { pickingAvatar = false } } }
-            }.preferredColorScheme(.dark)
+        // Editing is a sheet that only closes through save or cancel, so the profile
+        // cannot be left half-edited while browsing elsewhere.
+        .sheet(isPresented:$editingProfile) {
+            if let user = store.state?.user { ProfileEditSheet(user:user).environment(store).environment(store.downloads) }
         }
         .alert("قائمة جديدة",isPresented:$creating) {
             TextField("اسم القائمة",text:$newName)
@@ -276,94 +267,25 @@ struct ProfileView: View {
     }
     private func identity(_ state: AccountState) -> some View {
         HStack(spacing:12) {
-            if editingProfile {
-                Button { pickingAvatar = true } label: {
-                    ProfileAvatar(user:previewAccount(state.user)).frame(width:54,height:54)
-                        .overlay(alignment:.bottomLeading) {
-                            Image(systemName:"pencil").font(.system(size:11,weight:.semibold))
-                                .foregroundStyle(.white)
-                                .frame(width:25,height:25)
-                                .background(Theme.accent,in:Circle())
-                        }.contentShape(Rectangle())
-                }.buttonStyle(.plain).accessibilityLabel("تغيير الصورة الشخصية")
-                    .accessibilityIdentifier("profile.avatar-edit")
-            } else {
-                ProfileAvatar(user:state.user).frame(width:54,height:54)
-            }
-            VStack(alignment:.leading,spacing:5) {
-                HStack(spacing:7) {
-                    if editingProfile && editingName {
-                        TextField("الاسم الظاهر",text:$draftName)
-                            .textContentType(.name).textInputAutocapitalization(.words)
-                            .font(.title3.weight(.medium)).textFieldStyle(.plain)
-                            .focused($nameFocused).submitLabel(.done)
-                            .onSubmit { nameFocused = false }
-                            .accessibilityIdentifier("profile.name-input")
-                    } else {
-                        Text(editingProfile ? draftName : state.user.name)
-                            .font(.title3.weight(.medium)).lineLimit(2)
-                    }
-                    if editingProfile {
-                        Button { editingName = true; nameFocused = true } label: {
-                            Image(systemName:"pencil").font(.system(size:12,weight:.medium))
-                                .foregroundStyle(Theme.accent).frame(width:44,height:44).contentShape(Rectangle())
-                        }.buttonStyle(.plain).accessibilityLabel("تغيير الاسم الظاهر")
-                            .accessibilityIdentifier("profile.name-edit")
-                    } else {
-                        AccountBadge(kind:state.user.badgeType)
-                    }
+            ProfileAvatar(user:state.user).frame(width:54,height:54)
+            VStack(alignment:.leading,spacing:4) {
+                // The badge sits right beside the name.
+                HStack(spacing:2) {
+                    Text(state.user.name).font(.title3.weight(.semibold)).lineLimit(2).layoutPriority(1)
+                    AccountBadge(kind:state.user.badgeType)
                 }
-                Text("@"+state.user.username).font(.caption).foregroundStyle(.secondary)
+                Text("@"+state.user.username).font(.subheadline).foregroundStyle(Theme.accent.opacity(0.85))
             }
             Spacer(minLength:8)
-            Button {
-                if editingProfile {
-                    Task { await saveProfile(state) }
-                } else {
-                    draftName = state.user.name
-                    draftAvatarID = state.user.avatarId
-                    editingName = false
-                    editingProfile = true
-                }
-            } label: {
+            Button { editingProfile = true } label: {
                 VStack(spacing:5) {
-                    if savingProfile { ProgressView().tint(Theme.accent) }
-                    else { Image(systemName:editingProfile ? "checkmark" : "pencil").font(.system(size:12)) }
-                    Text(editingProfile ? "حفظ" : "تعديل").font(.caption2)
+                    Image(systemName:"pencil").font(.system(size:13,weight:.semibold))
+                    Text("تعديل").font(.caption2)
                 }.foregroundStyle(Theme.accent).frame(width:44,height:44).contentShape(Rectangle())
             }.buttonStyle(.plain)
-                .disabled(savingProfile || !store.online)
+                .disabled(!store.online)
                 .accessibilityIdentifier("profile.edit-save")
         }.frame(maxWidth:.infinity,alignment:.leading).card().accessibilityIdentifier("profile.identity")
-    }
-    private func previewAccount(_ user: Account) -> Account {
-        var result = user
-        result.avatarId = draftAvatarID
-        return result
-    }
-    private func saveProfile(_ state: AccountState) async {
-        guard !savingProfile, store.online else { return }
-        let cleanedName = draftName.trimmingCharacters(in:.whitespacesAndNewlines)
-        guard !cleanedName.isEmpty else {
-            store.error = "اكتب اسمًا ظاهرًا قبل الحفظ."
-            return
-        }
-        savingProfile = true
-        defer { savingProfile = false }
-        do {
-            if cleanedName != state.user.name {
-                try await API.shared.send("/api/profile/name",method:"PUT",value:["name":cleanedName])
-            }
-            if draftAvatarID != state.user.avatarId, let avatarID = draftAvatarID {
-                try await API.shared.send("/api/profile/avatar",method:"PUT",value:["avatarId":avatarID])
-            }
-            await store.refresh()
-            nameFocused = false
-            editingName = false
-            editingProfile = false
-        } catch {
-            if !isRequestCancellation(error) { store.error = error.localizedDescription }
-        }
     }
     private func accountDetails(_ state: AccountState) -> some View {
                 VStack(spacing:12) {
@@ -480,5 +402,77 @@ struct ProfileAvatar: View {
                     image = value; try? FileManager.default.createDirectory(at:path.deletingLastPathComponent(),withIntermediateDirectories:true); try? data.write(to:path,options:.atomic)
                 }
             }
+    }
+}
+
+struct ProfileEditSheet: View {
+    @Environment(AppStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let user: Account
+    @State private var name = ""
+    @State private var avatarID: String?
+    @State private var pickingAvatar = false
+    @State private var saving = false
+    @State private var message: String?
+    @FocusState private var nameFocused: Bool
+    private var preview: Account { var account = user; account.avatarId = avatarID; return account }
+    private var cleanedName: String { name.trimmingCharacters(in:.whitespacesAndNewlines) }
+    private var changed: Bool { cleanedName != user.name || avatarID != user.avatarId }
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing:20) {
+                    Button { pickingAvatar = true } label: {
+                        VStack(spacing:10) {
+                            ProfileAvatar(user:preview).frame(width:96,height:96)
+                                .overlay(alignment:.bottomLeading) {
+                                    Image(systemName:"pencil").font(.system(size:13,weight:.semibold)).foregroundStyle(.black)
+                                        .frame(width:30,height:30).background(Theme.accent,in:Circle())
+                                }
+                            Text("تغيير الصورة الشخصية").font(.subheadline).foregroundStyle(Theme.accent)
+                        }.frame(minHeight:44).contentShape(Rectangle())
+                    }.buttonStyle(.plain).accessibilityIdentifier("profile.avatar-edit")
+                    VStack(alignment:.leading,spacing:8) {
+                        Text("الاسم الظاهر").font(.caption).foregroundStyle(.secondary)
+                        TextField("الاسم الظاهر",text:$name).textContentType(.name).textInputAutocapitalization(.words)
+                            .font(.title3).focused($nameFocused).submitLabel(.done)
+                            .padding(14).background(Theme.surface,in:RoundedRectangle(cornerRadius:14,style:.continuous))
+                            .accessibilityIdentifier("profile.name-input")
+                    }
+                    if let message { Text(message).font(.caption).foregroundStyle(.orange) }
+                }.padding(20)
+            }
+            .background(Theme.background.ignoresSafeArea())
+            .navigationTitle("تعديل الملف الشخصي").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement:.cancellationAction) { Button("إلغاء") { dismiss() }.disabled(saving) }
+                ToolbarItem(placement:.confirmationAction) {
+                    if saving { ProgressView() }
+                    else { Button("حفظ") { Task { await save() } }.bold().disabled(!changed || cleanedName.isEmpty || !store.online) }
+                }
+            }
+            .sheet(isPresented:$pickingAvatar) {
+                NavigationStack {
+                    AvatarPickerView(onSelect:{ avatarID = $0 },initialAvatarID:avatarID)
+                        .toolbar { ToolbarItem(placement:.cancellationAction) { Button("إغلاق") { pickingAvatar = false } } }
+                }.environment(store).environment(store.downloads).preferredColorScheme(.dark)
+            }
+        }
+        .interactiveDismissDisabled(true)
+        .environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark).tint(Theme.accent)
+        .onAppear { name = user.name; avatarID = user.avatarId }
+    }
+    private func save() async {
+        guard !saving, store.online, !cleanedName.isEmpty else { return }
+        saving = true; message = nil
+        defer { saving = false }
+        do {
+            if cleanedName != user.name { try await API.shared.send("/api/profile/name",method:"PUT",value:["name":cleanedName]) }
+            if avatarID != user.avatarId, let avatarID { try await API.shared.send("/api/profile/avatar",method:"PUT",value:["avatarId":avatarID]) }
+            await store.refresh()
+            dismiss()
+        } catch {
+            if !isRequestCancellation(error) { message = error.localizedDescription }
+        }
     }
 }

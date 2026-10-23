@@ -15,6 +15,7 @@ struct WanyScroll<Content: View>: View {
     @Environment(AppStore.self) private var store
     @Environment(\.ranyScrollToTop) private var scrollToTop
     @State private var scrollDirection = ReaderScrollDirection(revealDistance:192)
+    @State private var chromeSettlesAt = Date.distantPast
     let content: Content
     init(@ViewBuilder content: ()->Content) { self.content = content() }
     var body: some View {
@@ -25,7 +26,10 @@ struct WanyScroll<Content: View>: View {
                 .padding(.bottom,32)
                 .background(ReaderScrollObserver(scrollToTop:scrollToTop) { offset, moving in
                     store.setScrolling(moving)
+                    // While the bar animates, inset changes move the offset; ignore them.
+                    guard Date() >= chromeSettlesAt else { return }
                     if let visible = scrollDirection.update(offset:offset,userScrolling:moving), store.chromeHidden == visible {
+                        chromeSettlesAt = Date().addingTimeInterval(0.45)
                         withAnimation(.easeInOut(duration:0.22)) { store.chromeHidden = !visible }
                     }
                 })
@@ -123,7 +127,7 @@ struct AccountBadge: View {
         if kind == "crown" || kind == "verified" {
             Button { explaining = true } label: {
                 Image(kind == "crown" ? "crown" : "verified").resizable().frame(width:22,height:22)
-                    .frame(width:44,height:44).contentShape(Rectangle())
+                    .frame(width:30,height:44).contentShape(Rectangle())
             }.buttonStyle(.borderless)
                 .highPriorityGesture(TapGesture().onEnded { explaining = true })
                 .accessibilityLabel(kind == "crown" ? "Owner، مالك التطبيق" : "Beta Tester، مشارك في التجربة المبكرة")

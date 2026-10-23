@@ -18,6 +18,7 @@ struct StoryView: View {
     @State private var listPicker = false
     @State private var preparingUnread = false
     @State private var selected: Set<String> = []
+    @State private var pendingDownload: StoryDownloadRequest?
     var story: Story { detail ?? store.stories[selectedSource ?? initial.key] ?? initial }
     var chapters: [Chapter] {
         let numberQuery=query.map { $0.wholeNumberValue.map { String($0) } ?? String($0) }.joined()
@@ -51,13 +52,10 @@ struct StoryView: View {
             if let recent = store.state?.data.library.first(where:{$0.mangaId == story.key})?.lastReadChapter {
                 WanyLink(.reader(story,story.chapters?.first(where:{$0.number == recent}) ?? Chapter(number:recent,title:"الفصل \(chapterNumber(recent))"))) { Label("متابعة الفصل \(chapterNumber(recent))",systemImage:"book.fill").font(RanyTypography.font(.body).weight(.semibold)).frame(maxWidth:.infinity,minHeight:48) }.buttonStyle(RanySurfaceButtonStyle())
             }
-            Button { Task { await downloads.enqueue(story) } } label: {
+            Button { pendingDownload = .wholeStory } label: {
                 HStack { if downloads.preparing.contains(story.key) { ProgressView() }; Label(downloads.preparing.contains(story.key) ? "تجهيز جميع الفصول…" : "تحميل القصة كاملة",systemImage:"arrow.down.to.line").bold() }.frame(maxWidth:.infinity).padding(9)
             }.buttonStyle(.borderedProminent).disabled(preparingUnread || downloads.preparing.contains(story.key) || !store.online)
-            Button {
-                preparingUnread = true
-                Task { await store.downloadUnread(story); preparingUnread = false }
-            } label: {
+            Button { pendingDownload = .unread } label: {
                 VStack(spacing:8) {
                     HStack {
                     if preparingUnread { ProgressView() }
@@ -82,15 +80,10 @@ struct StoryView: View {
             if let error { Text(error).font(RanyTypography.font(.caption)).foregroundStyle(.orange); Button("إعادة جلب قائمة الفصول") { Task { await refresh() } } }
             if !store.online { Text("التفاصيل محفوظة. الفصول بعلامة ✓ متاحة بدون إنترنت؛ الفصول الناقصة تحتاج اتصالًا لاستكمال الصور.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
             TextField("ابحث برقم الفصل أو عنوانه",text:$query).textFieldStyle(.plain).padding(13).ranyInsetGlass(radius:14).keyboardType(.default)
-            StoryReadingTools(
-                canReadAll:story.chapterListComplete == true && !story.orderedChapters.isEmpty,
-                disabled:!store.online || loading || store.loginRequired || store.readingMutation || store.syncing,
-                markAll:{ confirmReadAll=true },clear:{ confirmClear=true }
-            )
             StoryChapterPagination(page:page.number,pages:page.count) { goToPage($0,proxy:proxy) }
             }.ranyReadableSurface()
             if selecting {
-                HStack { Button("تحديد الكل") { selected = Set(chapters.map(\.id)) }; Spacer(); Button("تحميل \(selected.count) فصل") { let list = chapters.filter { selected.contains($0.id) }; Task { await downloads.enqueue(story,chapters:list) }; selecting = false }.disabled(selected.isEmpty || !store.online) }
+                HStack { Button("تحديد الكل") { selected = Set(chapters.map(\.id)) }; Spacer(); Button("تحميل \(selected.count) فصل") { pendingDownload = .chapters(chapters.filter { selected.contains($0.id) }) }.disabled(selected.isEmpty || !store.online) }
             }
             LazyVStack(spacing:0) {
                 ForEach(page.chapters) { chapter in
@@ -103,14 +96,35 @@ struct StoryView: View {
             }
             StoryChapterPagination(page:page.number,pages:page.count) { goToPage($0,proxy:proxy) }
         }.navigationTitle(story.title).navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement:.topBarTrailing) {
+                    StoryReadingTools(
+                        canReadAll:story.chapterListComplete == true && !story.orderedChapters.isEmpty,
+                        disabled:!store.online || loading || store.loginRequired || store.readingMutation || store.syncing,
+                        markAll:{ confirmReadAll=true },clear:{ confirmClear=true }
+                    )
+                }
+            }
             .confirmationDialog("تعليم جميع الفصول كمقروءة؟",isPresented:$confirmReadAll,titleVisibility:.visible) { Button("تأكيد تعليم \(story.chapters?.count ?? 0) فصل") { Task { await store.manualRead(story,chapters:story.orderedChapters.map(\.number)) } }; Button("إلغاء",role:.cancel) {} }
             .confirmationDialog("مسح تقدم هذه القصة؟",isPresented:$confirmClear,titleVisibility:.visible) { Button("مسح التقدم",role:.destructive) { Task { await store.manualUnreadGroup(story,keys:sourceKeys) } }; Button("إلغاء",role:.cancel) {} } message: { Text("يُحذف سجل وتقدم القراءة لكل المصادر المرتبطة بهذه القصة عبر الموقع. تبقى الملفات المحملة والمفضلة والقوائم.") }
             .sheet(isPresented:$listPicker) { StoryListPicker(story:story) }
+            .downloadQualityChoice(request:$pendingDownload) { request,quality in startDownload(request,quality:quality) }
             .task { await refresh() }.refreshable { await refresh() }
             .onChange(of:query) { _,_ in chapterPage=1 }
             .onChange(of:ascending) { _,_ in chapterPage=1 }
             .onChange(of:story.key) { _,_ in chapterPage=1; selected.removeAll(); selecting=false }
             .onChange(of:chapters.count) { _,_ in chapterPage=page.number }
+        }
+    }
+    private func startDownload(_ request: StoryDownloadRequest,quality: ImageQuality) {
+        switch request {
+        case .wholeStory: Task { await downloads.enqueue(story,quality:quality) }
+        case .unread:
+            preparingUnread = true
+            Task { await store.downloadUnread(story,quality:quality); preparingUnread = false }
+        case .chapters(let list):
+            Task { await downloads.enqueue(story,chapters:list,quality:quality) }
+            selecting = false
         }
     }
     private func goToPage(_ value: Int,proxy: ScrollViewProxy) {
@@ -135,6 +149,8 @@ struct StoryView: View {
 
 
 // Visible reading actions stay separate from the chapter download selection.
+// Bulk reading actions are rare and destructive, so they live behind one menu in
+// the navigation bar (each still asks for confirmation) instead of beside the chapters.
 struct StoryReadingTools: View {
     let canReadAll: Bool
     let disabled: Bool
@@ -142,57 +158,19 @@ struct StoryReadingTools: View {
     let clear: () -> Void
 
     var body: some View {
-        HStack(spacing:10) {
-            Button(action:markAll) {
-                Label("تحديد الكل كمقروء",systemImage:"checkmark")
-                    .frame(maxWidth:.infinity,minHeight:44)
-                    .contentShape(Rectangle())
-            }.buttonStyle(RanySurfaceButtonStyle(radius:12)).disabled(!canReadAll).opacity(canReadAll ? 1 : 0.45).accessibilityIdentifier("reading.markAll")
-            Button(role:.destructive,action:clear) {
-                Label("مسح تقدم القراءة",systemImage:"arrow.counterclockwise").frame(maxWidth:.infinity,minHeight:44)
-                    .contentShape(Rectangle())
-            }.buttonStyle(RanySurfaceButtonStyle(radius:12)).accessibilityIdentifier("reading.clearStory")
+        Menu {
+            Button("تحديد الكل كمقروء",systemImage:"checkmark.circle",action:markAll)
+                .disabled(!canReadAll).accessibilityIdentifier("reading.markAll")
+            Button("مسح تقدم القراءة",systemImage:"arrow.counterclockwise",role:.destructive,action:clear)
+                .accessibilityIdentifier("reading.clearStory")
+        } label: {
+            Label("خيارات القراءة",systemImage:"ellipsis.circle").frame(minWidth:44,minHeight:44).contentShape(Rectangle())
         }
-        .font(RanyTypography.font(.footnote).weight(.medium))
+        .menuActionDismissBehavior(.enabled)
         .disabled(disabled)
+        .accessibilityIdentifier("reading.tools")
     }
 }
-
-struct ChapterReadingTools: View {
-    let completed: Bool
-    let disabled: Bool
-    let markRead: () -> Void
-    let markUnread: () -> Void
-
-    var body: some View {
-        Button(action:completed ? markUnread : markRead) {
-            Text(completed ? "مقروء ✓" : "غير مقروء")
-                .font(RanyTypography.font(.footnote))
-                .frame(minWidth:72,minHeight:44)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain).foregroundStyle(Theme.accent)
-        .overlay(RoundedRectangle(cornerRadius:10).stroke(Theme.accent.opacity(0.22)))
-        .disabled(disabled).opacity(disabled ? 0.45 : 1)
-        .accessibilityLabel(completed ? "مقروء، إعادة الفصل إلى غير مقروء" : "غير مقروء، تعليم الفصل كمقروء")
-        .accessibilityIdentifier("reading.toggleChapter")
-    }
-}
-
-// The website slices the ordered chapter list into groups of 100.
-struct StoryChapterPage {
-    static let size=100
-    let number: Int
-    let count: Int
-    let chapters: [Chapter]
-    init(chapters: [Chapter],requested: Int) {
-        count=max(1,(chapters.count + Self.size - 1)/Self.size)
-        number=min(max(1,requested),count)
-        let start=min((number-1)*Self.size,chapters.count)
-        self.chapters=Array(chapters[start..<min(start+Self.size,chapters.count)])
-    }
-}
-
 struct StoryChapterPagination: View {
     let page: Int
     let pages: Int
@@ -265,6 +243,7 @@ struct StoryChapterRow: View {
     let loading: Bool
     let selecting: Bool
     @Binding var selected: Set<String>
+    @State private var pendingDownload: StoryDownloadRequest?
     var body: some View {
         VStack(spacing:0) {
             HStack(spacing:8) {
@@ -290,12 +269,14 @@ struct StoryChapterRow: View {
                 if downloads.savedJobs.first(where:{$0.id == story.key})?.chapters.first(where:{$0.id == chapter.id})?.complete == true {
                     Image(systemName:"checkmark.circle.fill").foregroundStyle(.green).frame(width:44,height:44)
                 } else {
-                    Button { Task { await downloads.enqueue(story,chapters:[chapter]) } } label: {
+                    Button { pendingDownload = .chapters([chapter]) } label: {
                         Image(systemName:"arrow.down.circle").font(RanyTypography.font(.title3)).frame(width:44,height:44).contentShape(Rectangle())
                     }.buttonStyle(.borderless).disabled(!store.online)
                 }
             }.padding(.vertical,10)
             Divider()
+        }.downloadQualityChoice(request:$pendingDownload) { _,quality in
+            Task { await downloads.enqueue(story,chapters:[chapter],quality:quality) }
         }
     }
 }
@@ -353,5 +334,43 @@ extension View {
         return padding(16).frame(maxWidth:.infinity,alignment:.leading)
             .background(Theme.surface.opacity(0.94),in:shape)
             .overlay(shape.stroke(Color.white.opacity(0.1),lineWidth:1))
+    }
+}
+
+enum StoryDownloadRequest: Identifiable {
+    case wholeStory, unread
+    case chapters([Chapter])
+    var id: String {
+        switch self {
+        case .wholeStory: return "whole"
+        case .unread: return "unread"
+        case .chapters(let list): return "chapters:"+list.map(\.id).joined(separator:",")
+        }
+    }
+    var title: String {
+        switch self {
+        case .wholeStory: return "تحميل القصة كاملة"
+        case .unread: return "تحميل الفصول غير المقروءة"
+        case .chapters(let list): return list.count == 1 ? "تحميل الفصل \(chapterNumber(list[0].number))" : "تحميل \(list.count) فصل"
+        }
+    }
+}
+// Every download asks for its image quality before it starts.
+private struct DownloadQualityChoice: ViewModifier {
+    @Binding var request: StoryDownloadRequest?
+    let start: (StoryDownloadRequest,ImageQuality) -> Void
+    func body(content: Content) -> some View {
+        content.confirmationDialog(request?.title ?? "",isPresented:Binding(get:{ request != nil },set:{ if !$0 { request = nil } }),titleVisibility:.visible,presenting:request) { pending in
+            ForEach(ImageQuality.allCases) { quality in
+                Button("\(quality.label) · \(quality.detail)") { start(pending,quality); request = nil }
+                    .accessibilityIdentifier("download.quality."+quality.rawValue)
+            }
+            Button("إلغاء",role:.cancel) { request = nil }
+        } message: { _ in Text("اختر جودة الصور لهذا التنزيل.") }
+    }
+}
+extension View {
+    func downloadQualityChoice(request: Binding<StoryDownloadRequest?>,start: @escaping (StoryDownloadRequest,ImageQuality) -> Void) -> some View {
+        modifier(DownloadQualityChoice(request:request,start:start))
     }
 }
