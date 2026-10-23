@@ -227,7 +227,7 @@ struct AvatarPickerView: View {
                     if saving { ProgressView() } else { Text(onSelect == nil ? "حفظ الصورة" : "استخدام الصورة") }
                 }.buttonStyle(.borderedProminent)
                     .disabled(selectedID.isEmpty || !store.online || saving)
-            }.padding(12).background(.regularMaterial)
+            }.padding(12).ranyGlass(radius:24).padding(.horizontal,12).padding(.bottom,6)
         }
         .disabled(saving)
         .onChange(of:store.online) { _,online in if online { Task { await page.load("/api/avatars",store:store) } } }

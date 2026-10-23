@@ -21,6 +21,9 @@ extension EnvironmentValues {
         set { self[RanyGlassProgressKey.self] = newValue }
     }
 }
+// One glass surface for cards, fields, bars and floating controls. iOS 26 renders
+// the system Liquid Glass; iOS 17 and 18 use the system materials. The appearance
+// settings (glass on/off and its strength) and Reduce Transparency apply to both.
 struct RanyGlass: ViewModifier {
     var radius: CGFloat = 22
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -30,8 +33,7 @@ struct RanyGlass: ViewModifier {
     @AppStorage(RanyAppearanceKeys.blur) private var blur = RanyBlurLevel.balanced.rawValue
     @State private var revealed: Double = 0
     private var level: RanyBlurLevel { RanyBlurLevel(rawValue:blur) ?? .balanced }
-    // The real iOS materials from 1.3.3. Animate their opacity, not a paused
-    // UIVisualEffectView animator (which rendered opaque surfaces on device).
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius:radius,style:.continuous) }
     private var material: AnyShapeStyle {
         switch level {
         case .clear: return AnyShapeStyle(Theme.surface.opacity(0.14))
@@ -42,21 +44,36 @@ struct RanyGlass: ViewModifier {
     }
     @ViewBuilder func body(content: Content) -> some View {
         if !enabled || reduceTransparency {
-            content.background(Theme.surface,in:RoundedRectangle(cornerRadius:radius,style:.continuous))
+            content.background(Theme.surface,in:shape)
         } else {
-            content.background {
-                RoundedRectangle(cornerRadius:radius,style:.continuous)
-                    .fill(material)
-                    .opacity(revealed)
-            }.overlay {
-                RoundedRectangle(cornerRadius:radius,style:.continuous)
-                    .stroke(LinearGradient(colors:[.white.opacity(0.17),Theme.accent.opacity(0.06),.white.opacity(0.04)],
-                                           startPoint:.topLeading,endPoint:.bottomTrailing),lineWidth:0.7)
-            }
-            .onAppear { updateReveal() }
-            .onChange(of:progress) { _,_ in updateReveal() }
-            .onChange(of:blur) { _,_ in updateReveal() }
+            #if compiler(>=6.2)
+            if #available(iOS 26.0, *) { content.glassEffect(liquidGlass,in:shape) }
+            else { materialSurface(content) }
+            #else
+            materialSurface(content)
+            #endif
         }
+    }
+    #if compiler(>=6.2)
+    @available(iOS 26.0, *) private var liquidGlass: Glass {
+        switch level {
+        case .clear: return .clear
+        case .light: return .regular
+        case .balanced: return .regular.tint(Theme.surface.opacity(0.35))
+        case .strong: return .regular.tint(Theme.surface.opacity(0.7))
+        }
+    }
+    #endif
+    private func materialSurface(_ content: Content) -> some View {
+        content.background {
+            shape.fill(material).opacity(revealed)
+        }.overlay {
+            shape.stroke(LinearGradient(colors:[.white.opacity(0.17),Theme.accent.opacity(0.06),.white.opacity(0.04)],
+                                        startPoint:.topLeading,endPoint:.bottomTrailing),lineWidth:0.7)
+        }
+        .onAppear { updateReveal() }
+        .onChange(of:progress) { _,_ in updateReveal() }
+        .onChange(of:blur) { _,_ in updateReveal() }
     }
     private func updateReveal() {
         let value = min(1,max(0,progress))
@@ -65,33 +82,6 @@ struct RanyGlass: ViewModifier {
     }
 }
 extension View { func ranyGlass(radius: CGFloat = 22) -> some View { modifier(RanyGlass(radius:radius)) } }
-
-// Fractional UIKit material avoids inserting a fully blurred layer at the handoff.
-private struct RanyProgressiveMaterial: View, Animatable {
-    var progress: Double
-    var animatableData: Double { get { progress } set { progress = newValue } }
-    var body: some View { RanyFractionalBlur(progress:progress) }
-}
-private struct RanyFractionalBlur: UIViewRepresentable {
-    let progress: Double
-    func makeUIView(context: Context) -> BlurView { BlurView() }
-    func updateUIView(_ view: BlurView, context: Context) { view.update(progress:progress) }
-    static func dismantleUIView(_ view: BlurView, coordinator: ()) { view.animator?.stopAnimation(true) }
-    final class BlurView: UIVisualEffectView {
-        var animator: UIViewPropertyAnimator?
-        init() { super.init(effect:nil); isUserInteractionEnabled = false }
-        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-        func update(progress: Double) {
-            if animator == nil {
-                effect = nil
-                let style: UIBlurEffect.Style = .systemThickMaterialDark
-                let animation = UIViewPropertyAnimator(duration:1,curve:.linear) { [weak self] in self?.effect = UIBlurEffect(style:style) }
-                animation.pausesOnCompletion = true; animation.startAnimation(); animation.pauseAnimation(); animator = animation
-            }
-            animator?.fractionComplete = min(0.999,max(0,CGFloat(progress)))
-        }
-    }
-}
 
 struct RanyInsetGlass: ViewModifier {
     var radius: CGFloat = 15

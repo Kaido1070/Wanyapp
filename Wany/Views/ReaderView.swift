@@ -50,7 +50,7 @@ struct ReaderView: View {
                 else { ProgressView("تجهيز الفصل…").frame(maxWidth:.infinity,maxHeight:.infinity) }
                 VStack(spacing:10) {
                     HStack {
-                        Button { leaveReader() } label: { Image(systemName:"chevron.right").padding(10) }.accessibilityLabel("العودة للفصول")
+                        Button { leaveReader() } label: { Image(systemName:"chevron.right").frame(width:44,height:44).contentShape(Rectangle()) }.accessibilityLabel("العودة للفصول")
                         VStack(alignment:.leading,spacing:3) {
                             Text(readingChapter.title).font(RanyTypography.font(.subheadline).bold()).lineLimit(1)
                             if let payload { Text("\((currentPage ?? 0)+1) / \(payload.pages.count)").font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
@@ -64,8 +64,8 @@ struct ReaderView: View {
                         Button { chapterQuery = ""; choosingChapter = true } label: { Label("اختيار الفصل",systemImage:"list.bullet") }
                         Spacer(minLength:0)
                         Button { if let next = nextChapter { open(next) } } label: { Label("التالي",systemImage:"chevron.left") }.disabled(nextChapter == nil)
-                    }.font(RanyTypography.font(.subheadline)).padding(.horizontal,8)
-                }.padding(10).background(.ultraThinMaterial)
+                    }.font(RanyTypography.font(.subheadline)).frame(minHeight:44).padding(.horizontal,8)
+                }.padding(10).ranyGlass(radius:24).padding(.horizontal,10)
                     .background(GeometryReader { proxy in Color.clear.preference(key:ReaderHeaderHeightKey.self,value:proxy.size.height) })
                     .onPreferenceChange(ReaderHeaderHeightKey.self) { headerHeight = $0 }
                     .offset(y:controls ? 0 : -(headerHeight + screen.safeAreaInsets.top + 12))

@@ -34,7 +34,7 @@ struct RanyAppearanceControls: View {
             Picker("ضبابية الزجاج",selection:$blur) {
                 ForEach(RanyBlurLevel.allCases) { level in Text(level.label).tag(level.rawValue) }
             }.pickerStyle(.segmented).disabled(!glass).accessibilityIdentifier("appearance.blur")
-            Text("تُحفظ اختياراتك على الجهاز وتُطبّق مباشرة على الصناديق والبطاقات والخيارات. مع تقليل الشفافية في النظام تُستخدم أسطح واضحة القراءة.").font(.caption).foregroundStyle(.secondary)
+            Text("تُحفظ اختياراتك على الجهاز وتُطبّق مباشرة على البطاقات والحقول وشريط القارئ والأزرار العائمة. على iOS 26 يستخدم زجاج النظام Liquid Glass، وعلى iOS 17 و18 مواد النظام. أشرطة التنقل والتبويبات من النظام نفسه. مع تقليل الشفافية تُستخدم أسطح واضحة القراءة.").font(.caption).foregroundStyle(.secondary)
         }.card()
     }
 }

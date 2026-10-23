@@ -55,3 +55,11 @@ Automated checks cover download accounting, persistent account separation, progr
 - Large titles collapse on scroll and expand at the top. The R mark and the settings button stay in the navigation bar; cold launch and login intro still dock the mark there.
 - Save an avatar and leave the picker before the request ends: no other page may be closed by the late response.
 - Sign out and in with another account while deep in several tabs: every stack starts at its first page.
+
+## Liquid Glass (1.4.1+)
+
+- iOS 26 device: tab bar, navigation bars, menus and sheets use system Liquid Glass. Cards, fields, the reader bar and the avatar save bar use glassEffect. iOS 17/18 device: the same surfaces use system materials with no visual regressions.
+- Settings › المظهر: toggle glass off (solid surfaces everywhere), then try each strength (شفاف، خفيف، متوازن، قوي) on iOS 26 and on iOS 17/18.
+- Enable Reduce Transparency: every custom glass surface becomes a solid readable surface.
+- Reader bar over bright and dark pages: title, page count and buttons stay legible; every button is at least 44 pt.
+- Confirm the IPA Info.plist has no UIDesignRequiresCompatibility key.
