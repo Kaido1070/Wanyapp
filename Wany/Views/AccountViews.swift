@@ -11,25 +11,29 @@ import SwiftUI
         let filename = "api/"+Disk.hash(path + query.sorted {$0.key<$1.key}.description)+".json"
         guard !loading || self.filename != filename else { return }
         let token = UUID(); requestID = token; self.filename = filename
-        value = Disk.read(JSONValue.self,owner:owner,name:filename) ?? .null
-        error = nil
-        guard store.online else { loading = false; return }; loading = true
+        loading = true; error = nil
         defer { if requestID == token { loading = false } }
+        // Cached pages are decoded and written off the main thread.
+        let cached = await Task.detached(priority:.userInitiated) { Disk.read(JSONValue.self,owner:owner,name:filename) }.value
+        guard requestID == token else { return }
+        value = cached ?? .null
+        guard store.online else { return }
         do {
             let response = try await API.shared.get(path,query:query,as:JSONValue.self)
             guard requestID == token, store.state?.user.id == owner else { return }
-            value = response; error = nil; try Disk.save(value,owner:owner,name:filename)
+            value = response; error = nil
+            Task.detached(priority:.utility) { try? Disk.save(response,owner:owner,name:filename) }
         } catch { if requestID == token, !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
 }
 struct ListsView: View {
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
     @StateObject private var page = CachedPage()
     @State private var create = false
     @State private var name = ""
     var body: some View {
         WanyScroll {
-            ForEach(Array(page.value["lists"].array.enumerated()),id:\.offset) { _,list in
+            ForEach(page.value["lists"].array.identified { $0["id"].string }) { row in let list = row.value
                 WanyLink(.listDetail(id:list["id"].string,title:list["name"].string)) { HStack { Image(systemName:"list.bullet.rectangle"); Text(list["name"].string); Spacer(); Text("\(Int(list["itemCount"].number))").foregroundStyle(.secondary); Image(systemName:"chevron.left") }.foregroundStyle(.primary).card() }
             }
             if let error = page.error { Text(error).foregroundStyle(.orange) }
@@ -40,14 +44,14 @@ struct ListsView: View {
     }
 }
 struct ListDetailView: View {
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
     let id: String; let title: String
     @StateObject private var page = CachedPage()
     @State private var adding = false
     var canManage: Bool { page.value["list"]["canManage"].boolean }
     var body: some View {
         WanyScroll {
-            ForEach(Array(page.value["items"].array.enumerated()),id:\.offset) { _,item in
+            ForEach(page.value["items"].array.identified { $0["mangaId"].string }) { row in let item = row.value
                 if let story = store.stories[item["mangaId"].string] {
                     HStack { WanyLink(.story(story)) { Text(story.title).foregroundStyle(.primary).frame(minHeight:44) }; Spacer(); if canManage { Button(role:.destructive) { Task { do { _ = try await API.shared.raw("/api/lists/"+id+"/items/"+story.key,method:"DELETE"); await load() } catch { store.error = error.localizedDescription } } } label: { Image(systemName:"minus.circle") }.disabled(!store.online) } }.card()
                 } else { Text(item["mangaId"].string).font(RanyTypography.font(.caption)) }
@@ -68,7 +72,7 @@ struct ListDetailView: View {
     }
 }
 struct FriendsView: View {
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
     @StateObject private var page = CachedPage()
     @StateObject private var requests = CachedPage()
     @StateObject private var search = CachedPage()
@@ -76,13 +80,13 @@ struct FriendsView: View {
     var body: some View {
         WanyScroll {
             HStack { TextField("اسم المستخدم",text:$query).textInputAutocapitalization(.never).autocorrectionDisabled(); Button("بحث") { Task { await search.load("/api/friends/search",store:store,query:["q":query]) } }.disabled(!store.online) }.card()
-            ForEach(Array(search.value["results"].array.enumerated()),id:\.offset) { _,entry in
+            ForEach(search.value["results"].array.identified { $0["user"]["id"].string }) { row in let entry = row.value
                 HStack { userLabel(entry["user"]); Spacer(); Button(entry["relationship"].string == "none" ? "إضافة" : "طلب مسجل") { Task { await action("/api/friends",body:["userId":entry["user"]["id"].string]); await search.load("/api/friends/search",store:store,query:["q":query]) } }.disabled(entry["relationship"].string != "none" || !store.online) }.card()
             }
-            ForEach(Array(requests.value["incoming"].array.enumerated()),id:\.offset) { _,entry in
+            ForEach(requests.value["incoming"].array.identified { $0["user"]["id"].string }) { row in let entry = row.value
                 HStack { userLabel(entry["user"]); Spacer(); Button("قبول") { Task { await action("/api/friends/requests/"+entry["user"]["id"].string+"/accept") } }; Button("رفض") { Task { await action("/api/friends/requests/"+entry["user"]["id"].string+"/reject") } } }.card()
             }
-            ForEach(Array(page.value["friends"].array.enumerated()),id:\.offset) { _,entry in
+            ForEach(page.value["friends"].array.identified { $0["user"]["id"].string }) { row in let entry = row.value
                 WanyLink(.publicProfile(entry["user"]["id"].string)) { userLabel(entry["user"]).frame(maxWidth:.infinity,alignment:.leading).card() }.foregroundStyle(.primary)
             }
             if let error = page.error { Text(error).foregroundStyle(.orange) }
@@ -93,7 +97,7 @@ struct FriendsView: View {
     func action(_ path: String, body: [String:String] = [:]) async { do { try await API.shared.send(path,value:body); await load() } catch { store.error = error.localizedDescription } }
 }
 struct PublicProfileView: View {
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
     let id: String
     @StateObject private var page = CachedPage()
     var body: some View {
@@ -103,7 +107,7 @@ struct PublicProfileView: View {
             else {
                 Text("المفضلة").font(RanyTypography.font(.headline))
                 StoryGrid(stories:page.value["profile"]["favorites"].array.compactMap { store.stories[$0.string] })
-                ForEach(Array(page.value["profile"]["lists"].array.enumerated()),id:\.offset) { _,list in
+                ForEach(page.value["profile"]["lists"].array.identified { $0["id"].string }) { row in let list = row.value
                     WanyLink(.listDetail(id:list["id"].string,title:list["name"].string)) {
                         HStack { Label(list["name"].string,systemImage:"list.bullet.rectangle"); Spacer(); Text("\(Int(list["itemCount"].number))"); Image(systemName:"chevron.left") }.foregroundStyle(.primary).card()
                     }
@@ -119,14 +123,14 @@ struct PublicProfileView: View {
     }
 }
 struct ActivityView: View {
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
     @StateObject private var page = CachedPage()
     @State private var friends = false
     private let labels = ["started_work":"بدأ قراءة", "progress_reached":"وصل إلى", "completed_work":"أكمل", "favorited_work":"أضاف للمفضلة", "added_to_list":"أضاف إلى قائمة", "created_list":"أنشأ قائمة"]
     var body: some View {
         WanyScroll {
             Picker("النشاط",selection:$friends) { Text("نشاطي").tag(false); Text("الأصدقاء").tag(true) }.pickerStyle(.segmented).onChange(of:friends) { _,_ in Task { await load() } }
-            ForEach(Array(page.value["events"].array.enumerated()),id:\.offset) { _,event in VStack(alignment:.leading,spacing:8) {
+            ForEach(page.value["events"].array.identified { $0["id"].string }) { row in let event = row.value; VStack(alignment:.leading,spacing:8) {
                 HStack { Text(event["user"]["name"].string).bold(); AccountBadge(kind:event["user"]["badgeType"].string) }
                 Text(labels[event["type"].string] ?? event["type"].string).font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
                 if let story = store.stories[event["mangaId"].string] { WanyLink(story.title,route:.story(story)) }
@@ -138,8 +142,8 @@ struct ActivityView: View {
     func load() async { await page.load(friends ? "/api/activity/friends" : "/api/activity/me",store:store,query:["limit":"50","offset":"0"]) }
 }
 struct SettingsView: View {
-    @EnvironmentObject var store: AppStore
-    @EnvironmentObject var downloads: Downloads
+    @Environment(AppStore.self) private var store
+    @Environment(Downloads.self) private var downloads
     @State private var editingName = false
     @State private var name = ""
     @State private var logout = false
@@ -191,7 +195,7 @@ struct SettingsView: View {
 struct AvatarPickerView: View {
     var onSelect: ((String)->Void)? = nil
     var initialAvatarID: String? = nil
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @StateObject private var page = CachedPage()
     @State private var query = ""
@@ -270,7 +274,7 @@ struct RanyAvatarGrid: View {
     let query: String
     let selectedID: String
     let select: (String)->Void
-    @EnvironmentObject private var store: AppStore
+    @Environment(AppStore.self) private var store
     static func matches(_ value:String,query:String) -> Bool {
         query.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || value.localizedStandardContains(query.trimmingCharacters(in:.whitespacesAndNewlines))
     }
@@ -289,7 +293,7 @@ struct RanyAvatarGrid: View {
             VStack(alignment:.leading,spacing:12) {
                 Text(group.name).font(.subheadline.bold()).foregroundStyle(.secondary)
                 LazyVGrid(columns:[GridItem(.adaptive(minimum:80),spacing:10)],alignment:.center,spacing:16) {
-                    ForEach(Array(group.avatars.enumerated()),id:\.offset) { _,avatar in
+                    ForEach(group.avatars.identified { $0["id"].string }) { row in let avatar = row.value
                         let id = avatar["id"].string
                         Button { select(id) } label: {
                             VStack(spacing:6) {

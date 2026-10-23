@@ -47,7 +47,13 @@ struct APIError: LocalizedError {
         return data
     }
     func get<T: Decodable>(_ path: String, query: [String:String] = [:], as type: T.Type = T.self) async throws -> T {
-        try JSONDecoder().decode(T.self,from:await raw(path,query:query))
+        let data = try await raw(path,query:query)
+        return try await API.decode(T.self,from:data)
+    }
+    // A nonisolated async function runs on the global executor, so large
+    // responses (chapter archives, feeds) are decoded off the main thread.
+    nonisolated private static func decode<T: Decodable>(_ type: T.Type, from data: Data) async throws -> T {
+        try JSONDecoder().decode(T.self,from:data)
     }
     func send<T: Encodable>(_ path: String, method: String = "POST", value: T) async throws {
         _ = try await raw(path,method:method,body:JSONEncoder().encode(value))

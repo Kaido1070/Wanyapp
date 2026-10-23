@@ -1,35 +1,54 @@
 import Foundation
-import Combine
 import Network
 import UIKit
+import ImageIO
+import Observation
 
-@MainActor final class AppStore: ObservableObject {
-    @Published var enteringAccount = false
-    @Published var firstArrival = false
-    @Published var state: AccountState?
-    @Published var stories: [String:Story] = [:]
-    @Published var online = true
-    @Published var localSaveFailed = false
-    @Published var syncing = false
-    @Published var loginRequired = false
-    @Published var error: String?
-    @Published var loadingFeed = false
-    @Published var feedProgress = ""
-    @Published var chromeHidden = false
-    @Published var readerActive = false
-    let downloads = Downloads.shared
-    private let monitor = NWPathMonitor()
-    private var metadataTask: Task<Void,Never>?
-    private var metadataToken: UUID?
-    private var syncTask: Task<Void,Never>?
-    private var refreshTask: Task<Void,Never>?
-    private var engine: FeedEngine?
-    private var coverRequests: Set<String> = []
-    private var metadataRefreshed: [String: Date] = [:]
+// Observation tracks each property separately: a screen re-renders only when a
+// value it actually reads changes (feed progress never redraws the profile).
+@MainActor @Observable final class AppStore {
+    var enteringAccount = false
+    var firstArrival = false
+    var state: AccountState? {
+        didSet { if accountID != state?.user.id { accountID = state?.user.id } }
+    }
+    // Screens that only care who is signed in read this instead of the whole account state.
+    private(set) var accountID: String?
+    var stories: [String:Story] = [:]
+    var online = true
+    var localSaveFailed = false
+    var syncing = false
+    var loginRequired = false
+    var error: String?
+    var loadingFeed = false
+    var feedProgress = ""
+    var chromeHidden = false
+    var readerActive = false
+    // The wallpaper pauses while content scrolls or a page transition runs.
+    var backdropHeld = false
+    // Bumped when a cover file lands on disk, so visible covers reload once.
+    private(set) var coverRevision = 0
+    // Bumped when library-related data changes; drives the debounced ambience refresh.
+    private(set) var libraryRevision = 0
+    @ObservationIgnored let downloads = Downloads.shared
+    @ObservationIgnored private let monitor = NWPathMonitor()
+    @ObservationIgnored private var metadataTask: Task<Void,Never>?
+    @ObservationIgnored private var metadataToken: UUID?
+    @ObservationIgnored private var syncTask: Task<Void,Never>?
+    @ObservationIgnored private var refreshTask: Task<Void,Never>?
+    @ObservationIgnored private var engine: FeedEngine?
+    @ObservationIgnored private var coverRequests: Set<String> = []
+    @ObservationIgnored private var metadataRefreshed: [String: Date] = [:]
+    @ObservationIgnored private var storiesSave: Task<Void,Never>?
+    @ObservationIgnored private var accountSave: Task<Void,Never>?
+    @ObservationIgnored private var storiesOwner: String?
+    @ObservationIgnored private var scrollHold = false
+    @ObservationIgnored private var navigationHold: Task<Void,Never>?
     init(startServices: Bool = true) {
         guard startServices else { return }
         if let owner = UserDefaults.standard.string(forKey:"lastAccount") {
             state = Disk.read(AccountState.self,owner:owner,name:"account.json")
+            accountID = state?.user.id // Observers do not run inside init.
             if state != nil { loadStories(owner); downloads.attach(owner); firstArrival = UserDefaults.standard.bool(forKey:"rany.firstArrival."+owner) }
         }
         monitor.pathUpdateHandler = { [weak self] path in
@@ -45,18 +64,81 @@ import UIKit
         monitor.start(queue:DispatchQueue(label:"Wany.network"))
         Timer.scheduledTimer(withTimeInterval:30,repeats:true) { [weak self] _ in Task { @MainActor in await self?.syncProgress() } }
     }
+    // Reading progress saves often; encode and write it off the main thread, coalesced.
     func persist() {
-        guard let state else { return }
-        do { try Disk.save(state,owner:state.user.id,name:"account.json"); if localSaveFailed { localSaveFailed = false } } catch { localSaveFailed = true; self.error = "تعذر حفظ التقدم على الجهاز: " + error.localizedDescription }
-    }
-    private func loadStories(_ owner: String) { stories = Disk.read([String:Story].self,owner:owner,name:"stories.json") ?? [:] }
-    func remember(_ story: Story) {
         guard let owner = state?.user.id else { return }
+        accountSave?.cancel()
+        accountSave = Task { [weak self] in
+            do { try await Task.sleep(for:.milliseconds(250)) } catch { return }
+            guard let self, let snapshot = self.state, snapshot.user.id == owner else { return }
+            let failure = await Task.detached(priority:.utility) { () -> String? in
+                do { try Disk.save(snapshot,owner:owner,name:"account.json"); return nil } catch { return error.localizedDescription }
+            }.value
+            self.finishSave(failure)
+        }
+    }
+    // Leaving the app or the account must not depend on a pending background write.
+    func persistNow() {
+        accountSave?.cancel(); accountSave = nil
+        guard let state else { return }
+        do { try Disk.save(state,owner:state.user.id,name:"account.json"); finishSave(nil) } catch { finishSave(error.localizedDescription) }
+    }
+    private func finishSave(_ failure: String?) {
+        if let failure { localSaveFailed = true; self.error = "تعذر حفظ التقدم على الجهاز: " + failure }
+        else if localSaveFailed { localSaveFailed = false }
+    }
+    // The story archive can hold thousands of chapters; decode it off the main thread.
+    private func loadStories(_ owner: String) {
+        stories = [:]; storiesOwner = nil; storiesSave?.cancel()
+        Task { [weak self] in
+            let loaded = await Task.detached(priority:.userInitiated) { Disk.read([String:Story].self,owner:owner,name:"stories.json") ?? [:] }.value
+            guard let self, self.state?.user.id == owner else { return }
+            // Keep stories remembered while the archive was loading.
+            self.stories = loaded.merging(self.stories) { _,new in new }
+            self.storiesOwner = owner
+            self.libraryRevision += 1
+            if !self.stories.isEmpty && self.stories.count != loaded.count { self.scheduleStoriesSave() }
+        }
+    }
+    func remember(_ story: Story) {
+        guard state?.user.id != nil else { return }
         // List cards must not overwrite a complete offline chapter archive.
         var merged = story
         if let old = stories[story.key], old.chapterListComplete == true, story.chapterListComplete != true { merged.chapters = old.chapters; merged.chapterListComplete = true; merged.chapterPageCount = old.chapterPageCount }
+        guard stories[story.key] != merged else { return }
         stories[story.key] = merged
-        do { try Disk.save(stories,owner:owner,name:"stories.json") } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
+        libraryRevision += 1
+        scheduleStoriesSave()
+    }
+    // Coalesce bursts of remembered stories into one background encode and write.
+    private func scheduleStoriesSave() {
+        guard let owner = storiesOwner, owner == state?.user.id else { return }
+        storiesSave?.cancel()
+        storiesSave = Task { [weak self] in
+            do { try await Task.sleep(for:.milliseconds(400)) } catch { return }
+            guard let self, self.storiesOwner == owner else { return }
+            let snapshot = self.stories
+            let failure = await Task.detached(priority:.utility) { () -> String? in
+                do { try Disk.save(snapshot,owner:owner,name:"stories.json"); return nil } catch { return error.localizedDescription }
+            }.value
+            if let failure, self.state?.user.id == owner { self.error = failure }
+        }
+    }
+    func setScrolling(_ moving: Bool) {
+        guard scrollHold != moving else { return }
+        scrollHold = moving; updateBackdropHold()
+    }
+    func holdBackdropForNavigation() {
+        navigationHold?.cancel()
+        navigationHold = Task { [weak self] in
+            self?.updateBackdropHold(navigating:true)
+            do { try await Task.sleep(for:.milliseconds(650)) } catch { return }
+            self?.navigationHold = nil; self?.updateBackdropHold()
+        }
+    }
+    private func updateBackdropHold(navigating: Bool = false) {
+        let held = scrollHold || navigating || navigationHold != nil
+        if backdropHeld != held { backdropHeld = held }
     }
     func login(username: String, password: String, freshAccount: Bool = false) async {
         guard online else { error = "تسجيل الدخول لأول مرة يحتاج إنترنت"; return }
@@ -69,6 +151,7 @@ import UIKit
             guard let user = response.user else { throw APIError(message:"بيانات الدخول غير صحيحة",status:401) }
             firstArrival = freshAccount || UserDefaults.standard.bool(forKey:"rany.newAccount."+username.precomposedStringWithCompatibilityMapping.trimmingCharacters(in:.whitespacesAndNewlines).lowercased()) || UserDefaults.standard.bool(forKey:"rany.firstArrival."+user.id)
             if firstArrival { UserDefaults.standard.set(true,forKey:"rany.firstArrival."+user.id) }
+            persistNow()
             enteringAccount = true
             state = Disk.read(AccountState.self,owner:user.id,name:"account.json") ?? AccountState(user:user)
             state?.user = user; loginRequired = false
@@ -94,9 +177,9 @@ import UIKit
         firstArrival = false; enteringAccount = false
     }
     func logout() async {
-        persist(); refreshTask?.cancel(); metadataTask?.cancel(); metadataTask = nil; metadataToken = nil; syncTask?.cancel()
+        persistNow(); refreshTask?.cancel(); metadataTask?.cancel(); metadataTask = nil; metadataToken = nil; syncTask?.cancel()
         if online { _ = try? await API.shared.raw("/api/logout",method:"POST") }
-        API.shared.clear(); downloads.attach(nil); enteringAccount = false; state = nil; stories = [:]; engine = nil
+        API.shared.clear(); downloads.attach(nil); enteringAccount = false; state = nil; stories = [:]; storiesOwner = nil; storiesSave?.cancel(); engine = nil
         UserDefaults.standard.removeObject(forKey:"lastAccount"); loginRequired = false
     }
     func refresh() async {
@@ -133,6 +216,7 @@ import UIKit
     private func merge(_ remote: AccountData) {
         guard var current = state else { return }
         current.mergeReadingData(remote); state = current
+        libraryRevision += 1
     }
     private func mergeAndPush(owner: String) async throws {
         let remote = try await API.shared.get("/api/data",as:DataResponse.self).data
@@ -209,7 +293,7 @@ import UIKit
                 try await API.shared.send("/api/favorites",value:["mangaId":story.key])
                 guard self.state?.user.id == owner else { return }; self.state?.data.favorites.append(story.key)
             }
-            persist(); remember(story); cacheLibrary()
+            persist(); remember(story); libraryRevision += 1; cacheLibrary()
         } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
     func setStatus(_ story: Story, status: String) async {
@@ -248,11 +332,17 @@ import UIKit
         coverRequests.insert(key); defer { coverRequests.remove(key) }
         do {
             let (data,response) = try await URLSession.shared.data(for:API.shared.imageRequest(source:story.source,url:story.cover,referer:story.url))
-            guard state?.user.id == owner, (response as? HTTPURLResponse)?.statusCode == 200, UIImage(data:data) != nil else { return }
-            try FileManager.default.createDirectory(at:file.deletingLastPathComponent(),withIntermediateDirectories:true)
-            try data.write(to:file,options:[.atomic,.completeFileProtectionUntilFirstUserAuthentication])
-            try Disk.save(story.cover,owner:owner,name:versionName)
-            objectWillChange.send()
+            guard state?.user.id == owner, (response as? HTTPURLResponse)?.statusCode == 200 else { return }
+            let cover = story.cover
+            // Validate and write the image off the main thread.
+            try await Task.detached(priority:.utility) {
+                guard CGImageSourceCreateWithData(data as CFData,nil).flatMap({ CGImageSourceCreateImageAtIndex($0,0,nil) }) != nil else { throw CancellationError() }
+                try FileManager.default.createDirectory(at:file.deletingLastPathComponent(),withIntermediateDirectories:true)
+                try data.write(to:file,options:[.atomic,.completeFileProtectionUntilFirstUserAuthentication])
+                try Disk.save(cover,owner:owner,name:versionName)
+            }.value
+            guard state?.user.id == owner else { return }
+            coverRevision += 1; libraryRevision += 1
         } catch { /* A failed cover remains retryable and never clears a saved cover. */ }
     }
     func loadFeed(_ kind: String, page: Int = 1) async {
@@ -267,8 +357,15 @@ import UIKit
                 }
             }
             guard state?.user.id == current.user.id else { return }
-            if kind == "fyp" { state?.fyp = try JSONDecoder().decode(FypSnapshot.self,from:result).recommendations; for r in state?.fyp ?? [] { remember(r.item) } }
-            else { state?.newFeed = try JSONDecoder().decode(NewFeed.self,from:result); for r in state?.newFeed?.all ?? [] { remember(r.item) } }
+            if kind == "fyp" {
+                let recommendations = try await Task.detached(priority:.userInitiated) { try JSONDecoder().decode(FypSnapshot.self,from:result).recommendations }.value
+                guard state?.user.id == current.user.id else { return }
+                state?.fyp = recommendations; for r in recommendations { remember(r.item) }
+            } else {
+                let feed = try await Task.detached(priority:.userInitiated) { try JSONDecoder().decode(NewFeed.self,from:result) }.value
+                guard state?.user.id == current.user.id else { return }
+                state?.newFeed = feed; for r in feed.all { remember(r.item) }
+            }
             persist()
         } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }

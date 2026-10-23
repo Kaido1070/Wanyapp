@@ -123,7 +123,7 @@ struct RanyIntroLayout {
 }
 
 struct RanyExperience: View {
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var ambience = RanyAmbience()
@@ -134,23 +134,25 @@ struct RanyExperience: View {
     @State private var glassProgress: Double = 0
     var body: some View {
         ZStack {
-            RanyBackdropHost(ambience:ambience,reading:store.readerActive,accountID:store.state?.user.id,assembly:assembly).frame(maxWidth:.infinity,maxHeight:.infinity).ignoresSafeArea()
+            RanyBackdropHost(ambience:ambience,reading:store.readerActive,accountID:store.accountID,assembly:assembly,held:store.backdropHeld).frame(maxWidth:.infinity,maxHeight:.infinity).ignoresSafeArea()
             RootView().environment(\.ranyGlassProgress,glassProgress).environment(\.ranyMeasureMarkFrames,opening || store.enteringAccount).environment(\.ranyMarkCovered,opening || store.enteringAccount)
                 .environment(\.ranyMarkFrameSink,recordMarkFrame).opacity((opening && !revealed) || (store.enteringAccount && !revealed) ? 0 : 1)
                 .animation(.easeOut(duration:reduceMotion ? 0.05 : 0.42),value:revealed)
                 .allowsHitTesting(!opening && !store.enteringAccount)
                 .accessibilityHidden(opening || store.enteringAccount)
             if opening {
-                RanyIntro(accountTransition:false,loginDestination:store.state == nil,firstAccount:store.firstArrival,destinationFrame:markFrames[store.state == nil ? "login" : "header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ opening = false; if store.firstArrival { store.completeAccountArrival() } })
+                RanyIntro(accountTransition:false,loginDestination:store.accountID == nil,firstAccount:store.firstArrival,destinationFrame:markFrames[store.accountID == nil ? "login" : "header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ opening = false; if store.firstArrival { store.completeAccountArrival() } })
             } else if store.enteringAccount {
                 RanyIntro(accountTransition:true,loginDestination:false,firstAccount:store.firstArrival,destinationFrame:markFrames["header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ store.completeAccountArrival() })
             }
         }.font(RanyTypography.font(.body))
-        .task(id:store.state?.user.id) {
+        .task(id:store.accountID) {
             await ambience.attach(state:store.state,stories:store.stories)
             ambience.prepare(state:store.state,stories:store.stories)
         }
-        .onReceive(store.objectWillChange.debounce(for:.seconds(3),scheduler:RunLoop.main)) { _ in
+        // Debounced: restarts whenever library data changes, runs after three quiet seconds.
+        .task(id:store.libraryRevision) {
+            do { try await Task.sleep(for:.seconds(3)) } catch { return }
             if !store.readerActive { ambience.prepare(state:store.state,stories:store.stories) }
         }
         .onChange(of:store.enteringAccount) { _,value in if value { revealed = false; assembly = 0; glassProgress = 0 } }

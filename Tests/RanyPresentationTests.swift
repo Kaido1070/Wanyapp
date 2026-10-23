@@ -13,7 +13,7 @@ import UIKit
         let grid = VStack(alignment:.leading) {
             RanyAvatarGrid(series:series,query:"",selectedID:"fixture-0",select:{ _ in })
         }.padding(16).frame(width:320).fixedSize(horizontal:false,vertical:true)
-            .environmentObject(store).environment(\.layoutDirection,.rightToLeft)
+            .environment(store).environment(\.layoutDirection,.rightToLeft)
         let renderer = ImageRenderer(content:grid)
         renderer.proposedSize = ProposedViewSize(width:320,height:nil)
         let rendered = try XCTUnwrap(renderer.uiImage)
@@ -42,7 +42,7 @@ import UIKit
         let root = ZStack {
             RanyBackdropHost(ambience:ambience,reading:false,accountID:nil,assembly:1).frame(maxWidth:.infinity,maxHeight:.infinity).ignoresSafeArea()
             RootView().environment(\.ranyMeasureMarkFrames,true).environment(\.ranyMarkFrameSink,{ key,frame in if key == "header" { mark = frame } })
-        }.environmentObject(store).environmentObject(store.downloads)
+        }.environment(store).environment(store.downloads)
             .environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark).tint(Theme.accent)
         let (window,previous) = show(root)
         defer { window.isHidden = true; previous?.makeKeyAndVisible() }
@@ -63,7 +63,7 @@ import UIKit
         let root = ZStack {
             RanyBackdropHost(ambience:ambience,reading:false,accountID:nil,assembly:1).frame(maxWidth:.infinity,maxHeight:.infinity).ignoresSafeArea()
             NavigationStack { SettingsView().ranyClearNavigation() }
-        }.environmentObject(store).environmentObject(store.downloads)
+        }.environment(store).environment(store.downloads)
             .environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark).tint(Theme.accent)
         let (window,previous) = show(root)
         defer { window.isHidden = true; previous?.makeKeyAndVisible() }
@@ -78,7 +78,7 @@ import UIKit
             let root = ZStack {
                 RanyBackdropHost(ambience:ambience,reading:false,accountID:nil,assembly:1).ignoresSafeArea()
                 RanyLoginView(creatingAccount:creating)
-            }.environmentObject(store).environmentObject(store.downloads)
+            }.environment(store).environment(store.downloads)
                 .environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark)
             let (window,previous) = show(root)
             try await Task.sleep(nanoseconds:1_400_000_000)
@@ -89,7 +89,7 @@ import UIKit
     }
     func testCompletedNativePushAndPopKeepTabBar() async throws {
         let store = fixtureStore()
-        let root = RootView().environmentObject(store).environmentObject(store.downloads)
+        let root = RootView().environment(store).environment(store.downloads)
             .environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark)
         let (window,previous) = show(root)
         defer { window.isHidden = true; previous?.makeKeyAndVisible() }
@@ -98,7 +98,7 @@ import UIKit
             ((controller as? UINavigationController).map { [$0] } ?? []) + controller.children.flatMap(navigations)
         }
         let nav = try XCTUnwrap(navigations(window.rootViewController!).first { $0.viewIfLoaded?.window != nil })
-        let child = ActivityView().environmentObject(store).environmentObject(store.downloads)
+        let child = ActivityView().environment(store).environment(store.downloads)
         nav.pushViewController(UIHostingController(rootView:child),animated:true)
         try await Task.sleep(nanoseconds:900_000_000)
         XCTAssertEqual(nav.viewControllers.count,2)

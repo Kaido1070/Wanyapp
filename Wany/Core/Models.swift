@@ -259,3 +259,15 @@ func storyStatusLabel(_ value: String) -> String {
     default: return value
     }
 }
+
+// Stable list identity from a server field; duplicates or missing ids fall back to position.
+struct IdentifiedJSON: Identifiable { let id: String; let value: JSONValue }
+extension Array where Element == JSONValue {
+    func identified(by key: (JSONValue) -> String) -> [IdentifiedJSON] {
+        var seen = Set<String>()
+        return enumerated().map { index,value in
+            let id = key(value)
+            return IdentifiedJSON(id:!id.isEmpty && seen.insert(id).inserted ? id : "#position-\(index)",value:value)
+        }
+    }
+}

@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct AddStoriesToListView: View {
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     let id: String
     @StateObject private var page = CachedPage()

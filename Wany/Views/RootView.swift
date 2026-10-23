@@ -1,13 +1,13 @@
 import SwiftUI
 
 struct RootView: View {
-    @EnvironmentObject var store: AppStore
-    @EnvironmentObject var downloads: Downloads
+    @Environment(AppStore.self) private var store
+    @Environment(Downloads.self) private var downloads
     @State private var tabs = RanyTabNavigation()
     @State private var loginSheet = false
     var body: some View {
         Group {
-            if store.state == nil { LoginView() }
+            if store.accountID == nil { LoginView() }
             else {
                 TabView(selection:Binding(get:{ tabs.selection },set:{ tabs.select($0) })) {
                     ForEach(RanyTab.allCases,id:\.self) { tab in
@@ -26,7 +26,8 @@ struct RootView: View {
                 }
             }
         }
-        .onChange(of:store.state?.user.id) { _,_ in tabs.reset() }
+        .onChange(of:store.accountID) { _,_ in tabs.reset() }
+        .onChange(of:tabs.paths) { _,_ in store.holdBackdropForNavigation() }
         .sheet(isPresented:$loginSheet) { LoginView().onChange(of:store.loginRequired) { _,needed in if !needed { loginSheet = false } } }
         .alert(RanyIdentity.name,isPresented:Binding(get:{store.error != nil || downloads.notice != nil},set:{if !$0 { store.error = nil; downloads.notice = nil }})) { Button("حسنًا") { store.error = nil; downloads.notice = nil } } message: { Text(store.error ?? downloads.notice ?? "") }
     }

@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct StoryView: View {
-    @EnvironmentObject var store: AppStore
-    @EnvironmentObject var downloads: Downloads
+    @Environment(AppStore.self) private var store
+    @Environment(Downloads.self) private var downloads
     let initial: Story
     @State private var detail: Story?
     @State private var loading = false
@@ -50,7 +50,7 @@ struct StoryView: View {
                 }.frame(maxWidth:.infinity).padding(9)
             }.buttonStyle(.bordered).disabled(preparingUnread || downloads.preparing.contains(story.key) || !store.online)
             if let job = downloads.savedJobs.first(where:{$0.id == story.key}) { DownloadSummary(job:job).card() }
-            HStack { Text("الفصول · \(story.chapters?.count ?? 0)").font(RanyTypography.font(.title3).bold()); Spacer(); if loading { ProgressView() }; Button { ascending.toggle() } label: { Image(systemName:"arrow.up.arrow.down") }; Button(selecting ? "إلغاء" : "تحديد") { selecting.toggle(); selected.removeAll() } }
+            HStack { Text("الفصول · \(story.chapters?.count ?? 0)").font(RanyTypography.font(.title3).bold()); Spacer(); if loading { ProgressView() }; Button { ascending.toggle() } label: { Image(systemName:"arrow.up.arrow.down").frame(width:44,height:44).contentShape(Rectangle()) }.accessibilityLabel("عكس الترتيب"); Button(selecting ? "إلغاء" : "تحديد") { selecting.toggle(); selected.removeAll() }.frame(minHeight:44) }
             if let error { Text(error).font(RanyTypography.font(.caption)).foregroundStyle(.orange); Button("إعادة جلب قائمة الفصول") { Task { await refresh() } } }
             if !store.online { Text("التفاصيل محفوظة. الفصول بعلامة ✓ متاحة بدون إنترنت؛ الفصول الناقصة تحتاج اتصالًا لاستكمال الصور.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
             TextField("ابحث برقم الفصل أو عنوانه",text:$query).textFieldStyle(.plain).padding(13).ranyInsetGlass(radius:14).keyboardType(.default)
@@ -60,12 +60,12 @@ struct StoryView: View {
             LazyVStack(spacing:2) {
                 ForEach(chapters) { chapter in
                     HStack {
-                        if selecting { Button { if selected.contains(chapter.id) { selected.remove(chapter.id) } else { selected.insert(chapter.id) } } label: { Image(systemName:selected.contains(chapter.id) ? "checkmark.circle.fill" : "circle") } }
+                        if selecting { Button { if selected.contains(chapter.id) { selected.remove(chapter.id) } else { selected.insert(chapter.id) } } label: { Image(systemName:selected.contains(chapter.id) ? "checkmark.circle.fill" : "circle").frame(width:44,height:44).contentShape(Rectangle()) } }
                         WanyLink(.reader(story,chapter)) {
                             VStack(alignment:.leading,spacing:5) { Text(chapter.title).font(RanyTypography.font(.subheadline)); if store.state?.data.completed.contains(story.key+":"+chapter.id) == true { Text("مقروء").font(RanyTypography.font(.caption2)).foregroundStyle(Theme.accent) } }.frame(maxWidth:.infinity,alignment:.leading).foregroundStyle(.primary)
                         }
                         if downloads.savedJobs.first(where:{$0.id == story.key})?.chapters.first(where:{$0.id == chapter.id})?.complete == true { Image(systemName:"checkmark.circle.fill").foregroundStyle(.green) }
-                        else { Button { Task { await downloads.enqueue(story,chapters:[chapter]) } } label: { Image(systemName:"arrow.down.circle").font(RanyTypography.font(.title3)) }.disabled(!store.online) }
+                        else { Button { Task { await downloads.enqueue(story,chapters:[chapter]) } } label: { Image(systemName:"arrow.down.circle").font(RanyTypography.font(.title3)).frame(width:44,height:44).contentShape(Rectangle()) }.disabled(!store.online).accessibilityLabel("تحميل الفصل") }
                     }.padding(14).ranyInsetGlass(radius:12)
                 }
             }

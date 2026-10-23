@@ -114,7 +114,7 @@ struct RanyMark: View {
 }
 
 struct RanyLoginView: View {
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var modeHighlight
     @State private var creating = false

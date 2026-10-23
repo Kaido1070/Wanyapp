@@ -2,8 +2,8 @@ import SwiftUI
 import ImageIO
 
 struct ReaderView: View {
-    @EnvironmentObject var store: AppStore
-    @EnvironmentObject var downloads: Downloads
+    @Environment(AppStore.self) private var store
+    @Environment(Downloads.self) private var downloads
     @Environment(\.dismiss) var dismiss
     let story: Story
     let chapter: Chapter
@@ -123,7 +123,14 @@ struct ReaderView: View {
             savePosition()
         }
     }
-    func cachedRatios(_ value: ChapterPayload, owner: String) -> [Int:CGFloat] {
+}
+
+// Page aspect ratios come from metadata and local image headers; read them off the main thread.
+enum ReaderPageRatios {
+    static func read(_ value: ChapterPayload, owner: String) async -> [Int:CGFloat] {
+        await Task.detached(priority:.userInitiated) { ReaderPageRatios.compute(value,owner:owner) }.value
+    }
+    private static func compute(_ value: ChapterPayload, owner: String) -> [Int:CGFloat] {
         var result: [Int:CGFloat] = [:]
         for index in value.pages.indices {
             if let metadata = value.pageMeta, metadata.indices.contains(index), let w = metadata[index].width, let h = metadata[index].height, w > 0, h > 0 { result[index] = CGFloat(h/w) }
@@ -135,6 +142,9 @@ struct ReaderView: View {
         }
         return result
     }
+}
+
+extension ReaderView {
     func savePosition() {
         guard let payload, interacted else { return }
         let complete = payload.pages.indices.allSatisfy { downloads.pageURL(payload,index:$0) != nil }
@@ -156,11 +166,15 @@ struct ReaderView: View {
     }
     func load() async {
         error = nil
-        guard let owner = store.state?.user.id else { return }
+        guard let owner = store.accountID else { return }
         let requested = readingChapter
         let id = story.key+":"+requested.id
-        if let saved = Disk.read(ChapterPayload.self,owner:owner,name:Disk.chapterName(id)) {
-            pageRatios = cachedRatios(saved,owner:owner)
+        let cached = await Task.detached(priority:.userInitiated) { Disk.read(ChapterPayload.self,owner:owner,name:Disk.chapterName(id)) }.value
+        guard !Task.isCancelled, readingChapter.id == requested.id else { return }
+        if let saved = cached {
+            let ratios = await ReaderPageRatios.read(saved,owner:owner)
+            guard !Task.isCancelled, readingChapter.id == requested.id else { return }
+            pageRatios = ratios
             payload = saved; currentPage = restoredPage(saved)
             downloads.usePayload(saved)
             return
@@ -169,7 +183,9 @@ struct ReaderView: View {
         do {
             let value = try await API.shared.chapter(story.key,requested)
             guard !Task.isCancelled, readingChapter.id == requested.id, store.state?.user.id == owner else { return }
-            pageRatios = cachedRatios(value,owner:owner)
+            let ratios = await ReaderPageRatios.read(value,owner:owner)
+            guard !Task.isCancelled, readingChapter.id == requested.id else { return }
+            pageRatios = ratios
             payload = value; currentPage = restoredPage(value); downloads.usePayload(value); store.remember(value.item)
         } catch { if !Task.isCancelled, readingChapter.id == requested.id { self.error = error.localizedDescription } }
     }

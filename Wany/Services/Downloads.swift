@@ -1,7 +1,7 @@
 import Foundation
 import UIKit
 import ImageIO
-import Combine
+import Observation
 
 final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     var progress: ((TransferTag, Int64, Int64, Int64) -> Void)?
@@ -39,22 +39,23 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) { backgroundFinished?() }
 }
 
-@MainActor final class Downloads: ObservableObject {
+// Observation keeps transfer churn local: only screens that read jobs re-render,
+// and byte progress is folded into jobs at most once per second.
+@MainActor @Observable final class Downloads {
     static let shared = Downloads()
-    @Published private(set) var jobs: [DownloadJob] = []
-    @Published private(set) var speed: Int64 = 0
-    @Published private(set) var revision = 0
-    @Published var notice: String?
-    @Published var preparing: Set<String> = []
+    private(set) var jobs: [DownloadJob] = []
+    private(set) var speed: Int64 = 0
+    private(set) var revision = 0
+    var notice: String?
+    var preparing: Set<String> = []
     var owner: String?
     var online = true
     var onWiFi = true
-    var wifiOnly: Bool {
-        get { UserDefaults.standard.bool(forKey:"wifiOnly") }
-        set { UserDefaults.standard.set(newValue,forKey:"wifiOnly"); updateNetwork() }
+    var wifiOnly: Bool = UserDefaults.standard.bool(forKey:"wifiOnly") {
+        didSet { UserDefaults.standard.set(wifiOnly,forKey:"wifiOnly"); updateNetwork() }
     }
-    private let delegate = TransferDelegate()
-    private lazy var session: URLSession = {
+    @ObservationIgnored private let delegate = TransferDelegate()
+    @ObservationIgnored private lazy var session: URLSession = {
         let c = URLSessionConfiguration.background(withIdentifier:"site.wany.ios.downloads.v1")
         c.httpMaximumConnectionsPerHost = 3
         c.isDiscretionary = false
@@ -63,14 +64,14 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         c.httpShouldSetCookies = false
         return URLSession(configuration:c,delegate:delegate,delegateQueue:nil)
     }()
-    private var active: [String: URLSessionDownloadTask] = [:]
-    private var workers: [String: Task<Void,Never>] = [:]
-    private var workerTokens: [String:UUID] = [:]
-    private var speedSamples: [(Date,Int64,String)] = []
-    var readerPriority: String?
-    var quality: ImageQuality {
-        get { ImageQuality(rawValue:UserDefaults.standard.string(forKey:"imageQuality") ?? "balanced") ?? .balanced }
-        set { UserDefaults.standard.set(newValue.rawValue,forKey:"imageQuality"); objectWillChange.send() }
+    @ObservationIgnored private var active: [String: URLSessionDownloadTask] = [:]
+    @ObservationIgnored private var workers: [String: Task<Void,Never>] = [:]
+    @ObservationIgnored private var workerTokens: [String:UUID] = [:]
+    @ObservationIgnored private var speedSamples: [(Date,Int64,String)] = []
+    @ObservationIgnored private var liveBytes: [String:(TransferTag,Int64,Int64)] = [:]
+    @ObservationIgnored var readerPriority: String?
+    var quality: ImageQuality = ImageQuality(rawValue:UserDefaults.standard.string(forKey:"imageQuality") ?? "balanced") ?? .balanced {
+        didSet { UserDefaults.standard.set(quality.rawValue,forKey:"imageQuality") }
     }
     var savedJobs: [DownloadJob] {
         jobs.compactMap { job in
@@ -79,11 +80,11 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         }
     }
     var temporaryBytes: Int64 { jobs.flatMap(\.chapters).filter { !$0.saved }.flatMap(\.images).reduce(0) { $0 + $1.bytes } }
-    @Published private(set) var compacting = false
-    @Published private(set) var compactProgress = ""
-    private var lastSaved = Date.distantPast
-    private var restored = false
-    var backgroundCompletion: (() -> Void)?
+    private(set) var compacting = false
+    private(set) var compactProgress = ""
+    @ObservationIgnored private var lastSaved = Date.distantPast
+    @ObservationIgnored private var restored = false
+    @ObservationIgnored var backgroundCompletion: (() -> Void)?
     private init() {
         delegate.progress = { tag,delta,total,expected in Task { @MainActor in self.didProgress(tag,delta:delta,total:total,expected:expected) } }
         delegate.finished = { tag,bytes,error,optimized in Task { @MainActor in self.didFinish(tag,bytes:bytes,error:error,optimized:optimized) } }
@@ -106,7 +107,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         // Logout suspends existing transfers. Their account-tagged files cannot enter another account.
         for (key, task) in active where !key.hasPrefix((userID ?? "<none>") + ":") { task.suspend() }
         readerPriority = nil
-        owner = userID; speedSamples.removeAll(); speed = 0
+        owner = userID; speedSamples.removeAll(); liveBytes.removeAll(); speed = 0
         jobs = userID.flatMap { Disk.read([DownloadJob].self,owner:$0,name:"downloads.json") } ?? []
         if let userID {
             for j in jobs.indices { for c in jobs[j].chapters.indices { for i in jobs[j].chapters[c].images.indices {
@@ -367,23 +368,36 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         }
     }
     func speedFor(_ job: String) -> Int64 {
+        _ = speed // Observed once per second, so a visible summary refreshes even while bytes stall.
         let samples = speedSamples.filter { $0.2 == job && $0.0 > Date().addingTimeInterval(-4) }
         return Int64(Double(samples.reduce(0) { $0 + $1.1 }) / max(1,Date().timeIntervalSince(samples.first?.0 ?? Date())))
     }
     private func updateSpeed() {
         let cutoff = Date().addingTimeInterval(-4); speedSamples.removeAll { $0.0 < cutoff }
         let duration = max(1,Date().timeIntervalSince(speedSamples.first?.0 ?? Date()))
-        speed = Int64(Double(speedSamples.reduce(0) { $0 + $1.1 }) / duration)
+        let value = Int64(Double(speedSamples.reduce(0) { $0 + $1.1 }) / duration)
+        if speed != value { speed = value }
+        flushProgress()
+    }
+    // Fold buffered byte counts into the observed jobs once per tick.
+    private func flushProgress() {
+        guard !liveBytes.isEmpty else { return }
+        let pending = liveBytes; liveBytes.removeAll()
+        for (tag,total,expected) in pending.values {
+            guard tag.owner == owner, let j = jobs.firstIndex(where:{$0.id == tag.job}), let c = jobs[j].chapters.firstIndex(where:{$0.id == tag.chapter}), let i = jobs[j].chapters[c].images.firstIndex(where:{$0.file == tag.image}), !jobs[j].chapters[c].images[i].done else { continue }
+            jobs[j].chapters[c].images[i].bytes = total
+            if expected > 0 { jobs[j].chapters[c].images[i].expected = expected }
+        }
+        if Date().timeIntervalSince(lastSaved) > 2 { persist() }
     }
     private func didProgress(_ tag: TransferTag, delta: Int64, total: Int64, expected: Int64) {
-        guard tag.owner == owner, let j = jobs.firstIndex(where:{$0.id == tag.job}), let c = jobs[j].chapters.firstIndex(where:{$0.id == tag.chapter}), let i = jobs[j].chapters[c].images.firstIndex(where:{$0.file == tag.image}) else { return }
-        jobs[j].chapters[c].images[i].bytes = total
-        if expected > 0 { jobs[j].chapters[c].images[i].expected = expected }
-        speedSamples.append((Date(),delta,tag.job)); updateSpeed()
-        if Date().timeIntervalSince(lastSaved) > 2 { persist() }
+        guard tag.owner == owner else { return }
+        liveBytes[tag.owner+":"+tag.image] = (tag,total,expected)
+        speedSamples.append((Date(),delta,tag.job))
     }
     private func didFinish(_ tag: TransferTag, bytes: Int64, error: String?, optimized: Bool) {
         active.removeValue(forKey:tag.owner+":"+tag.image)
+        liveBytes.removeValue(forKey:tag.owner+":"+tag.image)
         if tag.owner != owner {
             // A suspended account may receive one last callback. Persist it only in its own directory.
             var other = Disk.read([DownloadJob].self,owner:tag.owner,name:"downloads.json") ?? []

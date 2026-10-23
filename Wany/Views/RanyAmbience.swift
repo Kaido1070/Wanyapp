@@ -136,11 +136,13 @@ struct RanyBackdrop: View {
     var reading = false
     var accountID: String?
     var assembly: Double = 1
+    var held = false
     @AppStorage(RanyAppearanceKeys.background) private var enabled = true
     @State private var elapsed: TimeInterval = 0
     @State private var resumedAt = Date()
     @State private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
-    private var paused: Bool { !enabled || reading || scenePhase != .active || reduceMotion || reduceTransparency || lowPower }
+    // Scrolling and page transitions freeze the circuit in place; it resumes from the same position.
+    private var paused: Bool { !enabled || reading || held || scenePhase != .active || reduceMotion || reduceTransparency || lowPower }
     var body: some View {
         let visibleImages = ambience.displayImages(accountID:accountID)
         ZStack {
@@ -197,6 +199,7 @@ struct RanyBackdropHost: UIViewControllerRepresentable {
     let reading: Bool
     let accountID: String?
     let assembly: Double
+    var held = false
     func makeUIViewController(context: Context) -> UIHostingController<AnyView> {
         let controller = UIHostingController(rootView:scene(context))
         controller.view.backgroundColor = .clear
@@ -208,7 +211,7 @@ struct RanyBackdropHost: UIViewControllerRepresentable {
         withTransaction(context.transaction) { controller.rootView = scene(context) }
     }
     private func scene(_ context: Context) -> AnyView {
-        AnyView(RanyBackdrop(ambience:ambience,reading:reading,accountID:accountID,assembly:assembly)
+        AnyView(RanyBackdrop(ambience:ambience,reading:reading,accountID:accountID,assembly:assembly,held:held)
             .environment(\.self,context.environment))
     }
 }

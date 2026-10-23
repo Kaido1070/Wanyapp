@@ -2,7 +2,7 @@ import SwiftUI
 import ImageIO
 
 struct DiscoverView: View {
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
     @State private var source = "all"
     @State private var mode = "latest"
     @State private var query = ""
@@ -15,6 +15,7 @@ struct DiscoverView: View {
     @State private var busy = false
     @State private var message: String?
     @State private var requestToken = UUID()
+    @State private var wideKeys: Set<String> = []
     var requestKey: String { source + "|" + mode + "|" + submittedQuery }
     var hasMore: Bool { !more.isEmpty || !failed.isEmpty }
     var body: some View {
@@ -32,24 +33,33 @@ struct DiscoverView: View {
             }.card()
             Picker("ترتيب",selection:$mode) { Text("الأحدث").tag("latest"); Text("الأكثر شعبية").tag("popular") }.pickerStyle(.segmented)
             if let message { Text(message).font(RanyTypography.font(.caption)).foregroundStyle(.orange) }
-            let featured = items.filter { isWideCover($0) }
+            let featured = items.filter { wideKeys.contains($0.key) }
             if !featured.isEmpty { DiscoverFeaturedStories(stories:featured) }
-            StoryGrid(stories:items.filter { !isWideCover($0) })
+            StoryGrid(stories:items.filter { !wideKeys.contains($0.key) })
             if busy { ProgressView("جاري تحميل القصص") }
             if hasMore && !busy { Button("تحميل المزيد") { Task { await load(reset:false) } }.buttonStyle(.bordered) }
         }.task(id:requestKey) { await load(reset:true) }.refreshable { await load(reset:true) }
+        .task(id:WideCoverRequest(keys:items.map(\.key),revision:store.coverRevision)) { await measureWideCovers() }
         .task(id:items.map(\.cover)) {
             // Warm the first covers so wide artwork can move into the carousel before scrolling.
             for story in items.prefix(28) { guard !Task.isCancelled else { return }; await store.cacheCover(story) }
         }
     }
-    func isWideCover(_ story: Story) -> Bool {
-        guard let owner = store.state?.user.id,
-              let image = CGImageSourceCreateWithURL(Disk.file(owner,Disk.coverName(story.key)) as CFURL,nil),
-              let properties = CGImageSourceCopyPropertiesAtIndex(image,0,nil) as? [CFString:Any],
-              let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
-              let height = properties[kCGImagePropertyPixelHeight] as? NSNumber else { return false }
-        return DiscoverResults.isWideCover(width:width.doubleValue,height:height.doubleValue)
+    // Cover dimensions come from file headers; read them off the main thread, never in body.
+    private func measureWideCovers() async {
+        guard let owner = store.accountID else { wideKeys = []; return }
+        let files = items.map { ($0.key,Disk.file(owner,Disk.coverName($0.key))) }
+        let wide = await Task.detached(priority:.utility) { () -> Set<String> in
+            Set(files.compactMap { key,url in
+                guard let image = CGImageSourceCreateWithURL(url as CFURL,nil),
+                      let properties = CGImageSourceCopyPropertiesAtIndex(image,0,nil) as? [CFString:Any],
+                      let width = properties[kCGImagePropertyPixelWidth] as? NSNumber,
+                      let height = properties[kCGImagePropertyPixelHeight] as? NSNumber,
+                      DiscoverResults.isWideCover(width:width.doubleValue,height:height.doubleValue) else { return nil }
+                return key
+            })
+        }.value
+        if !Task.isCancelled, wide != wideKeys { wideKeys = wide }
     }
     func search() {
         let value = query.trimmingCharacters(in:.whitespacesAndNewlines)
@@ -92,6 +102,7 @@ struct DiscoverView: View {
         }
     }
 }
+private struct WideCoverRequest: Hashable { let keys: [String]; let revision: Int }
 struct DiscoverFeaturedStories: View {
     let stories: [Story]
     @State private var selected: String?
@@ -118,7 +129,7 @@ struct DiscoverFeaturedStories: View {
     }
 }
 struct FeedView: View {
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
     let kind: String
     @State private var followed = false
     @State private var visible = 20
@@ -154,7 +165,7 @@ struct FeedView: View {
     }
 }
 struct SourceChapterDestination: View {
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
     let key: String; let chapter: Chapter; let fallback: Story
     @State private var story: Story?
     @State private var message: String?
@@ -167,7 +178,7 @@ struct SourceChapterDestination: View {
     }
 }
 struct ProfileView: View {
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
     @State private var tab = "reading"
     @StateObject private var lists = CachedPage()
     @StateObject private var selectedList = CachedPage()
@@ -206,8 +217,8 @@ struct ProfileView: View {
         .sheet(isPresented:$pickingAvatar) {
             NavigationStack {
                 AvatarPickerView(onSelect:{ avatarID in draftAvatarID = avatarID },initialAvatarID:draftAvatarID)
-                    .environmentObject(store)
-                    .environmentObject(store.downloads)
+                    .environment(store)
+                    .environment(store.downloads)
                     .toolbar { ToolbarItem(placement:.topBarLeading) { Button("إغلاق") { pickingAvatar = false } } }
             }.preferredColorScheme(.dark)
         }
@@ -249,7 +260,7 @@ struct ProfileView: View {
                     if editingProfile {
                         Button { editingName = true; nameFocused = true } label: {
                             Image(systemName:"pencil").font(.system(size:12,weight:.medium))
-                                .foregroundStyle(Theme.accent).frame(width:32,height:34)
+                                .foregroundStyle(Theme.accent).frame(width:44,height:44).contentShape(Rectangle())
                         }.buttonStyle(.plain).accessibilityLabel("تغيير الاسم الظاهر")
                             .accessibilityIdentifier("profile.name-edit")
                     } else {
@@ -314,7 +325,7 @@ struct ProfileView: View {
                         WanyLink(.stats) { accountTool("الإحصائيات","chart.xyaxis.line") }
                         WanyLink(.friends) { accountTool("الأصدقاء","person.2") }
                         WanyLink(.activity) { accountTool("النشاط","clock") }
-                    }.buttonStyle(.plain)
+                    }.buttonStyle(.plain).ranyGlassGroup()
                     HStack {
                         stat("قصة في مكتبتي",state.data.library.count)
                         Divider().frame(height:32)
@@ -356,7 +367,7 @@ struct ProfileView: View {
                 }
                 if tab == "lists" {
                     ScrollView(.horizontal,showsIndicators:false) {
-                        HStack(spacing:12) { ForEach(Array(lists.value["lists"].array.enumerated()),id:\.offset) { _,list in
+                        HStack(spacing:12) { ForEach(lists.value["lists"].array.identified { $0["id"].string }) { row in let list = row.value
                             Button { listID = list["id"].string } label: { Text(list["name"].string).font(RanyTypography.font(.subheadline)).padding(.horizontal,16).frame(minHeight:48).background(listID == list["id"].string ? Theme.accent.opacity(0.25) : Theme.surface.opacity(0.22),in:Capsule()).contentShape(Capsule()) }.buttonStyle(.plain)
                         } }
                     }
@@ -399,7 +410,7 @@ struct ProfileView: View {
     private func accountTool(_ title: String,_ icon: String) -> some View { Label(title,systemImage:icon).font(.caption).foregroundStyle(Theme.accent).frame(maxWidth:.infinity,minHeight:44).ranyInsetGlass(radius:10).contentShape(Rectangle()) }
 }
 struct ProfileAvatar: View {
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
     let user: Account
     @State private var image: UIImage?
     var body: some View {
@@ -420,7 +431,7 @@ struct ProfileAvatar: View {
     }
 }
 struct StatsView: View {
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
     let fields = [("storiesRead","القصص المقروءة"),("organicChapters","الفصول المقروءة"),("organicCompletedChapters","الفصول المكتملة"),("bulkChapters","الفصول المحددة دفعة واحدة"),("activeDays","أيام القراءة"),("dailyAverage","المعدل اليومي"),("currentStreak","سلسلة الأيام الحالية"),("bestStreak","أفضل سلسلة"),("accountDays","عمر الحساب بالأيام")]
     var body: some View {
         WanyScroll {

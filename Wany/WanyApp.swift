@@ -8,17 +8,17 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 }
 @main struct WanyApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var delegate
-    @StateObject private var store = AppStore()
+    @State private var store = AppStore()
     @Environment(\.scenePhase) private var phase
     init() { RanyTypography.registerFont() }
     var body: some Scene {
         WindowGroup {
-            RanyExperience().environmentObject(store).environmentObject(store.downloads)
+            RanyExperience().environment(store).environment(store.downloads)
                 .environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark).tint(Theme.accent)
                 .task { await store.refresh() }
                 .onChange(of:phase) { _,phase in
                     if phase == .active { Task { await store.refresh() }; store.downloads.updateNetwork() }
-                    else { store.persist(); store.downloads.persist() }
+                    else { store.persistNow(); store.downloads.persist() }
                 }
         }
     }

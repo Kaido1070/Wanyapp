@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import ImageIO
 
 enum Theme {
@@ -11,18 +12,19 @@ struct WanyCard: ViewModifier {
 }
 extension View { func card() -> some View { modifier(WanyCard()) } }
 struct WanyScroll<Content: View>: View {
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
     @Environment(\.ranyScrollToTop) private var scrollToTop
     @State private var scrollDirection = ReaderScrollDirection(revealDistance:192)
     let content: Content
     init(@ViewBuilder content: ()->Content) { self.content = content() }
     var body: some View {
         ScrollView {
-            VStack(spacing:18) { content }
-                .ranyGlassGroup()
+            // Lazy: long feeds, downloads and lists only build the rows near the viewport.
+            LazyVStack(spacing:18) { content }
                 .padding(.horizontal,18)
                 .padding(.bottom,32)
                 .background(ReaderScrollObserver(scrollToTop:scrollToTop) { offset, moving in
+                    store.setScrolling(moving)
                     if let visible = scrollDirection.update(offset:offset,userScrolling:moving), store.chromeHidden == visible {
                         withAnimation(.easeInOut(duration:0.22)) { store.chromeHidden = !visible }
                     }
@@ -34,23 +36,52 @@ struct WanyScroll<Content: View>: View {
             scrollDirection = ReaderScrollDirection(revealDistance:192)
             store.chromeHidden = false
         }
+        .onDisappear { store.setScrolling(false) }
         .background(Color.clear).ranyClearNavigation()
     }
 }
+// Covers are decoded off the main thread as thumbnails sized to their slot and kept
+// in memory. The slot keeps its size while loading, so nothing jumps.
+enum RanyCoverCache {
+    private static let cache: NSCache<NSString,UIImage> = { let cache = NSCache<NSString,UIImage>(); cache.countLimit = 400; return cache }()
+    static func cached(_ key: String) -> UIImage? { cache.object(forKey:key as NSString) }
+    static func load(_ url: URL, key: String, maxPixel: CGFloat) async -> UIImage? {
+        if let image = cached(key) { return image }
+        let image = await Task.detached(priority:.userInitiated) { () -> UIImage? in
+            guard let source = CGImageSourceCreateWithURL(url as CFURL,nil),
+                  let cg = CGImageSourceCreateThumbnailAtIndex(source,0,[kCGImageSourceCreateThumbnailFromImageAlways:true,kCGImageSourceCreateThumbnailWithTransform:true,
+                    kCGImageSourceShouldCacheImmediately:true,kCGImageSourceThumbnailMaxPixelSize:max(1,maxPixel)] as CFDictionary) else { return nil }
+            return UIImage(cgImage:cg)
+        }.value
+        if let image { cache.setObject(image,forKey:key as NSString) }
+        return image
+    }
+}
 struct CoverView: View {
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
+    @Environment(\.displayScale) private var displayScale
     let story: Story
+    @State private var image: UIImage?
     var body: some View {
         GeometryReader { geometry in
-            Group {
-                if let owner = store.state?.user.id, let image = UIImage(contentsOfFile:Disk.file(owner,Disk.coverName(story.key)).path) { Image(uiImage:image).resizable().scaledToFill() }
-                else { ZStack { Theme.surface; Image(systemName:"book.closed").font(RanyTypography.font(.largeTitle)).foregroundStyle(Theme.accent.opacity(0.6)) } }
+            let pixel = ceil(max(geometry.size.width,geometry.size.height)*displayScale/40)*40
+            ZStack {
+                if let image { Image(uiImage:image).resizable().scaledToFill() }
+                else { Theme.surface; Image(systemName:"book.closed").font(RanyTypography.font(.largeTitle)).foregroundStyle(Theme.accent.opacity(0.6)) }
             }.frame(width:geometry.size.width,height:geometry.size.height).clipped()
+            .task(id:CoverRequest(owner:store.accountID,key:story.key,cover:story.cover,pixel:pixel,revision:store.coverRevision)) {
+                guard let owner = store.accountID, pixel > 0 else { image = nil; return }
+                let cacheKey = owner+"|"+story.key+"|"+story.cover+"|\(Int(pixel))"
+                if let cached = RanyCoverCache.cached(cacheKey) { image = cached; return }
+                let loaded = await RanyCoverCache.load(Disk.file(owner,Disk.coverName(story.key)),key:cacheKey,maxPixel:pixel)
+                if !Task.isCancelled, let loaded { image = loaded }
+            }
         }.task(id:story.cover) { await store.cacheCover(story) }
     }
 }
+private struct CoverRequest: Hashable { let owner: String?; let key: String; let cover: String; let pixel: CGFloat; let revision: Int }
 struct StoryCard: View {
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
     let story: Story
     var showReadingProgress = false
     var body: some View {
@@ -91,7 +122,7 @@ struct AccountBadge: View {
         if kind == "crown" || kind == "verified" {
             Button { explaining = true } label: {
                 Image(kind == "crown" ? "crown" : "verified").resizable().frame(width:22,height:22)
-                    .padding(5).contentShape(Rectangle())
+                    .frame(width:44,height:44).contentShape(Rectangle())
             }.buttonStyle(.borderless)
                 .highPriorityGesture(TapGesture().onEnded { explaining = true })
                 .accessibilityLabel(kind == "crown" ? "Owner، مالك التطبيق" : "Beta Tester، مشارك في التجربة المبكرة")

@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct DownloadSummary: View {
-    @EnvironmentObject var downloads: Downloads
+    @Environment(Downloads.self) private var downloads
     let job: DownloadJob
     var body: some View {
         VStack(alignment:.leading,spacing:12) {
@@ -31,7 +31,7 @@ struct DownloadSummary: View {
     }
 }
 struct DownloadsView: View {
-    @EnvironmentObject var downloads: Downloads
+    @Environment(Downloads.self) private var downloads
     @State private var removing: String?
     @State private var filter = "الكل"
     var body: some View {

@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct RanyProgressStatus: View {
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
     private var status: RanyProgressState {
         RanyProgressState.resolve(locallySaved:!store.localSaveFailed,
             confirmed:store.state?.lastSynced != nil,
@@ -14,7 +14,7 @@ struct RanyProgressStatus: View {
             Text(status.label).font(.caption)
             Spacer(minLength:0)
             Button { Task { await store.refresh() } } label: {
-                Image(systemName:"arrow.clockwise").frame(width:44,height:32).contentShape(Rectangle())
+                Image(systemName:"arrow.clockwise").frame(width:44,height:44).contentShape(Rectangle())
             }.disabled(!store.online || store.syncing).accessibilityLabel("مزامنة تقدم القراءة")
         }.foregroundStyle(status == .saveFailed ? Color.orange : Color.secondary)
             .accessibilityIdentifier("profile.progress-status")
@@ -22,7 +22,7 @@ struct RanyProgressStatus: View {
 }
 
 struct ProfileEditView: View {
-    @EnvironmentObject var store: AppStore
+    @Environment(AppStore.self) private var store
     @State private var name = ""
     @State private var busy = false
     var body: some View {

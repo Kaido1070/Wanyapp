@@ -63,3 +63,12 @@ Automated checks cover download accounting, persistent account separation, progr
 - Enable Reduce Transparency: every custom glass surface becomes a solid readable surface.
 - Reader bar over bright and dark pages: title, page count and buttons stay legible; every button is at least 44 pt.
 - Confirm the IPA Info.plist has no UIDesignRequiresCompatibility key.
+
+## Performance (1.4.2+)
+
+- Scroll Discover, FYP and the profile library fast on an older iPhone: covers appear without layout jumps; the placeholder keeps the cover's exact size. Return to a visited page: covers are already there.
+- Watch the animated cover wallpaper: it freezes while scrolling and during push/pop, resumes from the same place afterwards, and never runs in the reader.
+- Start a multi-chapter download and open the profile and Discover tabs: they must stay smooth; the Downloads summary updates about once a second.
+- Generate FYP and the New feed: the UI keeps responding to scrolling and taps while the feed is being prepared.
+- Open a large downloaded chapter offline and a long story chapter list: the reader opens without a stall, and progress is still saved after killing the app from the background.
+- Instruments (Time Profiler, SwiftUI): no JSON decoding, image decoding or file writes on the main thread during scrolling or reading.
