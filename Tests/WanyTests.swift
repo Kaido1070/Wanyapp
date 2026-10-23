@@ -323,13 +323,13 @@ final class WanyTests: XCTestCase {
         let restored = try XCTUnwrap(Disk.read([DownloadJob].self,owner:owner,name:"downloads.json")?.first)
         XCTAssertTrue(restored.paused); XCTAssertTrue(restored.chapters[0].images[0].done); XCTAssertEqual(restored.chapters[0].images[1].attempts,3)
     }
-    @MainActor func testAPIUsesWanyOriginAndCorrectImageReferer() throws {
+    @MainActor func testAPIUsesCurrentOriginAndCorrectImageReferer() throws {
         let request = try API.shared.imageRequest(source:"teamx",url:"https://example.com/thumbnail_a.webp",referer:"https://example.com/chapter")
         let c = try XCTUnwrap(URLComponents(url:request.url!,resolvingAgainstBaseURL:false))
-        XCTAssertEqual(c.host,"wany.site"); XCTAssertEqual(c.path,"/api/source/image")
+        XCTAssertEqual(c.host,"rany.lat"); XCTAssertEqual(c.path,"/api/source/image")
         XCTAssertEqual(c.queryItems?.first(where:{$0.name == "referer"})?.value,"https://example.com/chapter")
         XCTAssertEqual(c.queryItems?.first(where:{$0.name == "url"})?.value,"https://example.com/a.webp")
-        XCTAssertEqual(request.value(forHTTPHeaderField:"Origin"),"https://wany.site")
+        XCTAssertEqual(request.value(forHTTPHeaderField:"Origin"),"https://rany.lat")
     }
 
     func testNewerWebsiteProgressClearsStaleLocalPage() {

@@ -1,6 +1,9 @@
 import Foundation
 
-let website = URL(string: "https://wany.site")!
+let website = URL(string: "https://rany.lat")!
+// Hosts the service answered on before; saved absolute URLs from them are
+// rewritten to the current origin instead of following a redirect.
+let legacyWebsiteHosts: Set<String> = ["wany.site","www.wany.site"]
 let sources = ["mangatime", "teamx", "3asq", "starzmanga", "xsano", "mangalik", "azora"]
 func chapterNumber(_ n: Double) -> String { n.rounded() == n ? String(format: "%.0f", n) : String(n) }
 // Sources often repeat the number inside the title ("الفصل 355.2 355.2"). Show the

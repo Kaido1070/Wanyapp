@@ -84,6 +84,8 @@ import UIKit
         let request=try api.imageRequest(source:"teamx",url:"https://wany.site/api/source/image?source=teamx&url=https%3A%2F%2Fexample.com%2Fpage.jpg&quality=balanced",quality:.original)
         let items=try XCTUnwrap(URLComponents(url:try XCTUnwrap(request.url),resolvingAgainstBaseURL:false)?.queryItems)
         XCTAssertEqual(items.first { $0.name == "quality" }?.value,"original")
+        XCTAssertEqual(request.url?.host,"rany.lat","A saved URL on the old host is requested on the current origin, not through its redirect.")
+        XCTAssertEqual(request.url?.path,"/api/source/image"); XCTAssertEqual(items.first { $0.name == "url" }?.value,"https://example.com/page.jpg")
     }
     func testQualityReplacementPreservesOfflineCopyUntilSuccessfulTransfer() throws {
         let downloads=Downloads.shared,oldOwner=downloads.owner,oldOnline=downloads.online

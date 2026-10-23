@@ -68,8 +68,16 @@ struct APIError: LocalizedError {
     func send<T: Encodable>(_ path: String, method: String = "POST", value: T) async throws {
         _ = try await raw(path,method:method,body:JSONEncoder().encode(value))
     }
-    func imageRequest(source: String, url: String, referer: String? = nil, quality: ImageQuality? = nil) throws -> URLRequest {
-        if url.hasPrefix("/api/work-snapshots/cover") {
+    // Saved payloads and caches may hold absolute URLs on our own current or old
+    // host; reduce them to a path so they are requested on the current origin.
+    static func ownPath(_ url: String) -> String {
+        guard let components = URLComponents(string:url), let host = components.host?.lowercased(),
+              host == website.host || legacyWebsiteHosts.contains(host), components.path.hasPrefix("/api/") else { return url }
+        return components.path + (components.percentEncodedQuery.map { "?" + $0 } ?? "")
+    }
+    func imageRequest(source: String, url rawURL: String, referer: String? = nil, quality: ImageQuality? = nil) throws -> URLRequest {
+        let url = API.ownPath(rawURL)
+        if url.hasPrefix("/api/work-snapshots/cover") || url.hasPrefix("/api/source/image") {
             let components = URLComponents(string:url)!
             var q: [String:String] = [:]; components.queryItems?.forEach { q[$0.name] = $0.value }
             if components.path == "/api/source/image", let quality { q["quality"]=quality.rawValue }

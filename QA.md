@@ -130,3 +130,8 @@ Automated checks cover download accounting, persistent account separation, progr
 
 - Browse login, sign-up, profile, lists, story, statistics, achievements, security and سجل التحديثات: no text says Wany or mentions the website; every name reads Rany.
 - Achievements: the 5,000-chapter trophy reads «أسطورة Rany».
+
+## 1.4.12
+
+- Sign in, read a chapter, mark a chapter read, add to favourites: each saves and survives an app restart (all requests go directly to the current service origin).
+- Previously downloaded chapters and cached covers still open, including ones saved before this update.
