@@ -171,6 +171,42 @@ struct StoryReadingTools: View {
         .accessibilityIdentifier("reading.tools")
     }
 }
+
+struct ChapterReadingTools: View {
+    let completed: Bool
+    let disabled: Bool
+    let markRead: () -> Void
+    let markUnread: () -> Void
+
+    var body: some View {
+        Button(action:completed ? markUnread : markRead) {
+            Text(completed ? "مقروء ✓" : "غير مقروء")
+                .font(RanyTypography.font(.footnote))
+                .frame(minWidth:72,minHeight:44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).foregroundStyle(Theme.accent)
+        .overlay(RoundedRectangle(cornerRadius:10).stroke(Theme.accent.opacity(0.22)))
+        .disabled(disabled).opacity(disabled ? 0.45 : 1)
+        .accessibilityLabel(completed ? "مقروء، إعادة الفصل إلى غير مقروء" : "غير مقروء، تعليم الفصل كمقروء")
+        .accessibilityIdentifier("reading.toggleChapter")
+    }
+}
+
+// The website slices the ordered chapter list into groups of 100.
+struct StoryChapterPage {
+    static let size=100
+    let number: Int
+    let count: Int
+    let chapters: [Chapter]
+    init(chapters: [Chapter],requested: Int) {
+        count=max(1,(chapters.count + Self.size - 1)/Self.size)
+        number=min(max(1,requested),count)
+        let start=min((number-1)*Self.size,chapters.count)
+        self.chapters=Array(chapters[start..<min(start+Self.size,chapters.count)])
+    }
+}
+
 struct StoryChapterPagination: View {
     let page: Int
     let pages: Int
