@@ -14,9 +14,12 @@ import Combine
         guard store.online else { return }
         busy=true; defer { busy=false }
         do {
-            let value=try await API.shared.get("/api/profile/sections",as:SectionsResponse.self)
+            async let sectionsRequest=API.shared.get("/api/profile/sections",as:SectionsResponse.self)
+            async let listsRequest=API.shared.get("/api/lists",as:ListsResponse.self)
+            let value=try await sectionsRequest
+            let lists=(try? await listsRequest)?.lists
             guard store.state?.user.id == id else { return }
-            sections=value.sections.sorted { $0.position < $1.position }; try Disk.save(sections,owner:id,name:"collections/sections.json")
+            sections=SectionOrder.joining(value.sections,lists:lists); try Disk.save(sections,owner:id,name:"collections/sections.json")
         } catch { if !isRequestCancellation(error) { message=error.localizedDescription; store.report(error) } }
     }
     func save(_ proposed: [RanyProfileSection],store: AppStore) async {
@@ -27,7 +30,7 @@ import Combine
             let response=try await API.shared.getMutation("/api/profile/sections",value:Payload(sections:proposed.map(\.payload)),method:"PUT")
             guard store.state?.user.id == id else { return }
             let value=try JSONDecoder().decode(SectionsResponse.self,from:JSONEncoder().encode(response))
-            sections=value.sections.sorted { $0.position < $1.position }; try Disk.save(sections,owner:id,name:"collections/sections.json")
+            sections=SectionOrder.joining(value.sections,lists:proposed.compactMap(\.list),dropMissing:false); try Disk.save(sections,owner:id,name:"collections/sections.json")
             message="تم حفظ الترتيب والظهور."; NotificationCenter.default.post(name:.ranyCollectionsChanged,object:id)
         } catch { sections=previous; if !isRequestCancellation(error) { message=error.localizedDescription; store.report(error) } }
     }

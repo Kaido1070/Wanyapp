@@ -103,3 +103,10 @@ Automated checks cover download accounting, persistent account separation, progr
 - Offline: open a currently-reading or favourite story; its description and genres are shown.
 - Cold launch with a large downloads library: the first screen appears without delay.
 - Tap the R mark in the top bar: a sheet explains the name (R from Read + ANY from Anytime); it closes with تمام or a swipe. The intro still lands on the mark.
+
+## 1.4.8
+
+- Open Settings from any tab: the bottom tab bar is hidden there and on every page opened from Settings (security, updates, avatar); it returns after going back.
+- Profile › القوائم › إدارة القوائم وترتيب الأقسام: the page loads without "The data couldn't be read" and shows favourites plus each list with its name, icon and count; hide/show and reorder save and survive a refresh.
+- Activity page: each event is a compact two-line row (avatar, who/what/when, then the story and chapter); long titles truncate to one line.
+- Tap the R mark: the sheet's إغلاق button closes it on the first tap; swiping down still works.

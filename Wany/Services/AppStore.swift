@@ -26,6 +26,7 @@ import Observation
     var incomingFriendRequests = 0
     var readingMutation = false
     var chromeHidden = false
+    var showingNameStory = false
     var readerActive = false
     // The wallpaper pauses while content scrolls or a page transition runs.
     var backdropHeld = false

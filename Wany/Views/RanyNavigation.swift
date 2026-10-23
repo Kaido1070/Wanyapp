@@ -33,7 +33,14 @@ struct RanyDestination: View {
 }
 private struct RanyDestinations: ViewModifier {
     func body(content: Content) -> some View {
-        content.navigationDestination(for:RanyRoute.self) { route in RanyDestination(route:route).ranyClearNavigation() }
+        content.navigationDestination(for:RanyRoute.self) { route in RanyDestination(route:route).ranyClearNavigation().modifier(RanySettingsTabBar()) }
+    }
+}
+// Settings and every page opened from it keep the bottom tab bar out of the way.
+private struct RanySettingsTabBar: ViewModifier {
+    @Environment(\.ranyInsideSettings) private var insideSettings
+    func body(content: Content) -> some View {
+        if insideSettings { content.toolbar(.hidden,for:.tabBar) } else { content }
     }
 }
 extension View { func ranyDestinations() -> some View { modifier(RanyDestinations()) } }
@@ -59,10 +66,15 @@ struct RanyTabNavigation {
 }
 
 private struct RanyScrollToTopKey: EnvironmentKey { static let defaultValue = 0 }
+private struct RanyInsideSettingsKey: EnvironmentKey { static let defaultValue = false }
 extension EnvironmentValues {
     var ranyScrollToTop: Int {
         get { self[RanyScrollToTopKey.self] }
         set { self[RanyScrollToTopKey.self] = newValue }
+    }
+    var ranyInsideSettings: Bool {
+        get { self[RanyInsideSettingsKey.self] }
+        set { self[RanyInsideSettingsKey.self] = newValue }
     }
 }
 

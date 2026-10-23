@@ -14,6 +14,7 @@ extension View { func card() -> some View { modifier(WanyCard()) } }
 struct WanyScroll<Content: View>: View {
     @Environment(AppStore.self) private var store
     @Environment(\.ranyScrollToTop) private var scrollToTop
+    @Environment(\.ranyInsideSettings) private var insideSettings
     @State private var scrollDirection = ReaderScrollDirection(revealDistance:192)
     @State private var chromeSettlesAt = Date.distantPast
     let content: Content
@@ -35,7 +36,7 @@ struct WanyScroll<Content: View>: View {
                 })
         }
         // The native tab bar slides away while reading down and returns on a deliberate scroll up.
-        .toolbar(store.chromeHidden ? .hidden : .visible,for:.tabBar)
+        .toolbar(store.chromeHidden || insideSettings ? .hidden : .visible,for:.tabBar)
         .onAppear {
             scrollDirection = ReaderScrollDirection(revealDistance:192)
             store.chromeHidden = false

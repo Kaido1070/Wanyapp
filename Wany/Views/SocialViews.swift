@@ -170,18 +170,44 @@ struct PublicProfileView: View {
     }
 }
 
+// One compact line per event: small avatar, who did what and when, then the story.
 struct ActivityEventRow: View {
     @Environment(AppStore.self) private var store
     let event: JSONValue
     private let labels=["started_work":"بدأ قراءة","progress_reached":"وصل إلى","completed_work":"أكمل","favorited_work":"أضاف للمفضلة","added_to_list":"أضاف إلى قائمة","created_list":"أنشأ قائمة"]
     var body: some View {
-        VStack(alignment:.leading,spacing:8) {
-            PublicAccountIdentity(user:event["user"])
-            Text(labels[event["type"].string] ?? "نشاط").font(.caption).foregroundStyle(.secondary)
-            if let story=store.stories[event["mangaId"].string],story.title != story.key { WanyLink(story.title,route:.story(story)) }
-            else if !event["mangaId"].string.isEmpty { Text("بيانات القصة غير متاحة حاليًا").font(.caption).foregroundStyle(.secondary) }
-            if event["chapterNumber"].number>0 { Text("الفصل \(chapterNumber(event["chapterNumber"].number))").font(.caption) }
-            if !event["list"]["name"].string.isEmpty { Text(event["list"]["name"].string).font(.caption) }
-        }.frame(maxWidth:.infinity,alignment:.leading).card()
+        let account=event["user"].publicAccount
+        HStack(alignment:.top,spacing:10) {
+            if let account { ProfileAvatar(user:account).frame(width:32,height:32) }
+            VStack(alignment:.leading,spacing:3) {
+                HStack(spacing:4) {
+                    if let account {
+                        Text(account.name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                        if account.badgeType == "crown" || account.badgeType == "verified" {
+                            Image(account.badgeType == "crown" ? "crown" : "verified").resizable().frame(width:14,height:14).accessibilityHidden(true)
+                        }
+                    }
+                    Text(labels[event["type"].string] ?? "نشاط").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                    Spacer(minLength:4)
+                    if let when=ActivityEventRow.relative(event["createdAt"].string) { Text(when).font(.caption2).foregroundStyle(.tertiary).lineLimit(1) }
+                }
+                HStack(spacing:4) {
+                    if let story=store.stories[event["mangaId"].string],story.title != story.key { WanyLink(story.title,route:.story(story)).font(.footnote.weight(.medium)).lineLimit(1) }
+                    else if !event["mangaId"].string.isEmpty { Text("بيانات القصة غير متاحة حاليًا").font(.caption).foregroundStyle(.secondary) }
+                    if event["chapterNumber"].number>0 { Text("· الفصل \(chapterNumber(event["chapterNumber"].number))").font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                    if !event["list"]["name"].string.isEmpty { Text(event["list"]["name"].string).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                }
+            }
+        }
+        .frame(maxWidth:.infinity,alignment:.leading)
+        .padding(.horizontal,12).padding(.vertical,9)
+        .ranyGlass(radius:14)
+    }
+    private static let parser: ISO8601DateFormatter = { let f=ISO8601DateFormatter(); f.formatOptions=[.withInternetDateTime,.withFractionalSeconds]; return f }()
+    private static let plainParser=ISO8601DateFormatter()
+    private static let formatter: RelativeDateTimeFormatter = { let f=RelativeDateTimeFormatter(); f.locale=Locale(identifier:"ar"); f.unitsStyle = .short; return f }()
+    static func relative(_ text: String) -> String? {
+        guard let date=parser.date(from:text) ?? plainParser.date(from:text) else { return nil }
+        return formatter.localizedString(for:date,relativeTo:Date())
     }
 }

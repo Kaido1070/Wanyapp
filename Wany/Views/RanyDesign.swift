@@ -107,9 +107,9 @@ extension View { func ranyInsetGlass(radius: CGFloat = 15) -> some View { modifi
 // draws that circle as Liquid Glass; iOS 17 and 18 get the same circle in glass.
 struct RanyToolbarMark: View {
     @Environment(\.ranyMarkCovered) private var covered
-    @State private var aboutName = false
+    @Environment(AppStore.self) private var store
     var body: some View {
-        Button { aboutName = true } label: {
+        Button { store.showingNameStory = true } label: {
             Group {
                 if #available(iOS 26.0, *) {
                     Image("RanyMonogram").resizable().scaledToFit().frame(width:30,height:30)
@@ -123,13 +123,14 @@ struct RanyToolbarMark: View {
         .reportRanyMarkFrame("header")
         .accessibilityLabel("لماذا اسم \(RanyIdentity.name)؟")
         .accessibilityIdentifier("main.about-name")
-        .sheet(isPresented:$aboutName) { RanyNameStory() }
     }
 }
 
 // Where the name comes from: R from "Read" + ANY from "Anytime".
+// Presented from RootView: a sheet attached to a toolbar item loses its binding
+// whenever the bar rebuilds, which left the old close button doing nothing.
 struct RanyNameStory: View {
-    @Environment(\.dismiss) private var dismiss
+    var close: () -> Void
     var body: some View {
         VStack(spacing:22) {
             RanyMark(size:72)
@@ -149,11 +150,14 @@ struct RanyNameStory: View {
                     .foregroundStyle(.secondary)
             }
             .font(.body).multilineTextAlignment(.center)
-            Button("تمام") { dismiss() }
-                .font(.headline).foregroundStyle(.black)
-                .frame(maxWidth:.infinity,minHeight:50)
-                .background(Theme.accent,in:RoundedRectangle(cornerRadius:15,style:.continuous))
-                .buttonStyle(.plain)
+            Button(action:close) {
+                Text("إغلاق").font(.headline).foregroundStyle(.black)
+                    .frame(maxWidth:.infinity,minHeight:50)
+                    .background(Theme.accent,in:RoundedRectangle(cornerRadius:15,style:.continuous))
+                    .contentShape(RoundedRectangle(cornerRadius:15,style:.continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("about-name.close")
         }
         .padding(24)
         .frame(maxWidth:.infinity,maxHeight:.infinity)

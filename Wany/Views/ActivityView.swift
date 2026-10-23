@@ -8,7 +8,7 @@ struct ActivityView: View {
         WanyScroll {
             Text("النشاط").font(.largeTitle.bold())
             Picker("النشاط",selection:$friends) { Text("نشاطي").tag(false); Text("الأصدقاء").tag(true) }.pickerStyle(.segmented)
-            LazyVStack(spacing:14) { ForEach(pager.items) { ActivityEventRow(event:$0.value) } }
+            LazyVStack(spacing:8) { ForEach(pager.items) { ActivityEventRow(event:$0.value) } }
             if pager.loading { ProgressView("تحميل النشاط…") }
             if let error=pager.error { Text(error).font(.caption).foregroundStyle(.orange) }
             if pager.hasMore && !pager.loading {

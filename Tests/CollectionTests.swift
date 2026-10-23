@@ -37,4 +37,14 @@ import XCTest
         XCTAssertTrue(ListEditorInput(name:"fixture",description:"description",iconKey:"dragon").valid)
         XCTAssertEqual(FriendRelation.allCases.count,4)
     }
+    func testSectionsDecodeServerShapesAndJoinLists() throws {
+        let sections=Data(#"{"sections":[{"key":"fav","sectionType":"favorites","referenceId":null,"position":"2","isVisible":true,"previewItems":[]},{"key":"l1","sectionType":"custom_list","referenceId":"list-1","position":1,"isVisible":false},{"key":"gone","sectionType":"custom_list","referenceId":"list-x","position":3,"isVisible":true}]}"#.utf8)
+        let lists=Data(#"{"lists":[{"id":"list-1","name":"مختارات","description":null,"iconKey":null,"itemCount":4}]}"#.utf8)
+        let decoded=try JSONDecoder().decode(SectionsResponse.self,from:sections)
+        let decodedLists=try JSONDecoder().decode(ListsResponse.self,from:lists).lists
+        let joined=SectionOrder.joining(decoded.sections,lists:decodedLists)
+        XCTAssertEqual(joined.map(\.key),["l1","fav"])
+        XCTAssertEqual(joined[0].title,"مختارات"); XCTAssertEqual(joined[0].list?.iconKey,"lists"); XCTAssertEqual(joined[0].list?.itemCount,4)
+        XCTAssertFalse(joined[0].isVisible)
+    }
 }
