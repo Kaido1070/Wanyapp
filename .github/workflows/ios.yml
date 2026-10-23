@@ -21,7 +21,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      # Iterative pull-request commits keep their candidate number. On main, the strict
+      # gate below compares every push with the last published release instead, so an
+      # unpublished candidate can absorb further changes without skipping a number.
       - name: Validate development version and preserved release history
+        if: github.event_name == 'pull_request'
         env:
           DEVELOPMENT_BASE: ${{ github.event.pull_request.head.sha && format('{0}^', github.event.pull_request.head.sha) || github.event.before || 'HEAD^' }}
         run: node scripts/check-release.mjs --development --base "$DEVELOPMENT_BASE"

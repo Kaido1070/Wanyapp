@@ -42,10 +42,14 @@ struct StoryView: View {
                     Menu("حالة القراءة") { ForEach([("reading","أقرأ حاليًا"),("completed","مكتمل"),("paused","متوقف"),("planned","أخطط لقراءته")],id:\.0) { pair in Button(pair.1) { Task { await store.setStatus(story,status:pair.0) } } } }
                 }.frame(maxWidth:.infinity,alignment:.leading)
             }
-            if let description = story.description, !description.isEmpty { Text(description.replacingOccurrences(of:"<[^>]+>",with:"",options:.regularExpression)).font(RanyTypography.font(.subheadline)).foregroundStyle(.secondary).frame(maxWidth:.infinity,alignment:.leading) }
-            if !story.genres.isEmpty { Text(story.genres.joined(separator:" · ")).font(RanyTypography.font(.caption)).foregroundStyle(Theme.accent).frame(maxWidth:.infinity,alignment:.leading) }
+            if (story.description?.isEmpty == false) || !story.genres.isEmpty {
+                VStack(alignment:.leading,spacing:10) {
+                    if let description = story.description, !description.isEmpty { Text(description.replacingOccurrences(of:"<[^>]+>",with:"",options:.regularExpression)).font(RanyTypography.font(.subheadline)).foregroundStyle(.primary.opacity(0.88)).lineSpacing(3).frame(maxWidth:.infinity,alignment:.leading) }
+                    if !story.genres.isEmpty { Text(story.genres.joined(separator:" · ")).font(RanyTypography.font(.caption)).foregroundStyle(Theme.accent).frame(maxWidth:.infinity,alignment:.leading) }
+                }.ranyReadableSurface()
+            }
             if let recent = store.state?.data.library.first(where:{$0.mangaId == story.key})?.lastReadChapter {
-                WanyLink(.reader(story,story.chapters?.first(where:{$0.number == recent}) ?? Chapter(number:recent,title:"الفصل \(chapterNumber(recent))"))) { Label("متابعة الفصل \(chapterNumber(recent))",systemImage:"book.fill").frame(maxWidth:.infinity) }.buttonStyle(.bordered)
+                WanyLink(.reader(story,story.chapters?.first(where:{$0.number == recent}) ?? Chapter(number:recent,title:"الفصل \(chapterNumber(recent))"))) { Label("متابعة الفصل \(chapterNumber(recent))",systemImage:"book.fill").font(RanyTypography.font(.body).weight(.semibold)).frame(maxWidth:.infinity,minHeight:48) }.buttonStyle(RanySurfaceButtonStyle())
             }
             Button { Task { await downloads.enqueue(story) } } label: {
                 HStack { if downloads.preparing.contains(story.key) { ProgressView() }; Label(downloads.preparing.contains(story.key) ? "تجهيز جميع الفصول…" : "تحميل القصة كاملة",systemImage:"arrow.down.to.line").bold() }.frame(maxWidth:.infinity).padding(9)
@@ -60,20 +64,21 @@ struct StoryView: View {
                     Label(preparingUnread ? "فحص الفصول غير المقروءة…" : "تحميل الفصول غير المقروءة",systemImage:"book.closed").bold()
                     }
                     Text("يتجاوز الفصول التي أكملتها، ويشمل الفصل الذي لم تكمل قراءته.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                }.frame(maxWidth:.infinity).padding(9)
-            }.buttonStyle(.bordered).disabled(preparingUnread || downloads.preparing.contains(story.key) || !store.online)
+                }.frame(maxWidth:.infinity).padding(12)
+            }.buttonStyle(RanySurfaceButtonStyle()).disabled(preparingUnread || downloads.preparing.contains(story.key) || !store.online)
             if let job = downloads.savedJobs.first(where:{$0.id == story.key}) { DownloadSummary(job:job).card() }
+            VStack(spacing:12) {
             HStack {
                 Text("الفصول · \(story.chapters?.count ?? 0)").font(RanyTypography.font(.title3).bold())
                 Spacer()
                 if loading { ProgressView() }
                 Button(selecting ? "إلغاء" : "تحديد للتنزيل") { selecting.toggle(); selected.removeAll() }
-                    .font(RanyTypography.font(.caption))
+                    .font(RanyTypography.font(.subheadline).weight(.medium)).foregroundStyle(Theme.accent).frame(minHeight:44)
             }.id("chapters-top")
             Button { ascending.toggle() } label: {
                 Label(ascending ? "من الأقدم للأحدث" : "من الأحدث للأقدم",systemImage:"arrow.up.arrow.down")
                     .frame(maxWidth:.infinity,minHeight:44)
-            }.buttonStyle(.bordered)
+            }.buttonStyle(RanySurfaceButtonStyle())
             if let error { Text(error).font(RanyTypography.font(.caption)).foregroundStyle(.orange); Button("إعادة جلب قائمة الفصول") { Task { await refresh() } } }
             if !store.online { Text("التفاصيل محفوظة. الفصول بعلامة ✓ متاحة بدون إنترنت؛ الفصول الناقصة تحتاج اتصالًا لاستكمال الصور.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
             TextField("ابحث برقم الفصل أو عنوانه",text:$query).textFieldStyle(.plain).padding(13).ranyInsetGlass(radius:14).keyboardType(.default)
@@ -83,6 +88,7 @@ struct StoryView: View {
                 markAll:{ confirmReadAll=true },clear:{ confirmClear=true }
             )
             StoryChapterPagination(page:page.number,pages:page.count) { goToPage($0,proxy:proxy) }
+            }.ranyReadableSurface()
             if selecting {
                 HStack { Button("تحديد الكل") { selected = Set(chapters.map(\.id)) }; Spacer(); Button("تحميل \(selected.count) فصل") { let list = chapters.filter { selected.contains($0.id) }; Task { await downloads.enqueue(story,chapters:list) }; selecting = false }.disabled(selected.isEmpty || !store.online) }
             }
@@ -141,16 +147,14 @@ struct StoryReadingTools: View {
                 Label("تحديد الكل كمقروء",systemImage:"checkmark")
                     .frame(maxWidth:.infinity,minHeight:44)
                     .contentShape(Rectangle())
-                    .overlay(RoundedRectangle(cornerRadius:10).stroke(Theme.accent.opacity(0.22)))
-            }.disabled(!canReadAll).opacity(canReadAll ? 1 : 0.45).accessibilityIdentifier("reading.markAll")
+            }.buttonStyle(RanySurfaceButtonStyle(radius:12)).disabled(!canReadAll).opacity(canReadAll ? 1 : 0.45).accessibilityIdentifier("reading.markAll")
             Button(role:.destructive,action:clear) {
-                Text("مسح تقدم القراءة").frame(maxWidth:.infinity,minHeight:44)
+                Label("مسح تقدم القراءة",systemImage:"arrow.counterclockwise").frame(maxWidth:.infinity,minHeight:44)
                     .contentShape(Rectangle())
-                    .overlay(RoundedRectangle(cornerRadius:10).stroke(Theme.accent.opacity(0.22)))
-            }.accessibilityIdentifier("reading.clearStory")
+            }.buttonStyle(RanySurfaceButtonStyle(radius:12)).accessibilityIdentifier("reading.clearStory")
         }
-        .font(RanyTypography.font(.footnote))
-        .buttonStyle(.plain).foregroundStyle(Theme.accent).disabled(disabled).opacity(disabled ? 0.45 : 1)
+        .font(RanyTypography.font(.footnote).weight(.medium))
+        .disabled(disabled)
     }
 }
 
@@ -225,11 +229,10 @@ struct StoryChapterPagination: View {
     }
     private func pageButton(_ title: String,enabled: Bool,action: @escaping () -> Void) -> some View {
         Button(action:action) {
-            Text(title).frame(minWidth:48,minHeight:44)
+            Text(title).frame(minWidth:64,minHeight:44)
                 .contentShape(Rectangle())
-                .overlay(RoundedRectangle(cornerRadius:10).stroke(Theme.accent.opacity(0.22)))
-        }.buttonStyle(.plain).foregroundStyle(Theme.accent)
-            .disabled(!enabled).opacity(enabled ? 1 : 0.4)
+        }.buttonStyle(RanySurfaceButtonStyle(radius:12))
+            .disabled(!enabled)
             .accessibilityIdentifier(title == "التالي" ? "reading.page.next" : "reading.page.previous")
     }
 }
@@ -268,7 +271,7 @@ struct StoryChapterRow: View {
                 if selecting { Button { if selected.contains(chapter.id) { selected.remove(chapter.id) } else { selected.insert(chapter.id) } } label: { Image(systemName:selected.contains(chapter.id) ? "checkmark.circle.fill" : "circle").frame(width:44,height:44).contentShape(Rectangle()) } }
                 WanyLink(.reader(story,chapter)) {
                     VStack(alignment:.leading,spacing:5) {
-                        Text(chapter.title).font(RanyTypography.font(.subheadline)).lineLimit(2)
+                        Text(chapterDisplayTitle(chapter.title,number:chapter.number)).font(RanyTypography.font(.subheadline)).lineLimit(2)
                         HStack(spacing:8) {
                             if store.state?.data.completed.contains(story.key+":"+chapter.id) == true { Text("مقروء").foregroundStyle(Theme.accent) }
                             else if let percent=store.state?.data.progress[story.key+":"+chapter.id]?.percent,percent>0 { Text("\(Int(percent))٪").foregroundStyle(Theme.accent) }
@@ -322,3 +325,33 @@ struct ChapterControlsFixture: View {
     }
 }
 #endif
+
+// Story page controls sit on a near-opaque surface so they stay readable over the
+// moving cover wallpaper, whatever glass strength is chosen.
+struct RanySurfaceButtonStyle: ButtonStyle {
+    var radius: CGFloat = 16
+    func makeBody(configuration: Configuration) -> some View {
+        RanySurfaceButtonLabel(label:configuration.label,pressed:configuration.isPressed,radius:radius)
+    }
+}
+private struct RanySurfaceButtonLabel<Label: View>: View {
+    let label: Label
+    let pressed: Bool
+    let radius: CGFloat
+    @Environment(\.isEnabled) private var enabled
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius:radius,style:.continuous)
+        label.foregroundStyle(Theme.accent)
+            .background(Theme.surface.opacity(pressed ? 0.78 : 0.95),in:shape)
+            .overlay(shape.stroke(Theme.accent.opacity(0.3),lineWidth:1))
+            .opacity(enabled ? 1 : 0.45)
+    }
+}
+extension View {
+    func ranyReadableSurface() -> some View {
+        let shape = RoundedRectangle(cornerRadius:20,style:.continuous)
+        return padding(16).frame(maxWidth:.infinity,alignment:.leading)
+            .background(Theme.surface.opacity(0.94),in:shape)
+            .overlay(shape.stroke(Color.white.opacity(0.1),lineWidth:1))
+    }
+}

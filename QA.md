@@ -90,3 +90,5 @@ Automated checks cover download accounting, persistent account separation, progr
 - Settings › المظهر: turn glass off and check the profile library, FYP and story cards are separated by thin edges; turn glass on and the edges disappear.
 - FYP: both columns align at the top in every row, with long and short titles and reasons.
 - Reading statistics: the headline number, streak strip and three tiles fit without the large title gap; check large Dynamic Type.
+
+- Story page over a bright, busy wallpaper with glass set to شفاف: the description, every button and the chapter tools stay clearly readable; disabled buttons dim but remain legible.
