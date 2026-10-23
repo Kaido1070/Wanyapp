@@ -21,8 +21,12 @@ extension AccountState {
         // (lastReadChapter, updated by every open on any device), then the highest
         // reached. Progress timestamps are not used: marking earlier chapters read
         // stamps them "now", which used to send this button to an old chapter.
+        // Local reading not yet synced is real reading too (bulk marking never
+        // creates pending records), so a newer one still wins.
+        let localReading = pending.values.filter { $0.mangaId == story.key }.max { ($0.updatedAt,$0.chapter) < ($1.updatedAt,$1.chapter) }
         let chapter: Double?
-        if let saved = entry?.lastReadChapter, saved > 0 { chapter = saved }
+        if let local = localReading, local.updatedAt > (entry?.lastReadAt ?? 0) { chapter = local.chapter }
+        else if let saved = entry?.lastReadChapter, saved > 0 { chapter = saved }
         else if let highest = entry?.highestReachedChapter, highest > 0 { chapter = highest }
         else { chapter = records.values.max { ($0.updatedAt,$0.chapter) < ($1.updatedAt,$1.chapter) }?.chapter }
         let chapters = story.orderedChapters
