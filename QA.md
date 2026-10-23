@@ -102,3 +102,4 @@ Automated checks cover download accounting, persistent account separation, progr
 - Every download button asks for balanced / high / original before starting; the chosen quality is used for those chapters.
 - Offline: open a currently-reading or favourite story; its description and genres are shown.
 - Cold launch with a large downloads library: the first screen appears without delay.
+- Tap the R mark in the top bar: a sheet explains the name (R from Read + ANY from Anytime); it closes with تمام or a swipe. The intro still lands on the mark.

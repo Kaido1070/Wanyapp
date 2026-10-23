@@ -107,15 +107,61 @@ extension View { func ranyInsetGlass(radius: CGFloat = 15) -> some View { modifi
 // draws that circle as Liquid Glass; iOS 17 and 18 get the same circle in glass.
 struct RanyToolbarMark: View {
     @Environment(\.ranyMarkCovered) private var covered
+    @State private var aboutName = false
     var body: some View {
-        Group {
-            if #available(iOS 26.0, *) {
-                Image("RanyMonogram").resizable().scaledToFit().frame(width:30,height:30)
-                    .opacity(covered ? 0 : 1).accessibilityLabel(RanyIdentity.name)
-            } else {
-                RanyMark(size:34,roundness:0.5)
+        Button { aboutName = true } label: {
+            Group {
+                if #available(iOS 26.0, *) {
+                    Image("RanyMonogram").resizable().scaledToFit().frame(width:30,height:30)
+                        .opacity(covered ? 0 : 1)
+                } else {
+                    RanyMark(size:34,roundness:0.5)
+                }
+            }.frame(minWidth:44,minHeight:44).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .reportRanyMarkFrame("header")
+        .accessibilityLabel("لماذا اسم \(RanyIdentity.name)؟")
+        .accessibilityIdentifier("main.about-name")
+        .sheet(isPresented:$aboutName) { RanyNameStory() }
+    }
+}
+
+// Where the name comes from: R from "Read" + ANY from "Anytime".
+struct RanyNameStory: View {
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        VStack(spacing:22) {
+            RanyMark(size:72)
+            HStack(spacing:0) {
+                Text("R").foregroundStyle(RanyTypography.brandColor)
+                Text("ead ").foregroundStyle(.secondary)
+                Text("ANY").foregroundStyle(RanyTypography.brandColor)
+                Text("time").foregroundStyle(.secondary)
             }
-        }.reportRanyMarkFrame("header")
+            .font(RanyTypography.script(34))
+            .environment(\.layoutDirection,.leftToRight)
+            .accessibilityElement(children:.ignore).accessibilityLabel("Read Anytime")
+            VStack(spacing:12) {
+                Text("ليش اسمه Rany؟").font(.title3.bold())
+                Text("الاسم جاي من عبارة Read Anytime، يعني «اقرأ في أي وقت». أخذنا حرف R من Read وكلمة ANY من Anytime، فصارت RANY.")
+                Text("وهذي فكرة التطبيق كلها: قصصك معك متى ما تبي، تكمل من حيث وقفت حتى بدون إنترنت. وحرف R في الشعار هو أول حرف من Read، بداية كل حكاية.")
+                    .foregroundStyle(.secondary)
+            }
+            .font(.body).multilineTextAlignment(.center)
+            Button("تمام") { dismiss() }
+                .font(.headline).foregroundStyle(.black)
+                .frame(maxWidth:.infinity,minHeight:50)
+                .background(Theme.accent,in:RoundedRectangle(cornerRadius:15,style:.continuous))
+                .buttonStyle(.plain)
+        }
+        .padding(24)
+        .frame(maxWidth:.infinity,maxHeight:.infinity)
+        .background(Theme.background.ignoresSafeArea())
+        .presentationDetents([.medium,.large])
+        .presentationDragIndicator(.visible)
+        .environment(\.layoutDirection,.rightToLeft)
+        .preferredColorScheme(.dark)
     }
 }
 struct RanyMark: View {
