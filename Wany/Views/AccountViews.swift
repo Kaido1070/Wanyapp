@@ -29,12 +29,13 @@ struct ListsView: View {
     @State private var name = ""
     var body: some View {
         WanyScroll {
-            HStack { Text("قوائمي").font(RanyTypography.font(.largeTitle).bold()); Spacer(); Button { create = true } label: { Image(systemName:"plus") }.disabled(!store.online) }
             ForEach(Array(page.value["lists"].array.enumerated()),id:\.offset) { _,list in
-                WanyLink { ListDetailView(id:list["id"].string,title:list["name"].string) } label: { HStack { Image(systemName:"list.bullet.rectangle"); Text(list["name"].string); Spacer(); Text("\(Int(list["itemCount"].number))").foregroundStyle(.secondary); Image(systemName:"chevron.left") }.foregroundStyle(.primary).card() }
+                WanyLink(.listDetail(id:list["id"].string,title:list["name"].string)) { HStack { Image(systemName:"list.bullet.rectangle"); Text(list["name"].string); Spacer(); Text("\(Int(list["itemCount"].number))").foregroundStyle(.secondary); Image(systemName:"chevron.left") }.foregroundStyle(.primary).card() }
             }
             if let error = page.error { Text(error).foregroundStyle(.orange) }
-        }.task { await page.load("/api/lists",store:store) }.refreshable { await page.load("/api/lists",store:store) }
+        }.navigationTitle("قوائمي")
+        .toolbar { ToolbarItem(placement:.topBarTrailing) { Button { create = true } label: { Image(systemName:"plus").frame(minWidth:44,minHeight:44) }.disabled(!store.online).accessibilityLabel("قائمة جديدة") } }
+        .task { await page.load("/api/lists",store:store) }.refreshable { await page.load("/api/lists",store:store) }
         .alert("قائمة جديدة",isPresented:$create) { TextField("اسم القائمة",text:$name); Button("إنشاء") { Task { do { try await API.shared.send("/api/lists",value:["name":name,"description":"","iconKey":"lists"]); name = ""; await page.load("/api/lists",store:store) } catch { store.error = error.localizedDescription } } }; Button("إلغاء",role:.cancel) {} }
     }
 }
@@ -46,14 +47,15 @@ struct ListDetailView: View {
     var canManage: Bool { page.value["list"]["canManage"].boolean }
     var body: some View {
         WanyScroll {
-            HStack { Text(title).font(RanyTypography.font(.largeTitle).bold()); Spacer(); if canManage { Button { adding = true } label: { Image(systemName:"plus") }.disabled(!store.online) } }
             ForEach(Array(page.value["items"].array.enumerated()),id:\.offset) { _,item in
                 if let story = store.stories[item["mangaId"].string] {
-                    HStack { WanyLink { StoryView(initial:story) } label: { Text(story.title).foregroundStyle(.primary) }; Spacer(); if canManage { Button(role:.destructive) { Task { do { _ = try await API.shared.raw("/api/lists/"+id+"/items/"+story.key,method:"DELETE"); await load() } catch { store.error = error.localizedDescription } } } label: { Image(systemName:"minus.circle") }.disabled(!store.online) } }.card()
+                    HStack { WanyLink(.story(story)) { Text(story.title).foregroundStyle(.primary).frame(minHeight:44) }; Spacer(); if canManage { Button(role:.destructive) { Task { do { _ = try await API.shared.raw("/api/lists/"+id+"/items/"+story.key,method:"DELETE"); await load() } catch { store.error = error.localizedDescription } } } label: { Image(systemName:"minus.circle") }.disabled(!store.online) } }.card()
                 } else { Text(item["mangaId"].string).font(RanyTypography.font(.caption)) }
             }
             if let error = page.error { Text(error).foregroundStyle(.orange) }
-        }.task { await load() }.refreshable { await load() }
+        }.navigationTitle(title)
+        .toolbar { ToolbarItem(placement:.topBarTrailing) { if canManage { Button { adding = true } label: { Image(systemName:"plus").frame(minWidth:44,minHeight:44) }.disabled(!store.online).accessibilityLabel("إضافة قصص") } } }
+        .task { await load() }.refreshable { await load() }
         .sheet(isPresented:$adding,onDismiss:{ Task { await load() } }) { AddStoriesToListView(id:id) }
     }
     func load() async {
@@ -73,7 +75,6 @@ struct FriendsView: View {
     @State private var query = ""
     var body: some View {
         WanyScroll {
-            Text("الأصدقاء").font(RanyTypography.font(.largeTitle).bold()).frame(maxWidth:.infinity,alignment:.leading)
             HStack { TextField("اسم المستخدم",text:$query).textInputAutocapitalization(.never).autocorrectionDisabled(); Button("بحث") { Task { await search.load("/api/friends/search",store:store,query:["q":query]) } }.disabled(!store.online) }.card()
             ForEach(Array(search.value["results"].array.enumerated()),id:\.offset) { _,entry in
                 HStack { userLabel(entry["user"]); Spacer(); Button(entry["relationship"].string == "none" ? "إضافة" : "طلب مسجل") { Task { await action("/api/friends",body:["userId":entry["user"]["id"].string]); await search.load("/api/friends/search",store:store,query:["q":query]) } }.disabled(entry["relationship"].string != "none" || !store.online) }.card()
@@ -82,10 +83,10 @@ struct FriendsView: View {
                 HStack { userLabel(entry["user"]); Spacer(); Button("قبول") { Task { await action("/api/friends/requests/"+entry["user"]["id"].string+"/accept") } }; Button("رفض") { Task { await action("/api/friends/requests/"+entry["user"]["id"].string+"/reject") } } }.card()
             }
             ForEach(Array(page.value["friends"].array.enumerated()),id:\.offset) { _,entry in
-                WanyLink { PublicProfileView(id:entry["user"]["id"].string) } label: { userLabel(entry["user"]).frame(maxWidth:.infinity,alignment:.leading).card() }.foregroundStyle(.primary)
+                WanyLink(.publicProfile(entry["user"]["id"].string)) { userLabel(entry["user"]).frame(maxWidth:.infinity,alignment:.leading).card() }.foregroundStyle(.primary)
             }
             if let error = page.error { Text(error).foregroundStyle(.orange) }
-        }.task { await load() }.refreshable { await load() }
+        }.navigationTitle("الأصدقاء").task { await load() }.refreshable { await load() }
     }
     func userLabel(_ user: JSONValue) -> some View { PublicAccountIdentity(user:user) }
     func load() async { await page.load("/api/friends",store:store,query:["limit":"100"]); await requests.load("/api/friends/requests",store:store) }
@@ -103,7 +104,7 @@ struct PublicProfileView: View {
                 Text("المفضلة").font(RanyTypography.font(.headline))
                 StoryGrid(stories:page.value["profile"]["favorites"].array.compactMap { store.stories[$0.string] })
                 ForEach(Array(page.value["profile"]["lists"].array.enumerated()),id:\.offset) { _,list in
-                    WanyLink { ListDetailView(id:list["id"].string,title:list["name"].string) } label: {
+                    WanyLink(.listDetail(id:list["id"].string,title:list["name"].string)) {
                         HStack { Label(list["name"].string,systemImage:"list.bullet.rectangle"); Spacer(); Text("\(Int(list["itemCount"].number))"); Image(systemName:"chevron.left") }.foregroundStyle(.primary).card()
                     }
                     StoryGrid(stories:list["previewItems"].array.compactMap { store.stories[$0.string] })
@@ -124,16 +125,15 @@ struct ActivityView: View {
     private let labels = ["started_work":"بدأ قراءة", "progress_reached":"وصل إلى", "completed_work":"أكمل", "favorited_work":"أضاف للمفضلة", "added_to_list":"أضاف إلى قائمة", "created_list":"أنشأ قائمة"]
     var body: some View {
         WanyScroll {
-            Text("النشاط").font(RanyTypography.font(.largeTitle).bold())
             Picker("النشاط",selection:$friends) { Text("نشاطي").tag(false); Text("الأصدقاء").tag(true) }.pickerStyle(.segmented).onChange(of:friends) { _,_ in Task { await load() } }
             ForEach(Array(page.value["events"].array.enumerated()),id:\.offset) { _,event in VStack(alignment:.leading,spacing:8) {
                 HStack { Text(event["user"]["name"].string).bold(); AccountBadge(kind:event["user"]["badgeType"].string) }
                 Text(labels[event["type"].string] ?? event["type"].string).font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
-                if let story = store.stories[event["mangaId"].string] { WanyLink(story.title) { StoryView(initial:story) } }
+                if let story = store.stories[event["mangaId"].string] { WanyLink(story.title,route:.story(story)) }
                 if event["chapterNumber"].number > 0 { Text("الفصل \(chapterNumber(event["chapterNumber"].number))").font(RanyTypography.font(.caption)) }
                 if !event["list"]["name"].string.isEmpty { Text(event["list"]["name"].string) }
             }.frame(maxWidth:.infinity,alignment:.leading).card() }
-        }.task { await load() }.refreshable { await load() }
+        }.navigationTitle("النشاط").task { await load() }.refreshable { await load() }
     }
     func load() async { await page.load(friends ? "/api/activity/friends" : "/api/activity/me",store:store,query:["limit":"50","offset":"0"]) }
 }
@@ -150,7 +150,7 @@ struct SettingsView: View {
                 Text("الحساب").font(RanyTypography.font(.headline))
                 Button { name = store.state?.user.name ?? ""; editingName = true } label: { settingsRow("الاسم الظاهر",value:store.state?.user.name ?? "",icon:"pencil") }.disabled(!store.online)
                 Divider()
-                WanyLink { AvatarPickerView() } label: { settingsRow("الصورة الشخصية",icon:"person.crop.circle") }
+                WanyLink(.avatarPicker) { settingsRow("الصورة الشخصية",icon:"person.crop.circle") }
                 Divider()
                 Toggle("حساب خاص",isOn:Binding(get:{store.state?.user.profileVisibility == "private"},set:{ value in Task { do { try await API.shared.send("/api/profile/visibility",method:"PUT",value:["visibility":value ? "private" : "public"]); await store.refresh() } catch { if !isRequestCancellation(error) { store.error = error.localizedDescription } } } })).disabled(!store.online)
             }.card()
@@ -173,7 +173,7 @@ struct SettingsView: View {
             }.card()
             VStack(alignment:.leading,spacing:16) {
                 Text(AppVersion.display).font(RanyTypography.font(.subheadline))
-                WanyLink { UpdatesView() } label: { settingsRow("سجل التحديثات",icon:"clock.arrow.circlepath") }
+                WanyLink(.updates) { settingsRow("سجل التحديثات",icon:"clock.arrow.circlepath") }
             }.card()
             Button(role:.destructive) { logout = true } label: { Label("تسجيل الخروج",systemImage:"rectangle.portrait.and.arrow.right").font(RanyTypography.font(.headline)).foregroundStyle(.red).frame(maxWidth:.infinity,minHeight:52).contentShape(Rectangle()) }.padding(12).background(Color.red.opacity(0.12),in:RoundedRectangle(cornerRadius:20)).overlay(RoundedRectangle(cornerRadius:20).stroke(Color.red.opacity(0.4),lineWidth:1))
         }.buttonStyle(.plain).navigationTitle("الإعدادات")
@@ -193,12 +193,12 @@ struct AvatarPickerView: View {
     var initialAvatarID: String? = nil
     @EnvironmentObject var store: AppStore
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.ranyNavigator) private var navigator
     @StateObject private var page = CachedPage()
     @State private var query = ""
     @State private var selectedID = ""
     @State private var saving = false
     @State private var saveError: String?
+    @State private var visible = false
     var body: some View {
         ScrollView {
             VStack(alignment:.leading,spacing:20) {
@@ -235,6 +235,8 @@ struct AvatarPickerView: View {
         .alert("تعذر حفظ الصورة",isPresented:Binding(get:{saveError != nil},set:{if !$0 { saveError = nil }})) {
             Button("حسنًا",role:.cancel) {}
         } message: { Text(saveError ?? "") }
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
         .task {
             if selectedID.isEmpty { selectedID = initialAvatarID ?? store.state?.user.avatarId ?? "" }
             await page.load("/api/avatars",store:store)
@@ -251,14 +253,13 @@ struct AvatarPickerView: View {
         guard !saving, !selectedID.isEmpty, store.online else { return }
         if let onSelect { onSelect(selectedID); dismiss(); return }
         saving = true
-        let savingRoute = navigator?.path.last
         Task { @MainActor in
             defer { saving = false }
             do {
                 try await API.shared.send("/api/profile/avatar",method:"PUT",value:["avatarId":selectedID])
                 await store.refresh()
-                if let navigator, let savingRoute { navigator.pop(ifCurrent:savingRoute) }
-                else { dismiss() }
+                // A late save must not close whichever page replaced this one.
+                if visible { dismiss() }
             } catch { if !isRequestCancellation(error) { saveError = error.localizedDescription } }
         }
     }

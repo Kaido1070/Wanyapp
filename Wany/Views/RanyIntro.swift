@@ -135,7 +135,8 @@ struct RanyExperience: View {
     var body: some View {
         ZStack {
             RanyBackdropHost(ambience:ambience,reading:store.readerActive,accountID:store.state?.user.id,assembly:assembly).frame(maxWidth:.infinity,maxHeight:.infinity).ignoresSafeArea()
-            RootView().environment(\.ranyGlassProgress,glassProgress).environment(\.ranyMeasureMarkFrames,opening || store.enteringAccount).environment(\.ranyMarkCovered,opening || store.enteringAccount).opacity((opening && !revealed) || (store.enteringAccount && !revealed) ? 0 : 1)
+            RootView().environment(\.ranyGlassProgress,glassProgress).environment(\.ranyMeasureMarkFrames,opening || store.enteringAccount).environment(\.ranyMarkCovered,opening || store.enteringAccount)
+                .environment(\.ranyMarkFrameSink,recordMarkFrame).opacity((opening && !revealed) || (store.enteringAccount && !revealed) ? 0 : 1)
                 .animation(.easeOut(duration:reduceMotion ? 0.05 : 0.42),value:revealed)
                 .allowsHitTesting(!opening && !store.enteringAccount)
                 .accessibilityHidden(opening || store.enteringAccount)
@@ -145,12 +146,6 @@ struct RanyExperience: View {
                 RanyIntro(accountTransition:true,loginDestination:false,firstAccount:store.firstArrival,destinationFrame:markFrames["header"],sourceFrame:markFrames["login"],onArrange:arrangeArtwork,onReveal:revealContent,onFinish:{ store.completeAccountArrival() })
             }
         }.font(RanyTypography.font(.body))
-        .onPreferenceChange(RanyMarkFrameKey.self) { frames in
-            guard opening || store.enteringAccount else { return }
-            for (key,frame) in frames where frame.width > 0 && frame.height > 0 && markFrames[key] != frame {
-                markFrames[key] = frame
-            }
-        }
         .task(id:store.state?.user.id) {
             await ambience.attach(state:store.state,stories:store.stories)
             ambience.prepare(state:store.state,stories:store.stories)
@@ -162,6 +157,10 @@ struct RanyExperience: View {
         .onChange(of:phase) { _,value in
             if value == .background { ambience.activateWhileHidden(state:store.state,stories:store.stories) }
         }
+    }
+    private func recordMarkFrame(_ key: String, _ frame: CGRect) {
+        guard opening || store.enteringAccount, frame.width > 0, frame.height > 0, markFrames[key] != frame else { return }
+        markFrames[key] = frame
     }
     private func revealContent() {
         revealed = true

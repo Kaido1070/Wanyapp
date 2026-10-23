@@ -20,7 +20,7 @@ struct DiscoverView: View {
     var body: some View {
         WanyScroll {
             HStack {
-                Text("استكشف").font(RanyTypography.font(.largeTitle).bold()); Spacer()
+                Spacer()
                 Menu {
                     Button("الكل") { source = "all" }
                     ForEach(sources,id:\.self) { item in Button(sourceLabel(item)) { source = item } }
@@ -100,7 +100,7 @@ struct DiscoverFeaturedStories: View {
             ScrollView(.horizontal) {
                 LazyHStack(spacing:16) {
                     ForEach(stories) { story in
-                        WanyLink { StoryView(initial:story) } label: {
+                        WanyLink(.story(story)) {
                             VStack(alignment:.leading,spacing:10) {
                                 CoverView(story:story).frame(height:190).clipShape(RoundedRectangle(cornerRadius:20))
                                 Text(story.title).font(RanyTypography.font(.headline)).lineLimit(2).frame(maxWidth:.infinity,minHeight:44,alignment:.topLeading)
@@ -125,7 +125,6 @@ struct FeedView: View {
     var groups: [FeedGroup] { followed ? (store.state?.newFeed?.followed ?? []) : (store.state?.newFeed?.all ?? []) }
     var body: some View {
         WanyScroll {
-            HStack { Text(kind == "fyp" ? "مقترح لك" : "جديد").font(RanyTypography.font(.largeTitle).bold()); Spacer(); Button { Task { await store.loadFeed(kind) } } label: { Image(systemName:"arrow.clockwise") }.disabled(!store.online || store.loadingFeed) }
             if store.loadingFeed { HStack { ProgressView(); Text(store.feedProgress).font(RanyTypography.font(.caption)) }.card() }
             if kind == "fyp" {
                 let recommendations = Array((store.state?.fyp ?? []).prefix(visible))
@@ -137,17 +136,21 @@ struct FeedView: View {
                 if groups.isEmpty && !store.loadingFeed { EmptyState(icon:"sparkle",title:"لا توجد فصول جديدة هنا",detail:"الفصول المنشورة خلال آخر 24 ساعة، مع توضيح مصدر كل فصل واستبعاد الإصدارات القديمة المكررة.") }
                 ForEach(groups) { group in
                     VStack(alignment:.leading,spacing:14) {
-                        WanyLink { StoryView(initial:group.item) } label: { HStack { CoverView(story:group.item).frame(width:55,height:78).clipShape(RoundedRectangle(cornerRadius:8)); Text(group.item.title).font(RanyTypography.font(.headline)).foregroundStyle(.primary) } }
+                        WanyLink(.story(group.item)) { HStack { CoverView(story:group.item).frame(width:55,height:78).clipShape(RoundedRectangle(cornerRadius:8)); Text(group.item.title).font(RanyTypography.font(.headline)).foregroundStyle(.primary) } }
                         ForEach(group.chapters) { chapter in
-                            WanyLink {
-                                SourceChapterDestination(key:chapter.sourceKey,chapter:Chapter(number:chapter.number,title:chapter.title),fallback:group.item)
-                            } label: { HStack { Text(chapter.title); Spacer(); Text(chapter.sourceLabel).foregroundStyle(Theme.accent); if chapter.read { Image(systemName:"checkmark") } }.font(RanyTypography.font(.caption)).foregroundStyle(.primary).padding(.vertical,4) }
+                            WanyLink(.sourceChapter(key:chapter.sourceKey,chapter:Chapter(number:chapter.number,title:chapter.title),fallback:group.item)) { HStack { Text(chapter.title); Spacer(); Text(chapter.sourceLabel).foregroundStyle(Theme.accent); if chapter.read { Image(systemName:"checkmark") } }.font(RanyTypography.font(.caption)).foregroundStyle(.primary).padding(.vertical,4) }
                         }
                     }.card()
                 }
                 if store.state?.newFeed?.hasMore == true { Button("الصفحة التالية") { Task { await store.loadFeed("new",page:(store.state?.newFeed?.page ?? 1)+1) } }.disabled(store.loadingFeed || !store.online) }
             }
-        }.task { if kind == "fyp" ? (store.state?.fyp.isEmpty ?? true) : store.state?.newFeed == nil { await store.loadFeed(kind) } }.refreshable { await store.loadFeed(kind) }
+        }.toolbar {
+            ToolbarItem(placement:.topBarTrailing) {
+                Button { Task { await store.loadFeed(kind) } } label: { Image(systemName:"arrow.clockwise").frame(minWidth:44,minHeight:44) }
+                    .disabled(!store.online || store.loadingFeed).accessibilityLabel("تحديث")
+            }
+        }
+        .task { if kind == "fyp" ? (store.state?.fyp.isEmpty ?? true) : store.state?.newFeed == nil { await store.loadFeed(kind) } }.refreshable { await store.loadFeed(kind) }
     }
 }
 struct SourceChapterDestination: View {
@@ -308,9 +311,9 @@ struct ProfileView: View {
     private func accountDetails(_ state: AccountState) -> some View {
                 VStack(spacing:12) {
                     HStack(spacing:6) {
-                        WanyLink { StatsView() } label: { accountTool("الإحصائيات","chart.xyaxis.line") }
-                        WanyLink { FriendsView() } label: { accountTool("الأصدقاء","person.2") }
-                        WanyLink { ActivityView() } label: { accountTool("النشاط","clock") }
+                        WanyLink(.stats) { accountTool("الإحصائيات","chart.xyaxis.line") }
+                        WanyLink(.friends) { accountTool("الأصدقاء","person.2") }
+                        WanyLink(.activity) { accountTool("النشاط","clock") }
                     }.buttonStyle(.plain)
                     HStack {
                         stat("قصة في مكتبتي",state.data.library.count)
@@ -325,7 +328,7 @@ struct ProfileView: View {
     private func continueReading(_ state: AccountState) -> some View {
                 VStack(spacing:10) {
                     if let last = state.data.lastOpened, let story = store.stories[last.mangaId] {
-                        WanyLink { ReaderView(story:story,chapter:story.chapters?.first(where:{$0.number == last.chapter}) ?? Chapter(number:last.chapter,title:"الفصل \(chapterNumber(last.chapter))")) } label: {
+                        WanyLink(.reader(story,story.chapters?.first(where:{$0.number == last.chapter}) ?? Chapter(number:last.chapter,title:"الفصل \(chapterNumber(last.chapter))"))) {
                             HStack(spacing:12) {
                                 CoverView(story:story).frame(width:48,height:70).clipShape(RoundedRectangle(cornerRadius:10))
                                 VStack(alignment:.leading,spacing:6) {
@@ -360,7 +363,7 @@ struct ProfileView: View {
                     if !listID.isEmpty {
                         HStack(spacing:16) {
                             Button { adding = true } label: { Label("إضافة قصص",systemImage:"plus").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }.disabled(!store.online)
-                            WanyLink { ListDetailView(id:listID,title:lists.value["lists"].array.first(where:{$0["id"].string == listID})?["name"].string ?? "القائمة") } label: { Label("إدارة القائمة",systemImage:"slider.horizontal.3").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }
+                            WanyLink(.listDetail(id:listID,title:lists.value["lists"].array.first(where:{$0["id"].string == listID})?["name"].string ?? "القائمة")) { Label("إدارة القائمة",systemImage:"slider.horizontal.3").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }
                         }.font(RanyTypography.font(.caption)).buttonStyle(.plain)
                     } else { Text("أنشئ قائمتك من زر + وأضف لها القصص التي تختارها.").font(RanyTypography.font(.subheadline)).foregroundStyle(.secondary) }
                 }
@@ -421,13 +424,12 @@ struct StatsView: View {
     let fields = [("storiesRead","القصص المقروءة"),("organicChapters","الفصول المقروءة"),("organicCompletedChapters","الفصول المكتملة"),("bulkChapters","الفصول المحددة دفعة واحدة"),("activeDays","أيام القراءة"),("dailyAverage","المعدل اليومي"),("currentStreak","سلسلة الأيام الحالية"),("bestStreak","أفضل سلسلة"),("accountDays","عمر الحساب بالأيام")]
     var body: some View {
         WanyScroll {
-            Text("إحصائيات القراءة").font(RanyTypography.font(.largeTitle).bold()).frame(maxWidth:.infinity,alignment:.leading)
             if let state = store.state {
                 if !state.pending.isEmpty { Text("يوجد تقدم محلي بانتظار المزامنة. تتحدث الإحصائيات بعد رفعه.").font(RanyTypography.font(.caption)).foregroundStyle(.orange) }
                 LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],spacing:12) { ForEach(fields,id:\.0) { field in VStack(spacing:9) { Text(String(format:"%g",state.stats[field.0]?.number ?? 0)).font(RanyTypography.font(.largeTitle).bold()).foregroundStyle(Theme.accent); Text(field.1).font(RanyTypography.font(.caption)) }.frame(maxWidth:.infinity).card() } }
                 Text("الأيام الأخيرة").font(RanyTypography.font(.headline)).frame(maxWidth:.infinity,alignment:.leading)
                 ForEach(Array((state.stats["recentDays"]?.array ?? []).enumerated()),id:\.offset) { _,day in HStack { Text(day["day"].string); Spacer(); Text("\(Int(day["chapters"].number)) فصل") }.font(RanyTypography.font(.subheadline)).card() }
             }
-        }.navigationTitle("الإحصائيات").refreshable { await store.refresh() }
+        }.navigationTitle("إحصائيات القراءة").refreshable { await store.refresh() }
     }
 }

@@ -40,59 +40,40 @@ struct RanyAppearanceControls: View {
 }
 
 // Match Pany's navigation-container treatment: the background has one persistent
-// renderer; pages and navigation containers reveal it instead of painting black.
+// renderer; pages, navigation and tab containers reveal it instead of painting black.
 private struct RanyClearNavigation: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         if #available(iOS 18.0, *) {
-            content.containerBackground(Color.clear,for:.navigation)
+            content.containerBackground(Color.clear,for:.navigation).background(RanyClearContainers())
         } else {
-            content.background(RanyLegacyClearNavigation())
+            content.background(RanyClearContainers())
         }
     }
 }
 extension View {
     func ranyClearNavigation() -> some View { modifier(RanyClearNavigation()) }
 }
-private struct RanyLegacyClearNavigation: UIViewRepresentable {
+private struct RanyClearContainers: UIViewRepresentable {
     func makeUIView(context: Context) -> Probe { Probe() }
-    func updateUIView(_ view: Probe, context: Context) { view.clearNavigation() }
+    func updateUIView(_ view: Probe, context: Context) { view.clearContainers() }
     final class Probe: UIView {
-        override func didMoveToWindow() { super.didMoveToWindow(); clearNavigation() }
-        func clearNavigation() {
+        override func didMoveToWindow() { super.didMoveToWindow(); clearContainers() }
+        func clearContainers() {
             DispatchQueue.main.async { [weak self] in
                 var responder: UIResponder? = self
-                while let current = responder {
-                    if let controller = current as? UIViewController, let navigation = controller.navigationController {
-                        navigation.view.backgroundColor = .clear
-                        navigation.viewControllers.forEach { $0.view.backgroundColor = .clear }
-                        return
-                    }
-                    responder = current.next
+                while let current = responder, !(current is UIViewController) { responder = current.next }
+                var controller = responder as? UIViewController
+                // Clear every hosting wrapper between this page and the window root,
+                // including the native TabView and each tab's NavigationStack.
+                while let current = controller {
+                    if current.view.window?.rootViewController === current { break }
+                    current.view.backgroundColor = .clear
+                    if let navigation = current as? UINavigationController { navigation.viewControllers.forEach { $0.viewIfLoaded?.backgroundColor = .clear } }
+                    if let tabs = current as? UITabBarController { tabs.viewControllers?.forEach { $0.viewIfLoaded?.backgroundColor = .clear } }
+                    controller = current.parent
                 }
             }
         }
-    }
-}
-
-private struct RanyMainHeaderKey: EnvironmentKey { static let defaultValue = false }
-extension EnvironmentValues {
-    var ranyMainHeader: Bool {
-        get { self[RanyMainHeaderKey.self] }
-        set { self[RanyMainHeaderKey.self] = newValue }
-    }
-}
-struct RanyPageHeader: View {
-    var body: some View {
-        ZStack {
-            Text(RanyIdentity.displayName).font(RanyTypography.script(27)).foregroundStyle(RanyTypography.brandColor).accessibilityLabel(RanyIdentity.name)
-            HStack {
-                RanyMark(size:32).reportRanyMarkFrame("header")
-                Spacer()
-                WanyLink { SettingsView() } label: {
-                    Image(systemName:"gearshape").font(.system(size:22)).frame(width:44,height:44).contentShape(Rectangle())
-                }.accessibilityLabel("الإعدادات").accessibilityIdentifier("main.settings")
-            }
-        }.frame(height:48).padding(.top,4).padding(.bottom,2).accessibilityIdentifier("main.header")
     }
 }
 

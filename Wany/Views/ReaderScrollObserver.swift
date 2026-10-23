@@ -25,16 +25,25 @@ struct ReaderScrollDirection {
 }
 
 struct ReaderScrollObserver: UIViewRepresentable {
+    var scrollToTop = 0
     var onScroll: (CGFloat, Bool) -> Void
-    func makeUIView(context: Context) -> Probe { let view = Probe(); view.onScroll = onScroll; return view }
-    func updateUIView(_ view: Probe, context: Context) { view.onScroll = onScroll; view.attach() }
+    func makeUIView(context: Context) -> Probe { let view = Probe(); view.onScroll = onScroll; view.topRequest = scrollToTop; return view }
+    func updateUIView(_ view: Probe, context: Context) { view.onScroll = onScroll; view.attach(); view.scrollToTop(scrollToTop) }
     static func dismantleUIView(_ view: Probe, coordinator: Void) { view.observation = nil }
     final class Probe: UIView {
         var onScroll: ((CGFloat, Bool) -> Void)?
         var observation: NSKeyValueObservation?
+        var topRequest = 0
         weak var observed: UIScrollView?
         override func didMoveToSuperview() { super.didMoveToSuperview(); attach() }
         override func didMoveToWindow() { super.didMoveToWindow(); attach() }
+        // Re-selecting the current tab scrolls back to the top and expands the large title.
+        func scrollToTop(_ request: Int) {
+            guard request != topRequest else { return }
+            topRequest = request
+            guard let scroll = observed else { return }
+            scroll.setContentOffset(CGPoint(x:-scroll.adjustedContentInset.left,y:-scroll.adjustedContentInset.top),animated:!UIAccessibility.isReduceMotionEnabled)
+        }
         func attach() {
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.window != nil else { return }

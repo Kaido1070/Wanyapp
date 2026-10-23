@@ -36,37 +36,27 @@ import UIKit
         store.state = state
         return store
     }
-    func testHeaderBelongsToContentAndDoesNotReturnHalfwayUp() async throws {
+    func testNativeTabsShowLargeTitleHeaderMarkAndWallpaper() async throws {
         let store = fixtureStore(), ambience = RanyAmbience()
         var mark: CGRect = .zero
         let root = ZStack {
             RanyBackdropHost(ambience:ambience,reading:false,accountID:nil,assembly:1).frame(maxWidth:.infinity,maxHeight:.infinity).ignoresSafeArea()
-            RootView().environment(\.ranyMeasureMarkFrames,true)
+            RootView().environment(\.ranyMeasureMarkFrames,true).environment(\.ranyMarkFrameSink,{ key,frame in if key == "header" { mark = frame } })
         }.environmentObject(store).environmentObject(store.downloads)
             .environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark).tint(Theme.accent)
-            .onPreferenceChange(RanyMarkFrameKey.self) { frames in if let frame = frames["header"] { mark = frame } }
         let (window,previous) = show(root)
         defer { window.isHidden = true; previous?.makeKeyAndVisible() }
         try await Task.sleep(nanoseconds:1_200_000_000)
-        let start = mark
-        XCTAssertGreaterThan(start.width,0)
-        XCTAssertGreaterThan(start.midX,window.bounds.midX)
-        let scroll = try XCTUnwrap(descendants(window).compactMap { $0 as? UIScrollView }.first { $0.contentSize.height > $0.bounds.height+700 })
+        XCTAssertGreaterThan(mark.width,0,"The header mark lives in the native navigation bar and reports its frame for the intro.")
+        XCTAssertLessThan(mark.minY,window.bounds.height/3)
+        let tabBar = try XCTUnwrap(descendants(window).compactMap { $0 as? UITabBar }.first,"Main navigation must use the native tab bar.")
+        XCTAssertEqual(tabBar.items?.count,5)
+        XCTAssertTrue(descendants(window).contains { $0 is UINavigationBar })
+        _ = try XCTUnwrap(descendants(window).compactMap { $0 as? UIScrollView }.first { $0.contentSize.height > $0.bounds.height+700 })
         snapshot(window,name:"Rany-profile-glass")
         assertBackgroundIsVisible(window)
         XCTAssertEqual(descendants(window).filter { $0.accessibilityIdentifier == "rany.background.renderer" }.count,1)
-        scroll.setContentOffset(CGPoint(x:0,y:700-scroll.adjustedContentInset.top),animated:false)
-        try await Task.sleep(nanoseconds:250_000_000)
-        XCTAssertTrue(store.mainPageVisible,"Scrolling must keep the main navigation visible.")
         XCTAssertFalse(store.readerActive)
-        XCTAssertLessThan(mark.maxY,0,"The header must leave with the page, without changing navigation-bar insets.")
-        scroll.setContentOffset(CGPoint(x:0,y:350-scroll.adjustedContentInset.top),animated:false)
-        try await Task.sleep(nanoseconds:250_000_000)
-        XCTAssertLessThan(mark.maxY,0,"A partial upward scroll must not summon the header.")
-        scroll.setContentOffset(CGPoint(x:0,y:-scroll.adjustedContentInset.top),animated:false)
-        try await Task.sleep(nanoseconds:250_000_000)
-        XCTAssertEqual(mark.minY,start.minY,accuracy:2)
-        XCTAssertEqual(descendants(window).filter { $0.accessibilityIdentifier == "rany.background.renderer" }.count,1)
     }
     func testSettingsKeepsTheSameSceneVisible() async throws {
         let store = fixtureStore(), ambience = RanyAmbience()
@@ -97,30 +87,27 @@ import UIKit
             window.isHidden = true; previous?.makeKeyAndVisible()
         }
     }
-    func testCompletedNativePushAndPopRestoreMainBar() async throws {
+    func testCompletedNativePushAndPopKeepTabBar() async throws {
         let store = fixtureStore()
         let root = RootView().environmentObject(store).environmentObject(store.downloads)
             .environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark)
         let (window,previous) = show(root)
         defer { window.isHidden = true; previous?.makeKeyAndVisible() }
         try await Task.sleep(nanoseconds:700_000_000)
-        func navigation(_ controller: UIViewController) -> UINavigationController? {
-            if let nav = controller as? UINavigationController { return nav }
-            return controller.children.compactMap(navigation).first
+        func navigations(_ controller: UIViewController) -> [UINavigationController] {
+            ((controller as? UINavigationController).map { [$0] } ?? []) + controller.children.flatMap(navigations)
         }
-        let nav = try XCTUnwrap(navigation(window.rootViewController!))
-        XCTAssertTrue(store.mainPageVisible)
-        let child = ActivityView().background(RanyNavigationLifecycle(main:false))
-            .environmentObject(store).environmentObject(store.downloads)
+        let nav = try XCTUnwrap(navigations(window.rootViewController!).first { $0.viewIfLoaded?.window != nil })
+        let child = ActivityView().environmentObject(store).environmentObject(store.downloads)
         nav.pushViewController(UIHostingController(rootView:child),animated:true)
         try await Task.sleep(nanoseconds:900_000_000)
-        XCTAssertFalse(store.mainPageVisible)
+        XCTAssertEqual(nav.viewControllers.count,2)
         snapshot(window,name:"Rany-activity-after-transition")
         nav.popViewController(animated:true)
         try await Task.sleep(nanoseconds:900_000_000)
-        // The bar is now attached to the root destination itself, rather than relying
-        // on a delayed global visibility boolean from the popped destination.
-        XCTAssertEqual(nav.viewControllers.count,1,"A completed pop must restore the native root containing the tab bar.")
+        XCTAssertEqual(nav.viewControllers.count,1,"A completed pop must return to the tab's root page.")
+        let tabBar = try XCTUnwrap(descendants(window).compactMap { $0 as? UITabBar }.first)
+        XCTAssertFalse(tabBar.isHidden)
         snapshot(window,name:"Rany-main-bar-after-pop")
     }
     func testFirstAccountIntroCompletesItsAssemblyAndHandoff() async throws {

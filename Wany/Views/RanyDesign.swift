@@ -213,15 +213,12 @@ struct RanyLoginView: View {
     }
 }
 
-// Global frames avoid RTL mirroring and guessed safe-area offsets at the intro handoff.
-struct RanyMarkFrameKey: PreferenceKey {
-    static var defaultValue: [String:CGRect] = [:]
-    static func reduce(value: inout [String:CGRect], nextValue: () -> [String:CGRect]) {
-        value.merge(nextValue(),uniquingKeysWith:{ _,new in new })
-    }
-}
+// Window frames avoid RTL mirroring and guessed safe-area offsets at the intro handoff.
+// The header mark lives in the native navigation bar, outside SwiftUI's preference
+// tree, so the mark reports its UIKit window frame through an environment sink.
 private struct RanyMarkCoveredKey: EnvironmentKey { static let defaultValue = false }
 private struct RanyMeasureMarkFramesKey: EnvironmentKey { static let defaultValue = false }
+private struct RanyMarkFrameSinkKey: EnvironmentKey { static let defaultValue: ((String,CGRect)->Void)? = nil }
 extension EnvironmentValues {
     var ranyMeasureMarkFrames: Bool {
         get { self[RanyMeasureMarkFramesKey.self] }
@@ -231,16 +228,38 @@ extension EnvironmentValues {
         get { self[RanyMarkCoveredKey.self] }
         set { self[RanyMarkCoveredKey.self] = newValue }
     }
+    var ranyMarkFrameSink: ((String,CGRect)->Void)? {
+        get { self[RanyMarkFrameSinkKey.self] }
+        set { self[RanyMarkFrameSinkKey.self] = newValue }
+    }
 }
 private struct RanyMarkFrameReporter: ViewModifier {
     let identity: String
     @Environment(\.ranyMeasureMarkFrames) private var measuring
+    @Environment(\.ranyMarkFrameSink) private var sink
     func body(content: Content) -> some View {
         content.background {
-            if measuring {
-                GeometryReader { geometry in
-                    Color.clear.preference(key:RanyMarkFrameKey.self,value:[identity:geometry.frame(in:.global)])
-                }
+            if measuring, let sink { RanyWindowFrameProbe { sink(identity,$0) } }
+        }
+    }
+}
+private struct RanyWindowFrameProbe: UIViewRepresentable {
+    let report: (CGRect) -> Void
+    func makeUIView(context: Context) -> Probe { let view = Probe(); view.report = report; return view }
+    func updateUIView(_ view: Probe, context: Context) { view.report = report; view.publish() }
+    final class Probe: UIView {
+        var report: ((CGRect) -> Void)?
+        private var last: CGRect = .null
+        override init(frame: CGRect) { super.init(frame:frame); isUserInteractionEnabled = false; backgroundColor = .clear }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override func layoutSubviews() { super.layoutSubviews(); publish() }
+        override func didMoveToWindow() { super.didMoveToWindow(); publish() }
+        func publish() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.window != nil else { return }
+                let frame = self.convert(self.bounds,to:nil)
+                guard frame.width > 0, frame.height > 0, frame != self.last else { return }
+                self.last = frame; self.report?(frame)
             }
         }
     }

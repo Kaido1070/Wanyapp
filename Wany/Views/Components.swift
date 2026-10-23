@@ -12,32 +12,27 @@ struct WanyCard: ViewModifier {
 extension View { func card() -> some View { modifier(WanyCard()) } }
 struct WanyScroll<Content: View>: View {
     @EnvironmentObject var store: AppStore
-    @Environment(\.ranyMainHeader) private var mainHeader
+    @Environment(\.ranyScrollToTop) private var scrollToTop
     @State private var scrollDirection = ReaderScrollDirection(revealDistance:192)
     let content: Content
     init(@ViewBuilder content: ()->Content) { self.content = content() }
     var body: some View {
         ScrollView {
-            VStack(spacing:18) {
-                if mainHeader { RanyPageHeader() }
-                content
-            }
+            VStack(spacing:18) { content }
                 .ranyGlassGroup()
                 .padding(.horizontal,18)
-                // Navigation destinations must reserve their own space for the floating bar.
-                .padding(.bottom,mainHeader ? store.bottomBarHeight + 32 : 32)
-                .background(ReaderScrollObserver { offset, moving in
-                    // Only main tabs own the bottom bar; navigation destinations are
-                    // explicitly tagged as non-main by WanyLink.
-                    guard mainHeader else { return }
+                .padding(.bottom,32)
+                .background(ReaderScrollObserver(scrollToTop:scrollToTop) { offset, moving in
                     if let visible = scrollDirection.update(offset:offset,userScrolling:moving), store.chromeHidden == visible {
                         withAnimation(.easeInOut(duration:0.22)) { store.chromeHidden = !visible }
                     }
                 })
         }
+        // The native tab bar slides away while reading down and returns on a deliberate scroll up.
+        .toolbar(store.chromeHidden ? .hidden : .visible,for:.tabBar)
         .onAppear {
             scrollDirection = ReaderScrollDirection(revealDistance:192)
-            if mainHeader { store.chromeHidden = false }
+            store.chromeHidden = false
         }
         .background(Color.clear).ranyClearNavigation()
     }
@@ -60,7 +55,7 @@ struct StoryCard: View {
     var showReadingProgress = false
     var body: some View {
         VStack(alignment:.leading,spacing:8) {
-            WanyLink { StoryView(initial:story) } label: {
+            WanyLink(.story(story)) {
                 VStack(alignment:.leading,spacing:7) {
                     CoverView(story:story).frame(height:205).clipShape(RoundedRectangle(cornerRadius:15))
                     Text(story.title).font(RanyTypography.font(.subheadline).weight(.semibold)).lineLimit(2).frame(height:40,alignment:.topLeading)
@@ -71,7 +66,7 @@ struct StoryCard: View {
                 let full = store.stories[story.key] ?? story
                 let summary = state.readingSummary(for:full)
                 if let number = summary.chapter {
-                    WanyLink { ReaderView(story:full,chapter:full.chapters?.first(where:{$0.number == number}) ?? Chapter(number:number,title:"الفصل \(chapterNumber(number))")) } label: {
+                    WanyLink(.reader(full,full.chapters?.first(where:{$0.number == number}) ?? Chapter(number:number,title:"الفصل \(chapterNumber(number))"))) {
                         Label("وصلت للفصل \(chapterNumber(number))",systemImage:"play.fill").font(RanyTypography.font(.caption)).frame(maxWidth:.infinity,minHeight:44,alignment:.leading).contentShape(Rectangle())
                     }.buttonStyle(.plain).foregroundStyle(Theme.accent)
                 } else { Text("لم تبدأ القراءة").font(RanyTypography.font(.caption)).foregroundStyle(.secondary).frame(minHeight:44) }

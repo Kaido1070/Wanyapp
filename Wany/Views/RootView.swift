@@ -3,96 +3,45 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var downloads: Downloads
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @StateObject private var navigator = RanyNavigator()
-    @State private var selected = 4
-    @State private var requested = 4
-    @State private var selectionTask: Task<Void,Never>?
-    @State private var tabOpacity = 1.0
-    @State private var tabOffset: CGFloat = 0
+    @State private var tabs = RanyTabNavigation()
     @State private var loginSheet = false
-    private let titles = ["استكشف","FYP","جديد","التنزيلات","حسابي"]
-    private let icons = ["magnifyingglass","sparkles","sparkle","arrow.down.circle","person.crop.circle"]
     var body: some View {
         Group {
             if store.state == nil { LoginView() }
             else {
-                NavigationStack(path:Binding(get:{ navigator.path },set:{ navigator.restore($0) })) {
-                    Group {
-                        switch selected {
-                        case 0: DiscoverView()
-                        case 1: FeedView(kind:"fyp")
-                        case 2: FeedView(kind:"new")
-                        case 3: DownloadsView()
-                        default: ProfileView()
+                TabView(selection:Binding(get:{ tabs.selection },set:{ tabs.select($0) })) {
+                    ForEach(RanyTab.allCases,id:\.self) { tab in
+                        NavigationStack(path:Binding(get:{ tabs.paths[tab] ?? [] },set:{ tabs.paths[tab] = $0 })) {
+                            page(tab)
+                                .navigationTitle(tab.title)
+                                .navigationBarTitleDisplayMode(.large)
+                                .toolbar { RanyMainToolbar() }
+                                .safeAreaInset(edge:.top,spacing:0) { banner }
+                                .environment(\.ranyScrollToTop,tabs.scrollRequests[tab] ?? 0)
+                                .ranyDestinations()
                         }
+                        .tabItem { Label(tab.label,systemImage:tab.icon) }
+                        .tag(tab)
                     }
-                    // Animate the selected page only; never fade or move the bottom tab bar.
-                    .opacity(tabOpacity).offset(y:tabOffset)
-                    .environment(\.ranyMainHeader,true)
-                    .navigationTitle("").navigationBarTitleDisplayMode(.inline)
-                    .toolbar(.hidden,for:.navigationBar)
-                    .ranyClearNavigation()
-                    .safeAreaInset(edge:.top,spacing:0) {
-                        if !store.online { Label("أوفلاين · تقدمك محفوظ على الجهاز",systemImage:"wifi.slash").font(RanyTypography.font(.caption)).frame(maxWidth:.infinity).padding(7).background(Theme.surface) }
-                        else if store.loginRequired { Button("انتهت الجلسة · سجل الدخول لمزامنة تقدمك") { loginSheet = true }.font(RanyTypography.font(.caption)).padding(8) }
-                    }
-                    // This chrome belongs to the NavigationStack root, not the stack container.
-                    // UIKit therefore hides it during pushes and restores it automatically on pop,
-                    // even when a transient destination's lifecycle observer is already gone.
-                    .overlay(alignment:.bottom) {
-                        if !store.readerActive { HStack(spacing:0) {
-                        ForEach(0..<5) { i in Button { select(i) } label: {
-                            VStack(spacing:5) { Image(systemName:icons[i]).font(.system(size:21)); Text(titles[i]).font(.system(.caption2)) }.foregroundStyle(requested == i ? Theme.accent : .secondary).frame(maxWidth:.infinity).padding(.vertical,12)
-                        } }
-                    }.buttonStyle(.plain).ranyGlass(radius:24).padding(.horizontal,14).padding(.bottom,6)
-                        .background(GeometryReader { proxy in Color.clear.preference(key:BottomBarHeightKey.self,value:proxy.size.height) })
-                        .accessibilityIdentifier("main.bottom-bar")
-                        .offset(y:store.chromeHidden ? 140 : 0)
-                        .opacity(store.chromeHidden ? 0 : 1)
-                        .allowsHitTesting(!store.chromeHidden)
-                        .animation(.easeInOut(duration:0.22),value:store.chromeHidden)
-                        }
-                    }
-                    .onAppear { store.mainPageVisible = true; store.chromeHidden = false }
-                    .navigationDestination(for:RanyRoute.self) { route in RanySequentialDestination(navigator:navigator,route:route) }
                 }
-                .environment(\.ranyNavigator,navigator)
-                .opacity(navigator.opacity)
-                .allowsHitTesting(!navigator.transitioning)
-                .onAppear { navigator.reduceMotion = reduceMotion }
-                .onChange(of:reduceMotion) { _,value in navigator.reduceMotion = value }
             }
         }
-        .onChange(of:store.state?.user.id) { _,_ in navigator.reset() }
-        .onPreferenceChange(BottomBarHeightKey.self) { store.bottomBarHeight = max(90,$0) }
+        .onChange(of:store.state?.user.id) { _,_ in tabs.reset() }
         .sheet(isPresented:$loginSheet) { LoginView().onChange(of:store.loginRequired) { _,needed in if !needed { loginSheet = false } } }
         .alert(RanyIdentity.name,isPresented:Binding(get:{store.error != nil || downloads.notice != nil},set:{if !$0 { store.error = nil; downloads.notice = nil }})) { Button("حسنًا") { store.error = nil; downloads.notice = nil } } message: { Text(store.error ?? downloads.notice ?? "") }
     }
-    private func select(_ index: Int) {
-        guard !navigator.transitioning, requested != index else { return }
-        requested = index; selectionTask?.cancel()
-        if reduceMotion {
-            selected = index; tabOpacity = 1; tabOffset = 0
-            store.mainPageVisible = true; store.chromeHidden = false; return
-        }
-        selectionTask = Task { @MainActor in
-            withAnimation(.easeOut(duration:0.085)) { tabOpacity = 0; tabOffset = -3 }
-            do { try await Task.sleep(nanoseconds:85_000_000) } catch { return }
-            guard !Task.isCancelled else { return }
-            var transaction = Transaction(); transaction.disablesAnimations = true
-            withTransaction(transaction) { selected = index; tabOpacity = 0; tabOffset = 4; store.mainPageVisible = true; store.chromeHidden = false }
-            // Let the new tree lay out while hidden; outgoing text has already left.
-            await Task.yield()
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration:0.145)) { tabOpacity = 1; tabOffset = 0 }
+    @ViewBuilder private func page(_ tab: RanyTab) -> some View {
+        switch tab {
+        case .discover: DiscoverView()
+        case .fyp: FeedView(kind:"fyp")
+        case .new: FeedView(kind:"new")
+        case .downloads: DownloadsView()
+        case .profile: ProfileView()
         }
     }
-
+    @ViewBuilder private var banner: some View {
+        if !store.online { Label("أوفلاين · تقدمك محفوظ على الجهاز",systemImage:"wifi.slash").font(RanyTypography.font(.caption)).frame(maxWidth:.infinity).padding(7).background(Theme.surface) }
+        else if store.loginRequired { Button("انتهت الجلسة · سجل الدخول لمزامنة تقدمك") { loginSheet = true }.font(RanyTypography.font(.caption)).frame(minHeight:44).padding(.horizontal,8) }
+    }
 }
 struct LoginView: View { var body: some View { RanyLoginView() } }
-
-private struct BottomBarHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 90
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}

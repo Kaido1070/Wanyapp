@@ -36,13 +36,13 @@ struct DownloadsView: View {
     @State private var filter = "الكل"
     var body: some View {
         WanyScroll {
-            HStack { Text("تنزيلاتي").font(RanyTypography.font(.largeTitle).bold()); Spacer(); Text(byteLabel(downloads.savedJobs.reduce(0){$0+$1.bytes})).font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
+            HStack { Spacer(); Text(byteLabel(downloads.savedJobs.reduce(0){$0+$1.bytes})).font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
             Picker("التنزيلات",selection:$filter) { Text("الكل").tag("الكل"); Text("مكتمل").tag("مكتمل"); Text("غير مكتمل").tag("غير مكتمل") }.pickerStyle(.segmented)
             if downloads.savedJobs.isEmpty { EmptyState(icon:"arrow.down.circle",title:"مكتبتك بدون إنترنت",detail:"افتح قصة واضغط تحميل القصة كاملة، أو حمّل الفصول التي تختارها.") }
             ForEach(downloads.savedJobs.filter { filter == "الكل" || (filter == "مكتمل" ? $0.complete : !$0.complete) }) { job in
                 VStack(alignment:.leading,spacing:15) {
                     HStack {
-                        WanyLink { StoryView(initial:job.story) } label: {
+                        WanyLink(.story(job.story)) {
                             HStack { CoverView(story:job.story).frame(width:58,height:82).clipShape(RoundedRectangle(cornerRadius:9)); VStack(alignment:.leading,spacing:6) { Text(job.story.title).bold().lineLimit(2); Text(job.selectionMode == "unread" ? "الفصول غير المقروءة" : job.wholeStory ? "القصة كاملة" : "فصول محددة").font(RanyTypography.font(.caption)).foregroundStyle(.secondary) } }.foregroundStyle(.primary)
                         }
                         Spacer(); Button(role:.destructive) { removing = job.id } label: { Image(systemName:"trash") }
@@ -50,7 +50,7 @@ struct DownloadsView: View {
                     DownloadSummary(job:job)
                 }.card()
             }
-        }.navigationTitle("التنزيلات")
+        }
         .confirmationDialog("حذف الصور المحملة؟ سيبقى تقدم القراءة محفوظًا.",isPresented:Binding(get:{removing != nil},set:{if !$0 { removing = nil }})) { Button("حذف التنزيل",role:.destructive) { if let removing { downloads.remove(removing) }; removing = nil } }
     }
 }

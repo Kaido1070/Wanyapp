@@ -43,3 +43,15 @@ Automated checks cover download accounting, persistent account separation, progr
 - Test foreground/background, reader entry/exit, Low Power Mode, Reduce Motion and Reduce Transparency. The suspended circuit must not keep ticking. Measure the fourteen-entry pool on a real phone; only visible entries should draw and decode stays outside the animation loop.
 - Compare the intro mark with the docked mark: same transparent monogram, same shared glass component, letter 20% smaller. One sheen at formation, none looping afterward. Inspect all card, field and selection surfaces for consistent tint and contrast.
 - DESIGN_BRIEF.md is the canonical current design handoff; newer user instructions supersede it.
+
+
+## Native navigation (1.4.0+)
+
+- Switch between all five tabs while each is several pages deep: every tab returns exactly where it was left.
+- Tap the selected tab while deep in a stack: it pops to the tab's first page. Tap again: the page scrolls to the top and the large title expands.
+- Push and pop rapidly (double taps, tapping during the push animation, back then forward): touches must respond during transitions; no frozen screen, duplicated page or blank page.
+- Edge-swipe back on every destination, including the reader (navigation bar hidden), story, settings, avatar picker and list detail. Start a swipe and cancel it half-way: the page must stay usable.
+- Scroll down on a tab root and on a destination: the bottom bar slides away; a deliberate scroll up brings it back. Content must not jump when it hides or returns.
+- Large titles collapse on scroll and expand at the top. The R mark and the settings button stay in the navigation bar; cold launch and login intro still dock the mark there.
+- Save an avatar and leave the picker before the request ends: no other page may be closed by the late response.
+- Sign out and in with another account while deep in several tabs: every stack starts at its first page.

@@ -32,7 +32,7 @@ struct StoryView: View {
             if let description = story.description, !description.isEmpty { Text(description.replacingOccurrences(of:"<[^>]+>",with:"",options:.regularExpression)).font(RanyTypography.font(.subheadline)).foregroundStyle(.secondary).frame(maxWidth:.infinity,alignment:.leading) }
             if !story.genres.isEmpty { Text(story.genres.joined(separator:" · ")).font(RanyTypography.font(.caption)).foregroundStyle(Theme.accent).frame(maxWidth:.infinity,alignment:.leading) }
             if let recent = store.state?.data.library.first(where:{$0.mangaId == story.key})?.lastReadChapter {
-                WanyLink { ReaderView(story:story,chapter:story.chapters?.first(where:{$0.number == recent}) ?? Chapter(number:recent,title:"الفصل \(chapterNumber(recent))")) } label: { Label("متابعة الفصل \(chapterNumber(recent))",systemImage:"book.fill").frame(maxWidth:.infinity) }.buttonStyle(.bordered)
+                WanyLink(.reader(story,story.chapters?.first(where:{$0.number == recent}) ?? Chapter(number:recent,title:"الفصل \(chapterNumber(recent))"))) { Label("متابعة الفصل \(chapterNumber(recent))",systemImage:"book.fill").frame(maxWidth:.infinity) }.buttonStyle(.bordered)
             }
             Button { Task { await downloads.enqueue(story) } } label: {
                 HStack { if downloads.preparing.contains(story.key) { ProgressView() }; Label(downloads.preparing.contains(story.key) ? "تجهيز جميع الفصول…" : "تحميل القصة كاملة",systemImage:"arrow.down.to.line").bold() }.frame(maxWidth:.infinity).padding(9)
@@ -61,7 +61,7 @@ struct StoryView: View {
                 ForEach(chapters) { chapter in
                     HStack {
                         if selecting { Button { if selected.contains(chapter.id) { selected.remove(chapter.id) } else { selected.insert(chapter.id) } } label: { Image(systemName:selected.contains(chapter.id) ? "checkmark.circle.fill" : "circle") } }
-                        WanyLink { ReaderView(story:story,chapter:chapter) } label: {
+                        WanyLink(.reader(story,chapter)) {
                             VStack(alignment:.leading,spacing:5) { Text(chapter.title).font(RanyTypography.font(.subheadline)); if store.state?.data.completed.contains(story.key+":"+chapter.id) == true { Text("مقروء").font(RanyTypography.font(.caption2)).foregroundStyle(Theme.accent) } }.frame(maxWidth:.infinity,alignment:.leading).foregroundStyle(.primary)
                         }
                         if downloads.savedJobs.first(where:{$0.id == story.key})?.chapters.first(where:{$0.id == chapter.id})?.complete == true { Image(systemName:"checkmark.circle.fill").foregroundStyle(.green) }

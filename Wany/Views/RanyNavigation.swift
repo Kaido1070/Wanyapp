@@ -1,73 +1,103 @@
 import SwiftUI
 import UIKit
 
-// Let the native navigation stack own bar visibility, including cancelled back swipes.
-// A temporary image of the shared wallpaper shields outgoing text during transitions.
-struct RanyNavigationLifecycle: UIViewControllerRepresentable {
-    @EnvironmentObject var store: AppStore
-    let main: Bool
-    func makeUIViewController(context: Context) -> Observer { Observer() }
-    func updateUIViewController(_ controller: Observer, context: Context) {
-        controller.onVisibility = { [weak store] main in
-            guard let store, store.mainPageVisible != main else { return }
-            store.mainPageVisible = main
+// Every push is a value on the selected tab's NavigationStack path. UIKit owns
+// the transition, the back button and the edge swipe; touches are never blocked.
+enum RanyRoute: Hashable {
+    case story(Story)
+    case reader(Story,Chapter)
+    case sourceChapter(key: String, chapter: Chapter, fallback: Story)
+    case listDetail(id: String, title: String)
+    case publicProfile(String)
+    case settings, stats, friends, activity, updates, avatarPicker
+}
+struct RanyDestination: View {
+    let route: RanyRoute
+    var body: some View {
+        switch route {
+        case .story(let story): StoryView(initial:story)
+        case .reader(let story,let chapter): ReaderView(story:story,chapter:chapter)
+        case .sourceChapter(let key,let chapter,let fallback): SourceChapterDestination(key:key,chapter:chapter,fallback:fallback)
+        case .listDetail(let id,let title): ListDetailView(id:id,title:title)
+        case .publicProfile(let id): PublicProfileView(id:id)
+        case .settings: SettingsView()
+        case .stats: StatsView()
+        case .friends: FriendsView()
+        case .activity: ActivityView()
+        case .updates: UpdatesView()
+        case .avatarPicker: AvatarPickerView()
         }
-        controller.isMain = main
     }
-    final class Observer: UIViewController {
-        var isMain = false
-        var onVisibility: ((Bool)->Void)?
-        private var wallpaper: UIImageView?
-        override func loadView() { view = UIView(); view.backgroundColor = .clear; view.isUserInteractionEnabled = false }
-        override func viewWillAppear(_ animated: Bool) { super.viewWillAppear(animated); observeTransition() }
-        override func viewWillDisappear(_ animated: Bool) { super.viewWillDisappear(animated); observeTransition() }
-        override func viewDidAppear(_ animated: Bool) { super.viewDidAppear(animated); publishVisibility(); clearShield() }
-        override func viewDidLayoutSubviews() {
-            super.viewDidLayoutSubviews()
-            if let image = wallpaper, let renderer = renderer(in:view.window) { image.frame = renderer.convert(renderer.bounds,to:view) }
+}
+private struct RanyDestinations: ViewModifier {
+    func body(content: Content) -> some View {
+        content.navigationDestination(for:RanyRoute.self) { route in RanyDestination(route:route).ranyClearNavigation() }
+    }
+}
+extension View { func ranyDestinations() -> some View { modifier(RanyDestinations()) } }
+
+enum RanyTab: Int, CaseIterable, Hashable {
+    case discover, fyp, new, downloads, profile
+    var label: String { ["استكشف","FYP","جديد","التنزيلات","حسابي"][rawValue] }
+    var title: String { ["استكشف","مقترح لك","جديد","تنزيلاتي","حسابي"][rawValue] }
+    var icon: String { ["magnifyingglass","sparkles","sparkle","arrow.down.circle","person.crop.circle"][rawValue] }
+}
+
+// Tapping the selected tab pops its stack, or scrolls its root page to the top.
+struct RanyTabNavigation {
+    var selection: RanyTab = .profile
+    var paths: [RanyTab:[RanyRoute]] = [:]
+    private(set) var scrollRequests: [RanyTab:Int] = [:]
+    mutating func select(_ tab: RanyTab) {
+        guard tab == selection else { selection = tab; return }
+        if paths[tab]?.isEmpty == false { paths[tab] = [] }
+        else { scrollRequests[tab,default:0] += 1 }
+    }
+    mutating func reset() { paths = [:] }
+}
+
+private struct RanyScrollToTopKey: EnvironmentKey { static let defaultValue = 0 }
+extension EnvironmentValues {
+    var ranyScrollToTop: Int {
+        get { self[RanyScrollToTopKey.self] }
+        set { self[RanyScrollToTopKey.self] = newValue }
+    }
+}
+
+struct RanyMainToolbar: ToolbarContent {
+    var body: some ToolbarContent {
+        ToolbarItem(placement:.topBarLeading) { RanyMark(size:32).reportRanyMarkFrame("header") }
+        ToolbarItem(placement:.topBarTrailing) {
+            NavigationLink(value:RanyRoute.settings) {
+                Image(systemName:"gearshape").frame(minWidth:44,minHeight:44).contentShape(Rectangle())
+            }.accessibilityLabel("الإعدادات").accessibilityIdentifier("main.settings")
         }
-        private var navigation: UINavigationController? {
-            var current: UIViewController? = self
-            while let controller = current {
-                if let nav = controller as? UINavigationController { return nav }
-                if let nav = controller.navigationController { return nav }
-                current = controller.parent
-            }
-            return nil
+    }
+}
+
+// Pages that hide the navigation bar (the reader) lose UIKit's edge swipe. Keep
+// the native interactive pop available while such a page is visible.
+struct RanyInteractivePop: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> Controller { Controller() }
+    func updateUIViewController(_ controller: Controller, context: Context) {}
+    final class Controller: UIViewController, UIGestureRecognizerDelegate {
+        private weak var navigation: UINavigationController?
+        private weak var original: UIGestureRecognizerDelegate?
+        override func loadView() { view = UIView(); view.isUserInteractionEnabled = false }
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            guard let navigation = navigationController, let gesture = navigation.interactivePopGestureRecognizer else { return }
+            self.navigation = navigation
+            if gesture.delegate !== self { original = gesture.delegate; gesture.delegate = self }
+            gesture.isEnabled = true
         }
-        private func publishVisibility() {
-            let main = navigation.map { $0.viewControllers.count <= 1 } ?? isMain
-            // The popped destination may already be deallocated when the main queue runs.
-            // Keep the notification, not the transient UIViewController, alive.
-            let notify = onVisibility
-            DispatchQueue.main.async { notify?(main) }
+        override func viewWillDisappear(_ animated: Bool) {
+            super.viewWillDisappear(animated)
+            if let gesture = navigation?.interactivePopGestureRecognizer, gesture.delegate === self { gesture.delegate = original }
         }
-        private func observeTransition() {
-            guard let coordinator = transitionCoordinator ?? navigation?.transitionCoordinator else { publishVisibility(); return }
-            onVisibility?(false)
-            if wallpaper == nil, let renderer = renderer(in:view.window), renderer.bounds.width > 0 {
-                let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
-                let image = UIGraphicsImageRenderer(bounds:renderer.bounds,format:format).image { _ in renderer.drawHierarchy(in:renderer.bounds,afterScreenUpdates:false) }
-                let shield = UIImageView(image:image); shield.isUserInteractionEnabled = false
-                shield.frame = renderer.convert(renderer.bounds,to:view); view.addSubview(shield); wallpaper = shield
-            }
-            // The outgoing destination can be released before the completed pop callback.
-            // Capture the visibility callback and navigation stack independently of the observer,
-            // so a completed or cancelled interactive transition always restores the correct bar.
-            let notify = onVisibility
-            let stack = navigation
-            let fallback = isMain
-            coordinator.animate(alongsideTransition:nil) { [weak self] _ in
-                notify?(stack.map { $0.viewControllers.count <= 1 } ?? fallback)
-                self?.clearShield()
-            }
-        }
-        private func clearShield() { wallpaper?.removeFromSuperview(); wallpaper = nil }
-        private func renderer(in view: UIView?) -> UIView? {
-            guard let view else { return nil }
-            if view.accessibilityIdentifier == "rany.background.renderer" { return view }
-            for child in view.subviews { if let result = renderer(in:child) { return result } }
-            return nil
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let navigation else { return false }
+            return navigation.viewControllers.count > 1 && navigation.transitionCoordinator == nil
         }
     }
 }

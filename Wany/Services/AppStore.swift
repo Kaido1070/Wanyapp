@@ -17,8 +17,6 @@ import UIKit
     @Published var feedProgress = ""
     @Published var chromeHidden = false
     @Published var readerActive = false
-    @Published var bottomBarHeight: CGFloat = 90
-    @Published var mainPageVisible = false
     let downloads = Downloads.shared
     private let monitor = NWPathMonitor()
     private var metadataTask: Task<Void,Never>?

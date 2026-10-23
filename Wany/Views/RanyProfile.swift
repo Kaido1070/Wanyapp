@@ -42,7 +42,7 @@ struct ProfileEditView: View {
                 } label: { HStack { if busy { ProgressView() }; Text("حفظ الاسم") }.frame(maxWidth:.infinity,minHeight:44) }
                     .disabled(!store.online || busy || name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
             }.card()
-            WanyLink { AvatarPickerView() } label: {
+            WanyLink(.avatarPicker) {
                 HStack { Label("تعديل الصورة الشخصية",systemImage:"person.crop.circle"); Spacer(); Image(systemName:"chevron.left") }.frame(minHeight:44).card()
             }
         }.navigationTitle("تعديل الملف الشخصي").onAppear { name = store.state?.user.name ?? "" }

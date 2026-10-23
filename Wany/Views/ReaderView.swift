@@ -5,7 +5,6 @@ struct ReaderView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var downloads: Downloads
     @Environment(\.dismiss) var dismiss
-    @Environment(\.ranyNavigator) private var navigator
     let story: Story
     let chapter: Chapter
     @State private var payload: ChapterPayload?
@@ -21,7 +20,7 @@ struct ReaderView: View {
     @State private var saveTask: Task<Void,Never>?
     @State private var pageRatios: [Int:CGFloat] = [:]
     @State private var percent: CGFloat = 0
-    private func leaveReader() { if let navigator { navigator.pop() } else { dismiss() } }
+    private func leaveReader() { dismiss() }
     var readingChapter: Chapter { activeChapter ?? chapter }
     var chapters: [Chapter] { (store.stories[story.key] ?? story).orderedChapters }
     var previousChapter: Chapter? { neighbor(forward:false) }
@@ -73,6 +72,7 @@ struct ReaderView: View {
                     .opacity(controls ? 1 : 0).allowsHitTesting(controls)
             }
         }.toolbar(.hidden,for:.navigationBar).toolbar(.hidden,for:.tabBar)
+        .background(RanyInteractivePop())
         .sheet(isPresented:$choosingChapter) { chapterPicker }
         .task(id:readingChapter.id) { await load() }
         .task {
