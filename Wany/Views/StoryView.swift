@@ -78,6 +78,10 @@ struct StoryView: View {
                     .frame(maxWidth:.infinity,minHeight:44)
             }.buttonStyle(RanySurfaceButtonStyle())
             if let error { Text(error).font(RanyTypography.font(.caption)).foregroundStyle(.orange); Button("إعادة جلب قائمة الفصول") { Task { await refresh() } } }
+            if story.chapterListComplete == false, let declared = story.declaredChapterCount, declared > (story.chapters?.count ?? 0) {
+                Text("المصدر يعلن \(declared) فصل، وظهر منها \(story.chapters?.count ?? 0) حتى الآن. الفصول الظاهرة تعمل، واسحب للتحديث لجلب البقية.")
+                    .font(RanyTypography.font(.caption)).foregroundStyle(.secondary).frame(maxWidth:.infinity,alignment:.leading)
+            }
             if !store.online { Text("التفاصيل محفوظة. الفصول بعلامة ✓ متاحة بدون إنترنت؛ الفصول الناقصة تحتاج اتصالًا لاستكمال الصور.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
             TextField("ابحث برقم الفصل أو عنوانه",text:$query).textFieldStyle(.plain).padding(13).ranyInsetGlass(radius:14).keyboardType(.default)
             StoryChapterPagination(page:page.number,pages:page.count) { goToPage($0,proxy:proxy) }

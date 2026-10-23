@@ -78,33 +78,62 @@ struct APIError: LocalizedError {
         var req = try request("/api/source/image",query:query)
         req.setValue("image/*",forHTTPHeaderField:"Accept"); return req
     }
+    // Mirrors the website: the series response is the chapter list. Extra pages
+    // only add chapters, a failed page never hides the ones already known, and
+    // every chapter the site can open is kept, including number-only entries
+    // (the reader opens those by number, exactly like the site).
     func fullSeries(_ key: String) async throws -> Story {
-        var story = try await get("/api/source/series",query:["key":key],as:SeriesResponse.self).item
-        if story.sourceTemporarilyUnavailable == true { throw APIError(message:"المصدر متعثر الآن، أعد المحاولة لاحقًا",status:503) }
-        var byNumber = Dictionary((story.chapters ?? []).map { ($0.id,$0) },uniquingKeysWith: { a,b in a.url == nil ? b : a })
+        var story = try await getRetrying("/api/source/series",query:["key":key],as:SeriesResponse.self).item
+        var byNumber = Dictionary((story.chapters ?? []).map { ($0.id,$0) },uniquingKeysWith:SeriesChapters.prefer)
         if story.chapterListComplete == false || (story.chapterPageCount ?? 1) > 1 {
-            var page = 1
-            var pages = max(1,story.chapterPageCount ?? 1)
-            while page <= pages {
-                try Task.checkCancellation()
-                let result = try await get("/api/source/chapters-page",query:["key":key,"page":String(page)],as:ChaptersResponse.self)
-                guard result.page == page else { throw APIError(message:"المصدر أعاد صفحة فصول غير متوقعة",status:0) }
-                pages = max(pages,result.pages)
-                guard pages < 10000 else { throw APIError(message:"قائمة الفصول غير صالحة",status:0) }
-                for c in result.chapters { byNumber[c.id] = c }
-                page += 1
+            let pages = await chapterPages(key,declared:max(1,story.chapterPageCount ?? 1))
+            for c in pages.chapters { byNumber[c.id] = byNumber[c.id].map { SeriesChapters.prefer($0,c) } ?? c }
+            story.chapterListComplete = pages.complete && ((story.chapterPageCount ?? 1) > 1 || pages.added)
+        }
+        let chapters = byNumber.values.sorted { $0.number < $1.number }
+        if chapters.isEmpty {
+            if story.sourceTemporarilyUnavailable == true { throw APIError(message:"المصدر متعثر الآن، أعد المحاولة لاحقًا",status:503) }
+            throw APIError(message:"لم يرجع المصدر أي فصل لهذه القصة بعد",status:0)
+        }
+        story.chapters = chapters
+        if let declared = story.declaredChapterCount, declared > chapters.count { story.chapterListComplete = false }
+        else if story.chapterListComplete == nil { story.chapterListComplete = true }
+        return story
+    }
+    // Pages are fetched one by one, each retried; the walk stops at the first page
+    // that still fails and reports what it gathered instead of throwing it away.
+    private func chapterPages(_ key: String,declared: Int) async -> (chapters: [Chapter],complete: Bool,added: Bool) {
+        var collected: [Chapter] = []
+        var page = 1, pages = declared
+        while page <= min(pages,2000) {
+            if Task.isCancelled { return (collected,false,!collected.isEmpty) }
+            guard let result = try? await getRetrying("/api/source/chapters-page",query:["key":key,"page":String(page)],as:ChaptersResponse.self) else {
+                return (collected,false,!collected.isEmpty)
+            }
+            collected += result.chapters
+            pages = max(pages,result.pages)
+            if result.chapters.isEmpty && page >= result.pages { break }
+            page += 1
+        }
+        return (collected,true,!collected.isEmpty)
+    }
+    // Source scrapers occasionally time out once; the website retries twice too.
+    func getRetrying<T: Decodable>(_ path: String,query: [String:String],as type: T.Type,attempts: Int = 3) async throws -> T {
+        var failure: Error = APIError(message:"تعذر الاتصال",status:0)
+        for attempt in 0..<attempts {
+            do { return try await get(path,query:query,as:type) }
+            catch {
+                if isRequestCancellation(error) { throw error }
+                if let api = error as? APIError, (400..<500).contains(api.status), api.status != 408, api.status != 429 { throw error }
+                failure = error
+                if attempt < attempts-1 { try await Task.sleep(nanoseconds:UInt64(attempt+1)*600_000_000) }
             }
         }
-        let real = byNumber.values.filter { $0.synthetic != true }.sorted { $0.number < $1.number }
-        guard !real.isEmpty else { throw APIError(message:"لم يرجع المصدر فصولًا قابلة للتحميل",status:0) }
-        if let declared = story.declaredChapterCount, declared > real.count {
-            throw APIError(message:"القائمة ناقصة: \(real.count) من \(declared) فصل. أعد المحاولة حتى تكتمل القائمة.",status:0)
-        }
-        story.chapters = real; story.chapterListComplete = true; return story
+        throw failure
     }
     func chapter(_ key: String, _ chapter: Chapter) async throws -> ChapterPayload {
         var q = ["key":key,"number":chapterNumber(chapter.number)]; q["chapterUrl"] = chapter.url
-        let result = try await get("/api/source/chapter",query:q,as:ChapterResponse.self).chapter
+        let result = try await getRetrying("/api/source/chapter",query:q,as:ChapterResponse.self).chapter
         guard result.item.key == key, result.number == chapter.number, !result.pages.isEmpty else { throw APIError(message:"بيانات الفصل غير مكتملة",status:0) }
         return result
     }

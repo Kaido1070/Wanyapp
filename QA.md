@@ -117,3 +117,10 @@ Automated checks cover download accounting, persistent account separation, progr
 - Each row opens its own page: labelled fields, live hints (short password, mismatch, question length), the action button stays dim until valid, a confirmation explains what happens, and a green or orange result appears below.
 - Wrong current password shows "كلمة المرور الحالية غير صحيحة" and changes nothing.
 - رمز الاستعادة: the button is disabled until the current password is typed; the new code appears with a copy button and disappears when leaving the page.
+
+## 1.4.10
+
+- Hunter x Hunter from العاشق (3asq): the story page lists the same chapters as the website and they open and download.
+- A story whose source announces more chapters than it returned shows every returned chapter plus a short "المصدر يعلن…" note; pull to refresh fetches the rest.
+- Team-X stories with many chapter pages: the full list loads; if one page fails, the chapters already loaded stay visible.
+- Discover/search: a source page containing one malformed entry still shows all other stories.

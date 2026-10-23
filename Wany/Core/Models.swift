@@ -36,6 +36,10 @@ struct Story: Codable, Hashable, Identifiable {
     var chapterPageCount: Int?
     var sourceTemporarilyUnavailable: Bool?
     var snapshotOriginalCover: String?
+    enum CodingKeys: String, CodingKey {
+        case key, source, sourceId, slug, type, url, title, cover, description, status, genres, latest, chapters
+        case declaredChapterCount, chapterListComplete, chapterPageCount, sourceTemporarilyUnavailable, snapshotOriginalCover
+    }
     var id: String { key }
     var orderedChapters: [Chapter] { (chapters ?? []).sorted { $0.number < $1.number } }
 }
@@ -45,6 +49,7 @@ struct Chapter: Codable, Hashable, Identifiable {
     var publishedAt: String?
     var synthetic: Bool?
     var url: String?
+    enum CodingKeys: String, CodingKey { case number, title, publishedAt, synthetic, url }
     var id: String { chapterNumber(number) }
 }
 struct ChapterPayload: Codable, Hashable {
@@ -56,6 +61,7 @@ struct ChapterPayload: Codable, Hashable {
     var pageMeta: [PageMeta]?
     var previous: Double?
     var next: Double?
+    enum CodingKeys: String, CodingKey { case item, number, title, chapterUrl, pages, pageMeta, previous, next }
     var id: String { item.key + ":" + chapterNumber(number) }
 }
 struct PageMeta: Codable, Hashable { var url: String; var width: Double?; var height: Double? }
@@ -131,11 +137,32 @@ struct FeedGroup: Codable, Identifiable {
 }
 struct NewFeed: Codable { var followed: [FeedGroup]; var all: [FeedGroup]; var hasMore: Bool; var page: Int }
 struct FypSnapshot: Codable { var recommendations: [Recommendation] }
-struct APIList: Codable { var items: [Story]; var hasMore: Bool; var page: Int }
-struct ResolveResponse: Codable { var items: [Story] }
+struct APIList: Codable {
+    var items: [Story]; var hasMore: Bool; var page: Int
+    enum CodingKeys: String, CodingKey { case items, hasMore, page }
+    init(from decoder: Decoder) throws {
+        let c=try decoder.container(keyedBy:CodingKeys.self)
+        items=c.lossyStories(.items)
+        hasMore=(try? c.decodeIfPresent(Bool.self,forKey:.hasMore)) ?? false
+        page=Int(c.lenientNumber(.page) ?? 1)
+    }
+}
+struct ResolveResponse: Codable {
+    var items: [Story]
+    enum CodingKeys: String, CodingKey { case items }
+    init(from decoder: Decoder) throws { items=try decoder.container(keyedBy:CodingKeys.self).lossyStories(.items) }
+}
 struct SeriesResponse: Codable { var item: Story }
 struct ChapterResponse: Codable { var chapter: ChapterPayload }
-struct ChaptersResponse: Codable { var chapters: [Chapter]; var page: Int; var pages: Int }
+struct ChaptersResponse: Codable {
+    var chapters: [Chapter]; var page: Int; var pages: Int
+    enum CodingKeys: String, CodingKey { case chapters, page, pages }
+    init(from decoder: Decoder) throws {
+        let c=try decoder.container(keyedBy:CodingKeys.self)
+        chapters=c.lossyChapters(.chapters)
+        page=Int(c.lenientNumber(.page) ?? 1); pages=Int(c.lenientNumber(.pages) ?? 1)
+    }
+}
 struct SessionResponse: Codable { var user: Account? }
 struct DataResponse: Codable { var data: AccountData }
 struct OK: Codable { var ok: Bool? }
@@ -298,5 +325,104 @@ extension Array where Element == JSONValue {
             let id = key(value)
             return IdentifiedJSON(id:!id.isEmpty && seen.insert(id).inserted ? id : "#position-\(index)",value:value)
         }
+    }
+}
+
+// Sources disagree on types: chapter numbers arrive as numbers or text, titles
+// and dates may be null. The website coerces each field (Number(...)) and skips
+// only the entries it cannot read; one odd chapter must never hide the rest.
+extension Story {
+    init(from decoder: Decoder) throws {
+        let c=try decoder.container(keyedBy:CodingKeys.self)
+        key=try c.decode(String.self,forKey:.key)
+        source=c.lenientString(.source) ?? ""
+        sourceId=c.lenientString(.sourceId)
+        slug=c.lenientString(.slug) ?? ""
+        type=c.lenientString(.type) ?? ""
+        url=c.lenientString(.url) ?? ""
+        title=c.lenientString(.title) ?? key
+        cover=c.lenientString(.cover) ?? ""
+        description=c.lenientString(.description)
+        status=c.lenientString(.status)
+        genres=((try? c.decodeIfPresent([JSONValue].self,forKey:.genres)) ?? nil)?.compactMap { $0.string.isEmpty ? nil : $0.string } ?? []
+        latest=c.lenientNumber(.latest)
+        chapters=c.contains(.chapters) ? c.lossyChapters(.chapters) : nil
+        declaredChapterCount=c.lenientNumber(.declaredChapterCount).map { Int($0) }
+        chapterListComplete=try? c.decodeIfPresent(Bool.self,forKey:.chapterListComplete)
+        chapterPageCount=c.lenientNumber(.chapterPageCount).map { Int($0) }
+        sourceTemporarilyUnavailable=try? c.decodeIfPresent(Bool.self,forKey:.sourceTemporarilyUnavailable)
+        snapshotOriginalCover=c.lenientString(.snapshotOriginalCover)
+    }
+}
+extension Chapter {
+    init(from decoder: Decoder) throws {
+        let c=try decoder.container(keyedBy:CodingKeys.self)
+        guard let value=c.lenientNumber(.number),value.isFinite else {
+            throw DecodingError.dataCorruptedError(forKey:.number,in:c,debugDescription:"Chapter without a usable number")
+        }
+        number=value
+        title=c.lenientString(.title) ?? ""
+        if title.isEmpty { title="الفصل "+chapterNumber(value) }
+        publishedAt=c.lenientString(.publishedAt)
+        synthetic=try? c.decodeIfPresent(Bool.self,forKey:.synthetic)
+        url=c.lenientString(.url).flatMap { $0.isEmpty ? nil : $0 }
+    }
+}
+extension ChapterPayload {
+    init(from decoder: Decoder) throws {
+        let c=try decoder.container(keyedBy:CodingKeys.self)
+        item=try c.decode(Story.self,forKey:.item)
+        guard let value=c.lenientNumber(.number) else { throw DecodingError.dataCorruptedError(forKey:.number,in:c,debugDescription:"Chapter without a usable number") }
+        number=value
+        title=c.lenientString(.title) ?? ("الفصل "+chapterNumber(value))
+        chapterUrl=c.lenientString(.chapterUrl)
+        pages=((try? c.decodeIfPresent([JSONValue].self,forKey:.pages)) ?? nil)?.compactMap { $0.string.isEmpty ? nil : $0.string } ?? []
+        pageMeta=try? c.decodeIfPresent([PageMeta].self,forKey:.pageMeta)
+        previous=c.lenientNumber(.previous)
+        next=c.lenientNumber(.next)
+    }
+}
+private struct LossyStory: Decodable {
+    let value: Story?
+    init(from decoder: Decoder) throws { value=try? Story(from:decoder) }
+}
+private struct LossyChapter: Decodable {
+    let value: Chapter?
+    init(from decoder: Decoder) throws { value=try? Chapter(from:decoder) }
+}
+extension KeyedDecodingContainer {
+    func lenientNumber(_ key: Key) -> Double? {
+        if let value=try? decodeIfPresent(Double.self,forKey:key) { return value }
+        guard let text=(try? decodeIfPresent(String.self,forKey:key)) ?? nil else { return nil }
+        let trimmed=text.trimmingCharacters(in:.whitespacesAndNewlines).replacingOccurrences(of:",",with:".")
+        if let value=Double(trimmed) { return value }
+        // "Chapter 12.5" / "الفصل ١٢": take the first number, including Arabic-Indic digits.
+        let western=String(trimmed.map { ch -> Character in
+            if let digit=ch.wholeNumberValue,!ch.isASCII { return Character(String(digit)) }
+            return ch == "٫" ? "." : ch
+        })
+        guard let range=western.range(of:#"\d+(\.\d+)?"#,options:.regularExpression) else { return nil }
+        return Double(western[range])
+    }
+    func lenientString(_ key: Key) -> String? {
+        if let text=try? decodeIfPresent(String.self,forKey:key) { return text }
+        if let number=try? decodeIfPresent(Double.self,forKey:key) { return chapterNumber(number) }
+        return nil
+    }
+    func lossyStories(_ key: Key) -> [Story] {
+        ((try? decodeIfPresent([LossyStory].self,forKey:key)) ?? nil)?.compactMap(\.value) ?? []
+    }
+    func lossyChapters(_ key: Key) -> [Chapter] {
+        ((try? decodeIfPresent([LossyChapter].self,forKey:key)) ?? nil)?.compactMap(\.value) ?? []
+    }
+}
+
+enum SeriesChapters {
+    // Two entries for one number: keep the one the reader can open by URL, and
+    // a real chapter over a number-only placeholder.
+    static func prefer(_ a: Chapter,_ b: Chapter) -> Chapter {
+        if (a.synthetic == true) != (b.synthetic == true) { return a.synthetic == true ? b : a }
+        if a.url == nil && b.url != nil { return b }
+        return a
     }
 }

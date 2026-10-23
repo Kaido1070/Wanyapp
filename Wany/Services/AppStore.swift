@@ -114,7 +114,14 @@ import Observation
         if let old=stories[story.key],old.cover.hasPrefix("/api/work-snapshots/"),!story.cover.hasPrefix("/api/work-snapshots/") {
             merged.snapshotOriginalCover=story.cover; merged.cover=old.cover
         }
-        if let old = stories[story.key], old.chapterListComplete == true, story.chapterListComplete != true { merged.chapters = old.chapters; merged.chapterListComplete = true; merged.chapterPageCount = old.chapterPageCount }
+        // A partial list (a list card, or a source page that failed) only adds chapters
+        // to what is already known; nothing previously fetched disappears.
+        if let old = stories[story.key], story.chapterListComplete != true, let known = old.chapters, !known.isEmpty {
+            var byNumber = Dictionary(known.map { ($0.id,$0) },uniquingKeysWith:SeriesChapters.prefer)
+            for c in story.chapters ?? [] { byNumber[c.id] = byNumber[c.id].map { SeriesChapters.prefer($0,c) } ?? c }
+            merged.chapters = byNumber.values.sorted { $0.number < $1.number }
+            if old.chapterListComplete == true && (story.chapters ?? []).count <= known.count { merged.chapterListComplete = true; merged.chapterPageCount = old.chapterPageCount }
+        }
         // Lightweight list cards carry no description or genres; keep the saved ones so
         // a story opened offline still shows its details.
         if let old = stories[story.key] {

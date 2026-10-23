@@ -21,7 +21,7 @@ extension AccountState {
         let chapter: Double?
         if let saved = entry?.lastReadChapter, (entry?.lastReadAt ?? 0) >= (latestRecord?.updatedAt ?? 0) { chapter = saved }
         else { chapter = latestRecord?.chapter ?? entry?.lastReadChapter }
-        let chapters = story.orderedChapters.filter { $0.synthetic != true }
+        let chapters = story.orderedChapters
         let total: Int?
         let keys: Set<String>?
         if story.chapterListComplete == true, !chapters.isEmpty {
