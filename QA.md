@@ -124,3 +124,4 @@ Automated checks cover download accounting, persistent account separation, progr
 - A story whose source announces more chapters than it returned shows every returned chapter plus a short "المصدر يعلن…" note; pull to refresh fetches the rest.
 - Team-X stories with many chapter pages: the full list loads; if one page fails, the chapters already loaded stay visible.
 - Discover/search: a source page containing one malformed entry still shows all other stories.
+- أقرأ حاليًا: open chapter 150, accept "تعليم الفصول السابقة كمقروءة", go back; «وصلت للفصل» must still say 150 and open chapter 150.

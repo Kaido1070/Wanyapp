@@ -16,11 +16,15 @@ extension AccountState {
         var completed = Set(data.completed.filter { $0.hasPrefix(prefix) })
         for record in completedPending?.values.map({ $0 }) ?? [] where record.mangaId == story.key { completed.insert(record.id) }
         for record in records.values where record.percent >= 98 { completed.insert(record.id) }
-        let latestRecord = records.values.max { $0.updatedAt < $1.updatedAt }
         let entry = data.library.first { $0.mangaId == story.key }
+        // Same rule as the website: continue from the last chapter actually opened
+        // (lastReadChapter, updated by every open on any device), then the highest
+        // reached. Progress timestamps are not used: marking earlier chapters read
+        // stamps them "now", which used to send this button to an old chapter.
         let chapter: Double?
-        if let saved = entry?.lastReadChapter, (entry?.lastReadAt ?? 0) >= (latestRecord?.updatedAt ?? 0) { chapter = saved }
-        else { chapter = latestRecord?.chapter ?? entry?.lastReadChapter }
+        if let saved = entry?.lastReadChapter, saved > 0 { chapter = saved }
+        else if let highest = entry?.highestReachedChapter, highest > 0 { chapter = highest }
+        else { chapter = records.values.max { ($0.updatedAt,$0.chapter) < ($1.updatedAt,$1.chapter) }?.chapter }
         let chapters = story.orderedChapters
         let total: Int?
         let keys: Set<String>?

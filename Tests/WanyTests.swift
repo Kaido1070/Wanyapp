@@ -234,6 +234,14 @@ final class WanyTests: XCTestCase {
         XCTAssertEqual(summary.chapter,1); XCTAssertEqual(summary.completedCount,1)
         XCTAssertEqual(try XCTUnwrap(summary.percent),50,accuracy:0.001)
     }
+    func testContinueReadingIgnoresChaptersMarkedReadLater() {
+        var work = story(); work.declaredChapterCount = 200
+        var state = AccountState(user:Account(id:"u",name:"U",username:"u"))
+        state.data.library = [LibraryEntry(mangaId:work.key,status:"reading",addedAt:1,updatedAt:1,lastReadAt:1000,lastReadChapter:150,highestReachedChapter:150)]
+        // "Mark earlier chapters read" stamps old chapters with a newer time.
+        for number in 1...10 { let r=ProgressRecord(mangaId:work.key,chapter:Double(number),percent:100,updatedAt:5000); state.data.progress[r.id]=r }
+        XCTAssertEqual(state.readingSummary(for:work).chapter,150)
+    }
     func testStoryProgressUsesLatestPositionAndIgnoresOtherStories() throws {
         var work = story(); work.declaredChapterCount = 10
         var state = AccountState(user:Account(id:"u",name:"U",username:"u"))
