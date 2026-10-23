@@ -41,6 +41,8 @@ import XCTest
         XCTAssertTrue(store.state!.data.completed.isEmpty)
         XCTAssertTrue(store.state!.data.progress.isEmpty)
         XCTAssertNotNil(store.state!.pendingOpens?[payload.id])
+        // Account saves are coalesced off the main thread; flush as leaving the app does.
+        store.persistNow()
         let saved=try XCTUnwrap(Disk.read(AccountState.self,owner:owner,name:"account.json"))
         XCTAssertEqual(saved.data.lastOpened?.chapter,2.5)
         XCTAssertEqual(saved.pendingOpens?.count,1)
