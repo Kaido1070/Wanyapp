@@ -65,6 +65,16 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         c.httpShouldSetCookies = false
         return URLSession(configuration:c,delegate:delegate,delegateQueue:nil)
     }()
+    // Pages for the chapter being read use a foreground session with more parallel
+    // connections: background sessions start each transfer later.
+    @ObservationIgnored private lazy var readerSession: URLSession = {
+        let c = URLSessionConfiguration.default
+        c.httpMaximumConnectionsPerHost = 6
+        c.httpShouldSetCookies = false
+        c.timeoutIntervalForRequest = 30
+        return URLSession(configuration:c,delegate:delegate,delegateQueue:nil)
+    }()
+    @ObservationIgnored private var fastFallback: [String:Task<Void,Never>] = [:]
     @ObservationIgnored private var active: [String: URLSessionDownloadTask] = [:]
     @ObservationIgnored private var workers: [String: Task<Void,Never>] = [:]
     @ObservationIgnored private var workerTokens: [String:UUID] = [:]
@@ -187,6 +197,39 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         }
         if jobs[j].chapters[c].payload == nil { install(payload,job:j,chapter:c,owner:owner) }
         persist(); updateNetwork()
+        if !jobs[j].chapters[c].saved && !jobs[j].chapters[c].complete { scheduleFastFallback(payload) }
+    }
+    // Show a chapter quickly: if the chosen quality has not delivered every page within
+    // a short window, the missing pages switch to the lighter quality so the chapter
+    // appears, then the whole chapter upgrades in the background (old pages stay visible).
+    private func scheduleFastFallback(_ payload: ChapterPayload) {
+        fastFallback[payload.id]?.cancel()
+        fastFallback[payload.id] = Task { [weak self] in
+            do { try await Task.sleep(for:.milliseconds(2500)) } catch { return }
+            self?.applyFastFallback(payload)
+        }
+    }
+    private func applyFastFallback(_ payload: ChapterPayload) {
+        fastFallback[payload.id] = nil
+        guard let owner, readerPriority == payload.id, let j = jobs.firstIndex(where:{$0.id == payload.item.key}),
+              let c = jobs[j].chapters.firstIndex(where:{$0.id == chapterNumber(payload.number)}),
+              !jobs[j].chapters[c].saved, !jobs[j].chapters[c].complete else { return }
+        let target = jobs[j].chapters[c].requestedQuality ?? quality.rawValue
+        let light = ImageQuality.balanced.rawValue
+        guard target != light else { return }
+        var changed = false
+        for i in jobs[j].chapters[c].images.indices where !jobs[j].chapters[c].images[i].done && jobs[j].chapters[c].images[i].quality != light {
+            // A new file name keeps a late callback from the slower transfer out of this page.
+            if let task = active.removeValue(forKey:owner+":"+jobs[j].chapters[c].images[i].file) { task.cancel() }
+            jobs[j].chapters[c].images[i].file = Disk.imageName(payload.id,i)+".fast"
+            jobs[j].chapters[c].images[i].quality = light
+            jobs[j].chapters[c].images[i].attempts = 0; jobs[j].chapters[c].images[i].failure = nil
+            jobs[j].chapters[c].images[i].bytes = 0; jobs[j].chapters[c].images[i].expected = nil
+            changed = true
+        }
+        guard changed else { return }
+        jobs[j].chapters[c].upgradeQuality = target
+        persist(); revision += 1; pump()
     }
     private func install(_ payload: ChapterPayload, job: Int, chapter: Int, owner: String) {
         jobs[job].chapters[chapter].payload = payload; jobs[job].chapters[chapter].error = nil
@@ -288,6 +331,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         persist(); revision += 1
     }
     func leaveChapter(_ id: String) {
+        fastFallback[id]?.cancel(); fastFallback[id] = nil
         if readerPriority == id { readerPriority = nil }
         for j in jobs.indices { for c in jobs[j].chapters.indices where jobs[j].id+":"+jobs[j].chapters[c].id == id && !jobs[j].chapters[c].saved {
             jobs[j].chapters[c].expiresAt = Date().addingTimeInterval(180)
@@ -344,7 +388,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         guard let job=jobs.first(where:{$0.id == payload.item.key}),let part=job.chapters.first(where:{$0.id == chapterNumber(payload.number)}) else { return nil }
         return job.error ?? part.error ?? part.images.compactMap(\.failure).first
     }
-    func redownload(_ payload: ChapterPayload,quality: ImageQuality) {
+    func redownload(_ payload: ChapterPayload,quality: ImageQuality,announce: Bool = true) {
         guard let owner,let j=jobs.firstIndex(where:{$0.id == payload.item.key}),
               let c=jobs[j].chapters.firstIndex(where:{$0.id == chapterNumber(payload.number)}) else { return }
         let before=jobs
@@ -369,7 +413,8 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         for task in active.values where delegate.tag(task)?.owner == owner && delegate.tag(task)?.job == payload.item.key && delegate.tag(task)?.chapter == chapterNumber(payload.number) { task.cancel() }
         let retained=Set(jobs[j].chapters[c].images.flatMap(\.storedFiles))
         for file in old.flatMap(\.storedFiles) where !retained.contains(file) { try? FileManager.default.removeItem(at:Disk.file(owner,file)) }
-        revision += 1; notice="أضيف تنزيل الفصل بجودة "+quality.label+". تبقى الصور الحالية متاحة حتى يكتمل البديل."
+        revision += 1
+        if announce { notice="أضيف تنزيل الفصل بجودة "+quality.label+". تبقى الصور الحالية متاحة حتى يكتمل البديل." }
         pump()
     }
     func redownloadSaved(_ key: String,quality: ImageQuality) {
@@ -400,7 +445,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
                 } else { guard readerPriority == jobs[j].id+":"+part.id else { continue } }
                 guard let payload = jobs[j].chapters[c].payload else { continue }
                 for i in jobs[j].chapters[c].images.indices {
-                    if count >= 3 { return }
+                    if count >= (part.saved ? 3 : 6) { return }
                     let image = jobs[j].chapters[c].images[i]
                     guard !image.done, image.attempts < 3, active[owner+":"+image.file] == nil else { continue }
                     do {
@@ -410,7 +455,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
                         var req = try API.shared.imageRequest(source:payload.item.source,url:image.remote,referer:payload.chapterUrl ?? payload.item.url,quality:chosen)
                         if part.requestedQuality != nil { req.cachePolicy = .reloadIgnoringLocalCacheData }
                         let tag = TransferTag(owner:owner,job:jobs[j].id,chapter:jobs[j].chapters[c].id,image:image.file,quality:chosen.rawValue)
-                        let task = session.downloadTask(with:req)
+                        let task = (part.saved ? session : readerSession).downloadTask(with:req)
                         task.taskDescription = String(data:try JSONEncoder().encode(tag),encoding:.utf8)
                         jobs[j].chapters[c].images[i].attempts += 1
                         jobs[j].chapters[c].images[i].failure = nil
@@ -487,6 +532,13 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
             jobs[j].chapters[c].images[i].fallbackFile=nil; jobs[j].chapters[c].images[i].fallbackBytes=nil
         }
         persist(); revision += 1
+        // Every page is visible in the lighter quality: upgrade in the background.
+        if error == nil, jobs[j].chapters[c].complete, let target = jobs[j].chapters[c].upgradeQuality,
+           let upgrade = ImageQuality(rawValue:target), let payload = jobs[j].chapters[c].payload {
+            jobs[j].chapters[c].upgradeQuality = nil
+            if readerPriority == jobs[j].id+":"+jobs[j].chapters[c].id { redownload(payload,quality:upgrade,announce:false); return }
+            persist()
+        }
         if error != nil { Task { try? await Task.sleep(for:.seconds(2)); self.pump() } } else { pump() }
     }
 }

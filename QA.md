@@ -81,3 +81,12 @@ Automated checks cover download accounting, persistent account separation, progr
 - Login: the submit button is solid gold with dark text and dims only while disabled.
 - Wallpaper: only your own covers of at least 432×595 appear; with none available the background stays plain. No soft or blurry cover may appear behind content.
 - Reader: the bar touches the top edge (glass under the status bar and camera, no gap), the chapter number appears once, and the slider menu offers image quality plus re-download of the current chapter in that quality.
+
+## 1.4.6
+
+- Open an undownloaded chapter on a normal and on a slow connection with quality set to high or original: pages appear within a few seconds (balanced if needed), then sharpen in place without the page jumping or going blank.
+- While a page loads it shows a spinner and "جارٍ تحميل الصورة"; "إعادة المحاولة" appears only offline or after the page really failed.
+- End of chapter: framed card with a gold "الفصل التالي" button and a secondary "العودة للفصول" button, both easy to tap.
+- Settings › المظهر: turn glass off and check the profile library, FYP and story cards are separated by thin edges; turn glass on and the edges disappear.
+- FYP: both columns align at the top in every row, with long and short titles and reasons.
+- Reading statistics: the headline number, streak strip and three tiles fit without the large title gap; check large Dynamic Type.

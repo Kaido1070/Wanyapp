@@ -39,7 +39,7 @@ struct ReaderView: View {
                     ReaderChapterScroll(id:payload.id,endTitle:"نهاية الفصل \(chapterNumber(payload.number))",
                         urls:payload.pages.indices.map { downloads.pageURL(payload,index:$0) },
                         ratios:pageRatios,initialPage:restoredPage(payload),
-                        nextTitle:nextChapter.map { "الفصل التالي \($0.id)" },online:store.online,quality:downloads.quality,
+                        nextTitle:nextChapter.map { "الفصل التالي \($0.id)" },online:store.online,quality:downloads.quality,failed:failedPages(payload),
                         onNext:{ if let next = nextChapter { open(next) } },onBack:{ leaveReader() },
                         onRetry:{ downloads.retryChapter(payload) },
                         onInvalid:{ downloads.invalidatePage(payload,index:$0) },
@@ -154,6 +154,17 @@ struct ReaderView: View {
                 .navigationTitle("اختيار الفصل").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement:.confirmationAction) { Button("إغلاق") { choosingChapter = false } } }
         }.environment(\.layoutDirection,.rightToLeft)
+    }
+    // A page counts as failed only when it cannot arrive: offline without a file,
+    // or every download attempt has ended in an error.
+    private func failedPages(_ payload: ChapterPayload) -> Set<Int> {
+        let part = downloads.jobs.first(where:{$0.id == payload.item.key})?.chapters.first(where:{$0.id == chapterNumber(payload.number)})
+        return Set(payload.pages.indices.filter { index in
+            guard downloads.pageURL(payload,index:index) == nil else { return false }
+            if !store.online { return true }
+            guard let images = part?.images, images.indices.contains(index) else { return false }
+            return images[index].failure != nil && images[index].attempts >= 3
+        })
     }
     private var previousUnread: [Double] {
         guard let state=store.state else { return [] }

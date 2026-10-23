@@ -49,7 +49,11 @@ struct RanyGlass: ViewModifier {
     }
     @ViewBuilder func body(content: Content) -> some View {
         if !enabled || reduceTransparency {
-            content.background(Theme.surface,in:shape)
+            // Without glass, nested solid surfaces would merge (a story card on the library
+            // card). A hairline edge and a lifted fill keep every card distinct.
+            content.background(Theme.surface.opacity(0.92),in:shape)
+                .background(Color.white.opacity(0.03),in:shape)
+                .overlay { shape.stroke(Color.white.opacity(0.14),lineWidth:1) }
         } else {
             #if compiler(>=6.2)
             if #available(iOS 26.0, *) { content.glassEffect(liquidGlass,in:shape) }

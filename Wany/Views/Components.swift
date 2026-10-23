@@ -90,7 +90,7 @@ struct StoryCard: View {
             WanyLink(.story(story,sourceKeys:sourceKeys)) {
                 VStack(alignment:.leading,spacing:7) {
                     CoverView(story:story).frame(height:205).clipShape(RoundedRectangle(cornerRadius:15))
-                    Text(story.title).font(RanyTypography.font(.subheadline).weight(.semibold)).lineLimit(2).frame(height:40,alignment:.topLeading)
+                    Text(story.title).font(RanyTypography.font(.subheadline).weight(.semibold)).lineLimit(2,reservesSpace:true).multilineTextAlignment(.leading).frame(maxWidth:.infinity,alignment:.topLeading)
                     HStack { Text(sourceKeys.count>1 ? "\(sourceKeys.count) مصادر · \(sourceLabel(story.source))" : sourceLabel(story.source)); Spacer(); if let latest = story.latest { Text(chapterNumber(latest)) } }.font(RanyTypography.font(.caption2)).foregroundStyle(.secondary)
                 }.contentShape(Rectangle()).foregroundStyle(.primary)
             }.buttonStyle(.plain)
@@ -114,7 +114,7 @@ struct StoryCard: View {
 struct StoryGrid: View {
     let stories: [Story]
     var showReadingProgress = false
-    var body: some View { LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],spacing:20) { ForEach(stories) { StoryCard(story:$0,showReadingProgress:showReadingProgress) } } }
+    var body: some View { LazyVGrid(columns:[GridItem(.flexible(),alignment:.top),GridItem(.flexible(),alignment:.top)],alignment:.leading,spacing:20) { ForEach(stories) { StoryCard(story:$0,showReadingProgress:showReadingProgress) } } }
 }
 struct AccountBadge: View {
     let kind: String?

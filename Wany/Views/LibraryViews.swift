@@ -42,7 +42,7 @@ struct DiscoverView: View {
             HStack { Button("فلاتر النوع والحالة والتصنيفات",systemImage:"line.3.horizontal.decrease.circle") { filtersOpen=true }.frame(minHeight:44); Spacer(); if filterLoading { ProgressView() } }.font(.caption)
             let featured=groups.filter { wideKeys.contains($0.primary.key) }
             if !featured.isEmpty { DiscoverFeaturedStories(stories:featured.map(\.primary),sourceGroups:Dictionary(featured.map { ($0.primary.key,$0.items.map(\.key)) },uniquingKeysWith:{ _,b in b })) }
-            LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],spacing:20) {
+            LazyVGrid(columns:[GridItem(.flexible(),alignment:.top),GridItem(.flexible(),alignment:.top)],alignment:.leading,spacing:20) {
                 ForEach(groups.filter { !wideKeys.contains($0.primary.key) }) { group in StoryCard(story:group.primary,sourceKeys:group.items.map(\.key)) }
             }
             if busy { ProgressView("جاري تحميل القصص") }
@@ -179,7 +179,7 @@ struct FeedView: View {
             if kind == "fyp" {
                 let recommendations = Array((store.state?.fyp ?? []).prefix(visible))
                 if recommendations.isEmpty && !store.loadingFeed { EmptyState(icon:"sparkles",title:"اقتراحات تناسب قراءتك",detail:"تُجهز من مفضلتك وسجل قراءتك وقوائمك، بنفس خوارزمية الموقع.") }
-                LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],spacing:20) { ForEach(recommendations) { r in VStack(alignment:.leading,spacing:6) { StoryCard(story:r.item,sourceKeys:r.sourceKeys); Text(r.reason).font(RanyTypography.font(.caption2)).foregroundStyle(.secondary).lineLimit(3) } } }
+                LazyVGrid(columns:[GridItem(.flexible(),alignment:.top),GridItem(.flexible(),alignment:.top)],alignment:.leading,spacing:20) { ForEach(recommendations) { r in VStack(alignment:.leading,spacing:6) { StoryCard(story:r.item,sourceKeys:r.sourceKeys); Text(r.reason).font(RanyTypography.font(.caption2)).foregroundStyle(.secondary).lineLimit(2,reservesSpace:true).frame(maxWidth:.infinity,alignment:.topLeading) } } }
                 if visible < (store.state?.fyp.count ?? 0) { Button("عرض المزيد") { visible += 12 }.buttonStyle(.bordered) }
             } else {
                 Picker("العرض",selection:$followed) { Text("الكل").tag(false); Text("أتابعها").tag(true) }.pickerStyle(.segmented)

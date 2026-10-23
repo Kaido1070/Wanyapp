@@ -188,6 +188,9 @@ struct ChapterDownload: Codable, Identifiable {
     var keepOffline: Bool?
     var expiresAt: Date?
     var requestedQuality: String?
+    // Set when pages were fetched in the lighter quality to appear quickly; the
+    // chapter is re-fetched in this quality once every page is visible.
+    var upgradeQuality: String?
     var saved: Bool { keepOffline != false }
     var id: String { chapter.id }
     var complete: Bool { payload != nil && !images.isEmpty && images.allSatisfy(\.done) }

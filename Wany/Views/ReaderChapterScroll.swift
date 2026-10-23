@@ -13,6 +13,8 @@ struct ReaderChapterScroll: UIViewRepresentable {
     let nextTitle: String?
     let online: Bool
     var quality: ImageQuality = .balanced
+    // Pages whose download actually failed; only these offer a retry.
+    var failed: Set<Int> = []
     var onNext: () -> Void
     var onBack: () -> Void
     var onRetry: () -> Void
@@ -23,7 +25,7 @@ struct ReaderChapterScroll: UIViewRepresentable {
     func updateUIView(_ view: ChapterScroll, context: Context) {
         view.onNext = onNext; view.onBack = onBack; view.onRetry = onRetry
         view.onInvalid = onInvalid; view.onPosition = onPosition; view.onScroll = onScroll
-        view.configure(id:id,urls:urls,ratios:ratios,initialPage:initialPage,nextTitle:nextTitle,online:online,endTitle:endTitle,quality:quality)
+        view.configure(id:id,urls:urls,ratios:ratios,initialPage:initialPage,nextTitle:nextTitle,online:online,endTitle:endTitle,quality:quality,failed:failed)
     }
     static func dismantleUIView(_ view: ChapterScroll, coordinator: Void) { view.stop(); view.onPosition = nil; view.onScroll = nil; view.delegate = nil }
 }
@@ -52,10 +54,12 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
     private(set) var tiles: [UIImageView] = []
     private var placeholders: [UILabel] = []
     private var retries: [UIButton] = []
+    private var spinners: [UIActivityIndicatorView] = []
+    private var failed: Set<Int> = []
     private let footer = UIStackView()
     private let endLabel = UILabel()
-    private let nextButton = UIButton(type:.system)
-    private let backButton = UIButton(type:.system)
+    private let nextButton = UIButton(configuration:.filled())
+    private let backButton = UIButton(configuration:.gray())
     private var chapterID: String?
     private var urls: [URL?] = []
     private var ratios: [Int:CGFloat] = [:]
@@ -90,30 +94,58 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
         contentInsetAdjustmentBehavior = .never
         showsHorizontalScrollIndicator = false; showsVerticalScrollIndicator = false
         addSubview(canvas)
-        footer.axis = .vertical; footer.spacing = 16; footer.alignment = .center
-        endLabel.text = "نهاية الفصل"; endLabel.textColor = .white; endLabel.font = .preferredFont(forTextStyle:.headline)
+        // End-of-chapter card: the next chapter is the primary action, going back is secondary.
+        let gold = UIColor(red:0.86,green:0.73,blue:0.57,alpha:1)
+        footer.axis = .vertical; footer.spacing = 12; footer.alignment = .fill
+        footer.isLayoutMarginsRelativeArrangement = true
+        footer.directionalLayoutMargins = NSDirectionalEdgeInsets(top:20,leading:18,bottom:20,trailing:18)
+        footer.backgroundColor = UIColor(white:1,alpha:0.07)
+        footer.layer.cornerRadius = 22; footer.layer.cornerCurve = .continuous
+        footer.layer.borderWidth = 1; footer.layer.borderColor = UIColor(white:1,alpha:0.12).cgColor
+        endLabel.text = "نهاية الفصل"; endLabel.textColor = .white; endLabel.textAlignment = .center
+        endLabel.font = .preferredFont(forTextStyle:.headline); endLabel.adjustsFontForContentSizeCategory = true
+        var nextStyle = UIButton.Configuration.filled()
+        nextStyle.baseBackgroundColor = gold; nextStyle.baseForegroundColor = .black; nextStyle.cornerStyle = .large
+        nextStyle.image = UIImage(systemName:"chevron.left"); nextStyle.imagePlacement = .trailing; nextStyle.imagePadding = 8
+        nextButton.configuration = nextStyle
+        var backStyle = UIButton.Configuration.gray()
+        backStyle.baseForegroundColor = gold; backStyle.cornerStyle = .large
+        backStyle.image = UIImage(systemName:"list.bullet"); backStyle.imagePlacement = .trailing; backStyle.imagePadding = 8
+        backStyle.title = "العودة للفصول"
+        backButton.configuration = backStyle
         nextButton.addTarget(self,action:#selector(nextChapter),for:.touchUpInside)
-        backButton.setTitle("العودة للفصول",for:.normal); backButton.addTarget(self,action:#selector(back),for:.touchUpInside)
-        [nextButton,backButton].forEach { $0.tintColor = UIColor(red:0.87,green:0.71,blue:0.52,alpha:1); $0.heightAnchor.constraint(greaterThanOrEqualToConstant:44).isActive = true }
+        backButton.addTarget(self,action:#selector(back),for:.touchUpInside)
+        [nextButton,backButton].forEach { $0.heightAnchor.constraint(greaterThanOrEqualToConstant:50).isActive = true }
         [endLabel,nextButton,backButton].forEach { footer.addArrangedSubview($0) }
+        footer.setCustomSpacing(18,after:endLabel)
         canvas.addSubview(footer)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
     @objc private func nextChapter() { onNext?() }
     @objc private func back() { onBack?() }
     @objc private func retry() { onRetry?() }
-    func configure(id: String, urls: [URL?], ratios: [Int:CGFloat], initialPage: Int, nextTitle: String?, online: Bool, endTitle: String = "نهاية الفصل",quality: ImageQuality = .balanced) {
+    // Loading shows a spinner and a calm message; the retry appears only after a real failure.
+    private func updatePlaceholder(_ index: Int) {
+        let loaded = tiles[index].image != nil, didFail = failed.contains(index)
+        placeholders[index].isHidden = loaded
+        placeholders[index].text = didFail ? "تعذر تحميل الصورة \(index+1)" : "جارٍ تحميل الصورة \(index+1)…"
+        retries[index].isHidden = loaded || !didFail || !retries[index].isEnabled
+        if loaded || didFail { spinners[index].stopAnimating() } else { spinners[index].startAnimating() }
+    }
+    func configure(id: String, urls: [URL?], ratios: [Int:CGFloat], initialPage: Int, nextTitle: String?, online: Bool, endTitle: String = "نهاية الفصل",quality: ImageQuality = .balanced,failed: Set<Int> = []) {
         if chapterID != id || tiles.count != urls.count {
             stop(); chapterID = id; self.initialPage = initialPage; restored = false; interacted = false
             self.ratios = ratios; pendingRatios = [:]; layoutWidth = 0
             setZoomScale(1,animated:false)
-            tiles.forEach { $0.removeFromSuperview() }; placeholders.forEach { $0.removeFromSuperview() }; retries.forEach { $0.removeFromSuperview() }
-            tiles = []; placeholders = []; retries = []
+            tiles.forEach { $0.removeFromSuperview() }; placeholders.forEach { $0.removeFromSuperview() }; retries.forEach { $0.removeFromSuperview() }; spinners.forEach { $0.removeFromSuperview() }
+            tiles = []; placeholders = []; retries = []; spinners = []
             for index in urls.indices {
                 let image = UIImageView(); image.contentMode = .scaleAspectFit
                 image.isAccessibilityElement = true; image.accessibilityLabel = "الصورة \(index+1)"
                 canvas.addSubview(image); tiles.append(image)
-                let label = UILabel(); label.text = "الصورة \(index+1) غير محملة"; label.textColor = .secondaryLabel
+                let spinner = UIActivityIndicatorView(style:.medium); spinner.color = .secondaryLabel; spinner.hidesWhenStopped = true
+                canvas.addSubview(spinner); spinners.append(spinner)
+                let label = UILabel(); label.textColor = .secondaryLabel
                 label.textAlignment = .center; label.font = .preferredFont(forTextStyle:.subheadline)
                 canvas.addSubview(label); placeholders.append(label)
                 let button = UIButton(type:.system); button.setTitle("إعادة المحاولة",for:.normal)
@@ -129,8 +161,9 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
         }
         self.urls = urls
         endLabel.text = endTitle
-        nextButton.setTitle(nextTitle,for:.normal); nextButton.isHidden = nextTitle == nil
-        for index in tiles.indices { retries[index].isEnabled = online; retries[index].isHidden = !online || tiles[index].image != nil }
+        nextButton.configuration?.title = nextTitle; nextButton.isHidden = nextTitle == nil
+        self.failed = failed
+        for index in tiles.indices { retries[index].isEnabled = online; updatePlaceholder(index) }
         setNeedsLayout()
     }
     func stop() {
@@ -160,11 +193,12 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
             let ratio = raw.isFinite && raw > 0 ? raw : 1.6
             let height = layoutWidth * ratio
             tiles[index].frame = CGRect(x:0,y:y,width:layoutWidth,height:height)
+            spinners[index].center = CGPoint(x:layoutWidth/2,y:y+max(0,height/2-48))
             placeholders[index].frame = CGRect(x:0,y:y+max(0,height/2-24),width:layoutWidth,height:32)
             retries[index].frame = CGRect(x:0,y:y+height/2+12,width:layoutWidth,height:44)
             y += height
         }
-        footer.frame = CGRect(x:12,y:y+28,width:max(1,layoutWidth-24),height:180)
+        footer.frame = CGRect(x:16,y:y+28,width:max(1,layoutWidth-32),height:190)
         canvas.frame = CGRect(x:0,y:0,width:layoutWidth,height:y+236)
         contentSize = canvas.bounds.size
         setZoomScale(scale,animated:false)
@@ -186,8 +220,7 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
         let nearby = visible.insetBy(dx:0,dy:-bounds.height/max(1,zoomScale))
         for index in tiles.indices {
             let wanted = tiles[index].frame.intersects(nearby)
-            placeholders[index].isHidden = tiles[index].image != nil
-            retries[index].isHidden = !retries[index].isEnabled || tiles[index].image != nil
+            updatePlaceholder(index)
             if !wanted {
                 tiles[index].image = nil; tasks[index]?.cancel(); tasks[index] = nil
             } else if tiles[index].image == nil, tasks[index] == nil, urls.indices.contains(index), let url = urls[index] {
@@ -199,7 +232,7 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
                     guard !Task.isCancelled, let self, self.generation == token, self.urls.indices.contains(index), self.urls[index] == url else { return }
                     self.tasks[index] = nil
                     if let result {
-                        self.tiles[index].image = result.image; self.placeholders[index].isHidden = true; self.retries[index].isHidden = true
+                        self.tiles[index].image = result.image; self.updatePlaceholder(index)
                         if abs((self.ratios[index] ?? 1.6)-result.ratio) > 0.0001 {
                             self.pendingRatios[index] = result.ratio
                             if !self.busy { self.settle() }

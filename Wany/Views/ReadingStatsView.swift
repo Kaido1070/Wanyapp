@@ -3,24 +3,59 @@ import SwiftUI
 struct StatsView: View {
     @Environment(AppStore.self) private var store
     private var stats: [String:JSONValue] { store.state?.stats ?? [:] }
-    private let fields=[("storiesRead","القصص المقروءة"),("organicChapters","الفصول المقروءة"),("organicCompletedChapters","الفصول المكتملة"),("bulkChapters","فصول معلّمة يدويًا"),("activeDays","أيام القراءة"),("dailyAverage","المعدل اليومي"),("currentStreak","الاستمرارية الحالية"),("bestStreak","أفضل استمرارية"),("accountDays","عمر الحساب بالأيام")]
     var body: some View {
         WanyScroll {
             if stats.isEmpty { EmptyState(icon:"chart.bar",title:"الإحصائيات غير متاحة حاليًا",detail:"تُعرض قيم الموقع الحقيقية عند اكتمال المزامنة.") }
             else {
                 if store.state?.pending.isEmpty == false || store.state?.pendingOpens?.isEmpty == false { Text("يوجد تقدم محلي بانتظار المزامنة. تتحدث الإحصائيات بعد رفعه.").font(.caption).foregroundStyle(.orange) }
-                metricGrid
+                overview
+                detailTiles
                 ForEach(ReadingMilestones.groups) { group in MilestoneGroupCard(group:group,value:stats[group.metric]?.number ?? 0) }
                 ReadingCalendarView(recent:stats["recentDays"]?.array ?? [])
             }
             if let error=store.error { Text(error).font(.caption).foregroundStyle(.orange) }
             Button("تحديث الإحصائيات",systemImage:"arrow.clockwise") { Task { await store.refresh() } }.disabled(!store.online || store.syncing)
-        }.navigationTitle("إحصائيات القراءة").refreshable { await store.refresh() }
+        }.navigationTitle("إحصائيات القراءة").navigationBarTitleDisplayMode(.inline).refreshable { await store.refresh() }
     }
-    private var metricGrid: some View {
-        LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],spacing:12) {
-            ForEach(fields,id:\.0) { field in
-                VStack(spacing:9) { Text((stats[field.0]?.number ?? 0).formatted(.number.precision(.fractionLength(0...1)))).font(.title2.bold()).foregroundStyle(Theme.accent); Text(field.1).font(.caption) }.frame(maxWidth:.infinity).card()
+    private func value(_ key: String) -> Double { stats[key]?.number ?? 0 }
+    private func number(_ key: String) -> String { value(key).formatted(.number.precision(.fractionLength(0...1))) }
+    // One headline number carries the page; the rest supports it.
+    private var overview: some View {
+        VStack(alignment:.leading,spacing:14) {
+            HStack(alignment:.firstTextBaseline,spacing:10) {
+                Text(number("organicChapters")).font(.system(.largeTitle,design:.rounded).weight(.heavy)).monospacedDigit()
+                    .foregroundStyle(Theme.accent).lineLimit(1).minimumScaleFactor(0.6)
+                Text("فصل مقروء").font(.headline).foregroundStyle(.secondary)
+            }
+            Text("\(number("storiesRead")) قصة · \(number("activeDays")) يوم قراءة · عمر الحساب \(number("accountDays")) يوم")
+                .font(.subheadline).foregroundStyle(.secondary)
+            Divider()
+            HStack(spacing:12) {
+                streak("flame.fill",title:"الاستمرارية الحالية",value:number("currentStreak"))
+                Divider().frame(height:40)
+                streak("trophy.fill",title:"أفضل استمرارية",value:number("bestStreak"))
+            }
+        }.frame(maxWidth:.infinity,alignment:.leading).card()
+    }
+    private func streak(_ icon: String,title: String,value: String) -> some View {
+        HStack(spacing:10) {
+            Image(systemName:icon).font(.title3).foregroundStyle(Theme.accent).frame(width:28)
+            VStack(alignment:.leading,spacing:2) {
+                Text("\(value) يوم").font(.system(.title3,design:.rounded).weight(.bold)).monospacedDigit()
+                Text(title).font(.caption).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
+            }
+        }.frame(maxWidth:.infinity,alignment:.leading).accessibilityElement(children:.combine)
+    }
+    private var detailTiles: some View {
+        let tiles=[("organicCompletedChapters","فصل مكتمل","checkmark.circle"),("bulkChapters","معلّم يدويًا","hand.tap"),("dailyAverage","المعدل اليومي","chart.line.uptrend.xyaxis")]
+        return LazyVGrid(columns:Array(repeating:GridItem(.flexible(),spacing:10,alignment:.top),count:3),spacing:10) {
+            ForEach(tiles,id:\.0) { tile in
+                VStack(alignment:.leading,spacing:6) {
+                    Image(systemName:tile.2).font(.subheadline).foregroundStyle(Theme.accent)
+                    Text(number(tile.0)).font(.system(.title3,design:.rounded).weight(.bold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.6)
+                    Text(tile.1).font(.caption2).foregroundStyle(.secondary).lineLimit(2,reservesSpace:true)
+                }.frame(maxWidth:.infinity,alignment:.leading).padding(12).ranyGlass(radius:16)
+                    .accessibilityElement(children:.combine)
             }
         }
     }

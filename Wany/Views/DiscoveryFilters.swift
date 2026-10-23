@@ -32,7 +32,7 @@ struct MergedStoryGrid: View {
     var showReadingProgress=false
     @State private var groups: [StorySourceGroup] = []
     var body: some View {
-        LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],spacing:20) {
+        LazyVGrid(columns:[GridItem(.flexible(),alignment:.top),GridItem(.flexible(),alignment:.top)],alignment:.leading,spacing:20) {
             ForEach(groups) { group in StoryCard(story:group.primary,showReadingProgress:showReadingProgress,sourceKeys:group.items.map(\.key)) }
         }.task(id:stories) { let value=await CatalogRules.groups(stories); if !Task.isCancelled { groups=value } }
     }
