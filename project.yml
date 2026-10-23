@@ -9,14 +9,19 @@ settings:
     TARGETED_DEVICE_FAMILY: '1,2'
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     CODE_SIGNING_ALLOWED: NO
-    MARKETING_VERSION: '1.4.4'
-    CURRENT_PROJECT_VERSION: '44'
+    MARKETING_VERSION: '1.4.5'
+    CURRENT_PROJECT_VERSION: '64'
+    # Xcode 16.4's iOS 18.5 simulator cannot resolve the WebKit Swift
+    # overlay below 18.4 (WebKit bug 293831). Device support stays iOS 17.
+    "IPHONEOS_DEPLOYMENT_TARGET[sdk=iphonesimulator*]": '18.4'
 targets:
   Wany:
     info:
       path: Wany/Info.plist
       properties:
         UIAppFonts: [RanyScript.otf]
+        UILaunchScreen:
+          UIColorName: RanyLaunchBackground
     type: application
     platform: iOS
     sources:
@@ -28,11 +33,11 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Rany
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.books
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
     dependencies:
+      - sdk: WebKit.framework
       - sdk: JavaScriptCore.framework
       - sdk: Security.framework
       - sdk: Network.framework
@@ -45,11 +50,22 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: Wany
+  WanyInteractionTests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [InteractionTests]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Wany
+    dependencies:
+      - target: Wany
 schemes:
   Wany:
     build:
       targets:
         Wany: all
         WanyTests: [test]
+        WanyInteractionTests: [test]
     test:
-      targets: [WanyTests]
+      targets: [WanyTests,WanyInteractionTests]

@@ -36,6 +36,22 @@ import SwiftUI
         XCTAssertNotEqual(RanyRoute.listDetail(id:"1",title:"A"),RanyRoute.listDetail(id:"2",title:"A"))
         XCTAssertEqual(RanyTab.allCases.count,5)
     }
+    func testReadingCalendarWeeksStartOnSundayWithSevenSlots() {
+        // 2026-09-24 is a Thursday in UTC+3: four empty slots precede it.
+        let now=ISO8601DateFormatter().date(from:"2026-10-23T12:00:00+03:00")!
+        let weeks=ReadingCalendar.weeks(ReadingCalendar.days(recent:[],now:now))
+        XCTAssertTrue(weeks.allSatisfy { $0.count == 7 })
+        XCTAssertEqual(weeks.first?.prefix(4).allSatisfy { $0 == nil },true)
+        XCTAssertEqual(weeks.first?[4]?.key,"2026-09-24")
+        XCTAssertEqual(weeks.flatMap { $0 }.compactMap { $0 }.count,30)
+    }
+    func testChapterTitleShowsTheNumberOnce() {
+        XCTAssertEqual(chapterDisplayTitle("الفصل 355.2 355.2",number:355.2),"الفصل 355.2")
+        XCTAssertEqual(chapterDisplayTitle("الفصل 1 الفصل رقم 1",number:1),"الفصل 1")
+        XCTAssertEqual(chapterDisplayTitle("355.2",number:355.2),"الفصل 355.2")
+        XCTAssertEqual(chapterDisplayTitle("الفصل 12 - بداية الرحلة",number:12),"الفصل 12 · بداية الرحلة")
+        XCTAssertEqual(chapterDisplayTitle("الفصل 1: 10 سيوف",number:1),"الفصل 1 · 10 سيوف")
+    }
     func testAvatarSearchHandlesSpacesCaseAndArabic() {
         XCTAssertTrue(RanyAvatarGrid.matches("Monkey D. Luffy",query:"  luffy  "))
         XCTAssertTrue(RanyAvatarGrid.matches("ون بيس",query:"بيس"))

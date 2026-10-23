@@ -19,9 +19,14 @@ enum AppVersion {
     }
 }
 struct UpdatesView: View {
+    @State private var cinematicPreview=false
     var body: some View {
         List {
             Section("الإصدار المثبت") { LabeledContent("Rany",value:"\(AppVersion.version) · بناء \(AppVersion.build)").listRowBackground(Theme.surface.opacity(0.25)) }
+            Section("معاينة الافتتاحية") {
+                Button("معاينة علامة البداية",systemImage:"play.rectangle") { cinematicPreview=true }
+                    .accessibilityIdentifier("cinematic.open-preview").listRowBackground(Theme.surface.opacity(0.25))
+            }
             ForEach(AppVersion.releases) { release in
                 Section {
                     ForEach(release.changes,id:\.self) { change in Text(change).font(RanyTypography.font(.subheadline)).padding(.vertical,3).listRowBackground(Theme.surface.opacity(0.25)) }
@@ -33,5 +38,6 @@ struct UpdatesView: View {
                 }
             }
         }.scrollContentBackground(.hidden).ranyClearNavigation().navigationTitle("سجل التحديثات")
+        .fullScreenCover(isPresented:$cinematicPreview) { RanyLogoPreview() }
     }
 }

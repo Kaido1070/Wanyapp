@@ -4,18 +4,18 @@ import UIKit
 // Every push is a value on the selected tab's NavigationStack path. UIKit owns
 // the transition, the back button and the edge swipe; touches are never blocked.
 enum RanyRoute: Hashable {
-    case story(Story)
+    case story(Story,sourceKeys:[String] = [])
     case reader(Story,Chapter)
     case sourceChapter(key: String, chapter: Chapter, fallback: Story)
     case listDetail(id: String, title: String)
     case publicProfile(String)
-    case settings, stats, friends, activity, updates, avatarPicker
+    case settings, stats, friends, activity, updates, avatarPicker, lists, accountSecurity
 }
 struct RanyDestination: View {
     let route: RanyRoute
     var body: some View {
         switch route {
-        case .story(let story): StoryView(initial:story)
+        case .story(let story,let sourceKeys): StoryView(initial:story,sourceKeys:sourceKeys)
         case .reader(let story,let chapter): ReaderView(story:story,chapter:chapter)
         case .sourceChapter(let key,let chapter,let fallback): SourceChapterDestination(key:key,chapter:chapter,fallback:fallback)
         case .listDetail(let id,let title): ListDetailView(id:id,title:title)
@@ -26,6 +26,8 @@ struct RanyDestination: View {
         case .activity: ActivityView()
         case .updates: UpdatesView()
         case .avatarPicker: AvatarPickerView()
+        case .lists: ListsView()
+        case .accountSecurity: AccountSecurityView()
         }
     }
 }
@@ -66,7 +68,7 @@ extension EnvironmentValues {
 
 struct RanyMainToolbar: ToolbarContent {
     var body: some ToolbarContent {
-        ToolbarItem(placement:.topBarLeading) { RanyMark(size:32).reportRanyMarkFrame("header") }
+        ToolbarItem(placement:.topBarLeading) { RanyToolbarMark() }
         ToolbarItem(placement:.topBarTrailing) {
             NavigationLink(value:RanyRoute.settings) {
                 Image(systemName:"gearshape").frame(minWidth:44,minHeight:44).contentShape(Rectangle())

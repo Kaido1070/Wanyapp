@@ -8,6 +8,20 @@ enum ImageQuality: String, CaseIterable, Identifiable {
     var label: String { switch self { case .balanced: return "متوازنة"; case .high: return "عالية"; case .original: return "أصلية" } }
     var width: Double { self == .balanced ? 1440 : 2000 }
     var compression: Double { self == .balanced ? 0.82 : 0.92 }
+    var detail: String {
+        switch self {
+        case .balanced: return "حجم أقل وتوفير للمساحة والبيانات"
+        case .high: return "وضوح أعلى مع ضغط خفيف"
+        case .original: return "ملف المصدر دون تصغير أو ضغط إضافي، بحجم أكبر"
+        }
+    }
+    func decodeFactor(width: Double,height: Double) -> Double {
+        guard width>0,height>0 else { return 1 }
+        let target=self == .original ? 4096.0 : self == .high ? 2600.0 : 1800.0
+        let pixels=self == .original ? 32_000_000.0 : 24_000_000.0
+        let dimension=self == .original ? 32000.0 : 24000.0
+        return min(1,target/width,sqrt(pixels/(width*height)),dimension/max(width,height))
+    }
 }
 
 enum ImageStorage {

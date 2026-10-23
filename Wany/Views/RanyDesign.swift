@@ -26,6 +26,8 @@ extension EnvironmentValues {
 // settings (glass on/off and its strength) and Reduce Transparency apply to both.
 struct RanyGlass: ViewModifier {
     var radius: CGFloat = 22
+    // A bar that runs to the top screen edge: only its bottom corners are rounded.
+    var topFlush = false
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.ranyGlassProgress) private var progress
@@ -33,7 +35,10 @@ struct RanyGlass: ViewModifier {
     @AppStorage(RanyAppearanceKeys.blur) private var blur = RanyBlurLevel.balanced.rawValue
     @State private var revealed: Double = 0
     private var level: RanyBlurLevel { RanyBlurLevel(rawValue:blur) ?? .balanced }
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius:radius,style:.continuous) }
+    private var shape: AnyShape {
+        topFlush ? AnyShape(UnevenRoundedRectangle(bottomLeadingRadius:radius,bottomTrailingRadius:radius,style:.continuous))
+                 : AnyShape(RoundedRectangle(cornerRadius:radius,style:.continuous))
+    }
     private var material: AnyShapeStyle {
         switch level {
         case .clear: return AnyShapeStyle(Theme.surface.opacity(0.14))
@@ -81,7 +86,10 @@ struct RanyGlass: ViewModifier {
         else { withAnimation(.easeInOut(duration:0.95)) { revealed = value } }
     }
 }
-extension View { func ranyGlass(radius: CGFloat = 22) -> some View { modifier(RanyGlass(radius:radius)) } }
+extension View {
+    func ranyGlass(radius: CGFloat = 22) -> some View { modifier(RanyGlass(radius:radius)) }
+    func ranyTopBarGlass(radius: CGFloat = 26) -> some View { modifier(RanyGlass(radius:radius,topFlush:true)) }
+}
 
 struct RanyInsetGlass: ViewModifier {
     var radius: CGFloat = 15
@@ -91,19 +99,37 @@ struct RanyInsetGlass: ViewModifier {
 }
 extension View { func ranyInsetGlass(radius: CGFloat = 15) -> some View { modifier(RanyInsetGlass(radius:radius)) } }
 
+// The header mark sits directly inside the navigation bar's own circle. iOS 26
+// draws that circle as Liquid Glass; iOS 17 and 18 get the same circle in glass.
+struct RanyToolbarMark: View {
+    @Environment(\.ranyMarkCovered) private var covered
+    var body: some View {
+        Group {
+            if #available(iOS 26.0, *) {
+                Image("RanyMonogram").resizable().scaledToFit().frame(width:30,height:30)
+                    .opacity(covered ? 0 : 1).accessibilityLabel(RanyIdentity.name)
+            } else {
+                RanyMark(size:34,roundness:0.5)
+            }
+        }.reportRanyMarkFrame("header")
+    }
+}
 struct RanyMark: View {
     var size: CGFloat = 96
     var illuminated = false
+    var shineProgress: CGFloat? = nil
+    // 0.25 is the rounded-square mark; 0.5 is the circular navigation-bar mark.
+    var roundness: CGFloat = 0.25
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.ranyMarkCovered) private var covered
     @State private var shine: CGFloat = -1.5
     var body: some View {
         Image("RanyMonogram").resizable().scaledToFit().frame(width:size,height:size)
-            .ranyGlass(radius:size*0.25)
+            .ranyGlass(radius:size*roundness)
             .overlay {
                 LinearGradient(colors:[.clear,.white.opacity(0.18),.clear],startPoint:.leading,endPoint:.trailing)
-                    .frame(width:size*0.42,height:size*1.7).rotationEffect(.degrees(23)).offset(x:shine*size)
-            }.clipShape(RoundedRectangle(cornerRadius:size*0.25,style:.continuous)).accessibilityLabel(RanyIdentity.name)
+                    .frame(width:size*0.42,height:size*1.7).rotationEffect(.degrees(23)).offset(x:(shineProgress ?? shine)*size)
+            }.clipShape(RoundedRectangle(cornerRadius:size*roundness,style:.continuous)).accessibilityLabel(RanyIdentity.name)
             .environment(\.ranyGlassProgress,1)
             .opacity(covered ? 0 : 1)
             .task(id:illuminated) {
@@ -125,6 +151,7 @@ struct RanyLoginView: View {
     @State private var question = ""
     @State private var answer = ""
     @State private var busy = false
+    @State private var recovery = false
     init(creatingAccount: Bool = false) { _creating = State(initialValue:creatingAccount) }
     private enum Field: Hashable { case username,password,confirmation,question,answer }
     @FocusState private var focus: Field?
@@ -162,16 +189,19 @@ struct RanyLoginView: View {
                             }.transition(.asymmetric(insertion:.offset(y:12).combined(with:.opacity),removal:.opacity))
                         }
                         Button(action:submit) {
-                            HStack(spacing:12) { if busy { ProgressView().tint(Theme.accent) }; Text(creating && !created ? "إنشاء مكتبتي" : "الدخول إلى مكتبتي"); Image(systemName:"arrow.left") }
-                                .font(RanyTypography.font(.subheadline)).foregroundStyle(Theme.accent).frame(maxWidth:.infinity,minHeight:51)
-                                .background(LinearGradient(colors:[Theme.accent.opacity(0.24),Theme.accent.opacity(0.12)],startPoint:.topLeading,endPoint:.bottomTrailing),in:RoundedRectangle(cornerRadius:15))
-                        }.buttonStyle(.plain).disabled(busy || !valid).opacity(busy || !valid ? 0.65 : 1)
+                            HStack(spacing:12) { if busy { ProgressView().tint(.black) }; Text(creating && !created ? "إنشاء مكتبتي" : "الدخول إلى مكتبتي"); Image(systemName:"arrow.left") }
+                                .font(RanyTypography.font(.headline)).foregroundStyle(Color.black).frame(maxWidth:.infinity,minHeight:52)
+                                .background(Theme.accent,in:RoundedRectangle(cornerRadius:15,style:.continuous))
+                        }.buttonStyle(.plain).disabled(busy || !valid).opacity(busy || !valid ? 0.5 : 1)
+                            .accessibilityIdentifier("login.submit")
                     }.padding(20).ranyGlass(radius:27).padding(.top,18).disabled(busy)
+                    if !creating { Button("نسيت كلمة المرور؟") { recovery=true }.font(.footnote).padding(.top,18) }
                     Text(creating ? "احتفظ بإجابة الأمان؛ تحتاجها لاستعادة حسابك." : "استخدم حسابك الحالي في الموقع").font(RanyTypography.font(.caption)).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.top,18)
                     Text(AppVersion.display).font(RanyTypography.font(.caption2)).foregroundStyle(.tertiary).padding(.top,20).padding(.bottom,24)
                 }.frame(maxWidth:430).frame(maxWidth:.infinity).padding(.horizontal,26).frame(minHeight:geometry.size.height,alignment:.top)
             }.scrollDismissesKeyboard(.interactively)
         }.onChange(of:username) { _,_ in created = false }
+        .sheet(isPresented:$recovery) { AccountRecoveryView() }
     }
     private func modeButton(_ title: String, isCreation: Bool) -> some View {
         Button {

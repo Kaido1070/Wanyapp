@@ -6,15 +6,27 @@ import SwiftUI
     @Published var error: String?
     private var requestID = UUID()
     private var filename: String?
+    private var accountID: String?
     func load(_ path: String, store: AppStore, query: [String:String] = [:]) async {
-        guard let owner = store.state?.user.id else { return }
+        let ownerID = store.state?.user.id
+        if accountID != ownerID {
+            requestID = UUID(); accountID = ownerID; filename = nil
+            value = .null; error = nil; loading = false
+        }
+        guard let owner = ownerID else { return }
         let filename = "api/"+Disk.hash(path + query.sorted {$0.key<$1.key}.description)+".json"
         guard !loading || self.filename != filename else { return }
         let token = UUID(); requestID = token; self.filename = filename
         loading = true; error = nil
         defer { if requestID == token { loading = false } }
-        // Cached pages are decoded and written off the main thread.
-        let cached = await Task.detached(priority:.userInitiated) { Disk.read(JSONValue.self,owner:owner,name:filename) }.value
+        // Cached pages are decoded and written off the main thread. Profiles and
+        // other people's lists always come fresh from the server (authorization).
+        let (cached,freshAuthorization) = await Task.detached(priority:.userInitiated) { () -> (JSONValue?,Bool) in
+            let ownedLists=Set((Disk.read([RanyProfileSection].self,owner:owner,name:"collections/sections.json") ?? []).filter { $0.sectionType == "custom_list" }.compactMap(\.referenceId))
+            let ownList=path.hasPrefix("/api/lists/") && ownedLists.contains(String(path.dropFirst("/api/lists/".count)).removingPercentEncoding ?? "")
+            let fresh=path.hasPrefix("/api/profiles/") || (path.hasPrefix("/api/lists/") && !ownList && !path.hasPrefix("/api/lists/membership/"))
+            return (fresh ? nil : Disk.read(JSONValue.self,owner:owner,name:filename),fresh)
+        }.value
         guard requestID == token else { return }
         value = cached ?? .null
         guard store.online else { return }
@@ -22,124 +34,9 @@ import SwiftUI
             let response = try await API.shared.get(path,query:query,as:JSONValue.self)
             guard requestID == token, store.state?.user.id == owner else { return }
             value = response; error = nil
-            Task.detached(priority:.utility) { try? Disk.save(response,owner:owner,name:filename) }
-        } catch { if requestID == token, !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
+            if !freshAuthorization { Task.detached(priority:.utility) { try? Disk.save(response,owner:owner,name:filename) } }
+        } catch { if requestID == token, store.state?.user.id == owner, !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
-}
-struct ListsView: View {
-    @Environment(AppStore.self) private var store
-    @StateObject private var page = CachedPage()
-    @State private var create = false
-    @State private var name = ""
-    var body: some View {
-        WanyScroll {
-            ForEach(page.value["lists"].array.identified { $0["id"].string }) { row in let list = row.value
-                WanyLink(.listDetail(id:list["id"].string,title:list["name"].string)) { HStack { Image(systemName:"list.bullet.rectangle"); Text(list["name"].string); Spacer(); Text("\(Int(list["itemCount"].number))").foregroundStyle(.secondary); Image(systemName:"chevron.left") }.foregroundStyle(.primary).card() }
-            }
-            if let error = page.error { Text(error).foregroundStyle(.orange) }
-        }.navigationTitle("قوائمي")
-        .toolbar { ToolbarItem(placement:.topBarTrailing) { Button { create = true } label: { Image(systemName:"plus").frame(minWidth:44,minHeight:44) }.disabled(!store.online).accessibilityLabel("قائمة جديدة") } }
-        .task { await page.load("/api/lists",store:store) }.refreshable { await page.load("/api/lists",store:store) }
-        .alert("قائمة جديدة",isPresented:$create) { TextField("اسم القائمة",text:$name); Button("إنشاء") { Task { do { try await API.shared.send("/api/lists",value:["name":name,"description":"","iconKey":"lists"]); name = ""; await page.load("/api/lists",store:store) } catch { store.error = error.localizedDescription } } }; Button("إلغاء",role:.cancel) {} }
-    }
-}
-struct ListDetailView: View {
-    @Environment(AppStore.self) private var store
-    let id: String; let title: String
-    @StateObject private var page = CachedPage()
-    @State private var adding = false
-    var canManage: Bool { page.value["list"]["canManage"].boolean }
-    var body: some View {
-        WanyScroll {
-            ForEach(page.value["items"].array.identified { $0["mangaId"].string }) { row in let item = row.value
-                if let story = store.stories[item["mangaId"].string] {
-                    HStack { WanyLink(.story(story)) { Text(story.title).foregroundStyle(.primary).frame(minHeight:44) }; Spacer(); if canManage { Button(role:.destructive) { Task { do { _ = try await API.shared.raw("/api/lists/"+id+"/items/"+story.key,method:"DELETE"); await load() } catch { store.error = error.localizedDescription } } } label: { Image(systemName:"minus.circle") }.disabled(!store.online) } }.card()
-                } else { Text(item["mangaId"].string).font(RanyTypography.font(.caption)) }
-            }
-            if let error = page.error { Text(error).foregroundStyle(.orange) }
-        }.navigationTitle(title)
-        .toolbar { ToolbarItem(placement:.topBarTrailing) { if canManage { Button { adding = true } label: { Image(systemName:"plus").frame(minWidth:44,minHeight:44) }.disabled(!store.online).accessibilityLabel("إضافة قصص") } } }
-        .task { await load() }.refreshable { await load() }
-        .sheet(isPresented:$adding,onDismiss:{ Task { await load() } }) { AddStoriesToListView(id:id) }
-    }
-    func load() async {
-        await page.load("/api/lists/"+id,store:store)
-        let keys = page.value["items"].array.map {$0["mangaId"].string}.filter {store.stories[$0] == nil}
-        guard store.online else { return }
-        for start in stride(from:0,to:keys.count,by:40) {
-            if let r = try? await API.shared.get("/api/source/resolve",query:["keys":keys[start..<min(start+40,keys.count)].joined(separator:",")],as:ResolveResponse.self) { for item in r.items { store.remember(item) } }
-        }
-    }
-}
-struct FriendsView: View {
-    @Environment(AppStore.self) private var store
-    @StateObject private var page = CachedPage()
-    @StateObject private var requests = CachedPage()
-    @StateObject private var search = CachedPage()
-    @State private var query = ""
-    var body: some View {
-        WanyScroll {
-            HStack { TextField("اسم المستخدم",text:$query).textInputAutocapitalization(.never).autocorrectionDisabled(); Button("بحث") { Task { await search.load("/api/friends/search",store:store,query:["q":query]) } }.disabled(!store.online) }.card()
-            ForEach(search.value["results"].array.identified { $0["user"]["id"].string }) { row in let entry = row.value
-                HStack { userLabel(entry["user"]); Spacer(); Button(entry["relationship"].string == "none" ? "إضافة" : "طلب مسجل") { Task { await action("/api/friends",body:["userId":entry["user"]["id"].string]); await search.load("/api/friends/search",store:store,query:["q":query]) } }.disabled(entry["relationship"].string != "none" || !store.online) }.card()
-            }
-            ForEach(requests.value["incoming"].array.identified { $0["user"]["id"].string }) { row in let entry = row.value
-                HStack { userLabel(entry["user"]); Spacer(); Button("قبول") { Task { await action("/api/friends/requests/"+entry["user"]["id"].string+"/accept") } }; Button("رفض") { Task { await action("/api/friends/requests/"+entry["user"]["id"].string+"/reject") } } }.card()
-            }
-            ForEach(page.value["friends"].array.identified { $0["user"]["id"].string }) { row in let entry = row.value
-                WanyLink(.publicProfile(entry["user"]["id"].string)) { userLabel(entry["user"]).frame(maxWidth:.infinity,alignment:.leading).card() }.foregroundStyle(.primary)
-            }
-            if let error = page.error { Text(error).foregroundStyle(.orange) }
-        }.navigationTitle("الأصدقاء").task { await load() }.refreshable { await load() }
-    }
-    func userLabel(_ user: JSONValue) -> some View { PublicAccountIdentity(user:user) }
-    func load() async { await page.load("/api/friends",store:store,query:["limit":"100"]); await requests.load("/api/friends/requests",store:store) }
-    func action(_ path: String, body: [String:String] = [:]) async { do { try await API.shared.send(path,value:body); await load() } catch { store.error = error.localizedDescription } }
-}
-struct PublicProfileView: View {
-    @Environment(AppStore.self) private var store
-    let id: String
-    @StateObject private var page = CachedPage()
-    var body: some View {
-        WanyScroll {
-            PublicAccountIdentity(user:page.value["profile"]["user"],large:true)
-            if page.value["profile"]["access"].string == "private" { EmptyState(icon:"lock",title:"حساب خاص",detail:"صاحب الحساب أخفى تفاصيل مكتبته") }
-            else {
-                Text("المفضلة").font(RanyTypography.font(.headline))
-                StoryGrid(stories:page.value["profile"]["favorites"].array.compactMap { store.stories[$0.string] })
-                ForEach(page.value["profile"]["lists"].array.identified { $0["id"].string }) { row in let list = row.value
-                    WanyLink(.listDetail(id:list["id"].string,title:list["name"].string)) {
-                        HStack { Label(list["name"].string,systemImage:"list.bullet.rectangle"); Spacer(); Text("\(Int(list["itemCount"].number))"); Image(systemName:"chevron.left") }.foregroundStyle(.primary).card()
-                    }
-                    StoryGrid(stories:list["previewItems"].array.compactMap { store.stories[$0.string] })
-                }
-                if page.value["profile"]["access"].string == "friends" { Label("نشاط القراءة خاص",systemImage:"lock").font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
-            }
-        }.task {
-            await page.load("/api/profiles/"+id,store:store)
-            let keys = Array(Set(page.value["profile"]["favorites"].array.map(\.string) + page.value["profile"]["lists"].array.flatMap { $0["previewItems"].array.map(\.string) }))
-            if store.online { for start in stride(from:0,to:keys.count,by:40) { if let r = try? await API.shared.get("/api/source/resolve",query:["keys":keys[start..<min(start+40,keys.count)].joined(separator:",")],as:ResolveResponse.self) { for story in r.items { store.remember(story) } } } }
-        }
-    }
-}
-struct ActivityView: View {
-    @Environment(AppStore.self) private var store
-    @StateObject private var page = CachedPage()
-    @State private var friends = false
-    private let labels = ["started_work":"بدأ قراءة", "progress_reached":"وصل إلى", "completed_work":"أكمل", "favorited_work":"أضاف للمفضلة", "added_to_list":"أضاف إلى قائمة", "created_list":"أنشأ قائمة"]
-    var body: some View {
-        WanyScroll {
-            Picker("النشاط",selection:$friends) { Text("نشاطي").tag(false); Text("الأصدقاء").tag(true) }.pickerStyle(.segmented).onChange(of:friends) { _,_ in Task { await load() } }
-            ForEach(page.value["events"].array.identified { $0["id"].string }) { row in let event = row.value; VStack(alignment:.leading,spacing:8) {
-                HStack { Text(event["user"]["name"].string).bold(); AccountBadge(kind:event["user"]["badgeType"].string) }
-                Text(labels[event["type"].string] ?? event["type"].string).font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
-                if let story = store.stories[event["mangaId"].string] { WanyLink(story.title,route:.story(story)) }
-                if event["chapterNumber"].number > 0 { Text("الفصل \(chapterNumber(event["chapterNumber"].number))").font(RanyTypography.font(.caption)) }
-                if !event["list"]["name"].string.isEmpty { Text(event["list"]["name"].string) }
-            }.frame(maxWidth:.infinity,alignment:.leading).card() }
-        }.navigationTitle("النشاط").task { await load() }.refreshable { await load() }
-    }
-    func load() async { await page.load(friends ? "/api/activity/friends" : "/api/activity/me",store:store,query:["limit":"50","offset":"0"]) }
 }
 struct SettingsView: View {
     @Environment(AppStore.self) private var store
@@ -162,8 +59,13 @@ struct SettingsView: View {
                 Text("التنزيلات والمساحة").font(RanyTypography.font(.headline))
                 Toggle("التنزيل عبر Wi-Fi فقط",isOn:Binding(get:{downloads.wifiOnly},set:{downloads.wifiOnly = $0}))
                 Divider()
-                Picker("جودة الصور",selection:Binding(get:{downloads.quality},set:{downloads.quality = $0})) { ForEach(ImageQuality.allCases) { quality in Text(quality.label).tag(quality) } }
-                Text("المتوازنة والعالية تطلبان تصغير الصورة على الخادم قبل تنزيلها. يظهر عدد الصور المصغرة في التنزيلات عندما يدعم الخادم المعالجة؛ وإلا تُصغر محليًا.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
+                Menu {
+                    ForEach(ImageQuality.allCases) { quality in Button(quality.label) { downloads.quality=quality } }
+                } label: {
+                    HStack { Text("جودة الصور"); Spacer(); Text(downloads.quality.label).foregroundStyle(Theme.accent) }
+                        .frame(minHeight:44).contentShape(Rectangle())
+                }.menuActionDismissBehavior(.enabled).buttonStyle(.plain)
+                Text("اختر الأصلية لحفظ ملف المصدر دون ضغط إضافي، أو العالية لوضوح أعلى بحجم أقل. تغيير الجودة لا يستعيد تفاصيل الملفات القديمة؛ أعد تنزيلها من القارئ أو التنزيلات.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
                 settingsRow("التنزيلات المحفوظة",value:byteLabel(downloads.savedJobs.reduce(0){$0+$1.bytes}))
                 settingsRow("صور القراءة المؤقتة",value:byteLabel(downloads.temporaryBytes))
                 Text("صور القراءة العادية تُحذف بعد 3 دقائق من مغادرة الفصل، أو عند فتح التطبيق مجددًا إذا كان مغلقًا. تقدمك يبقى محفوظًا.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
@@ -176,6 +78,7 @@ struct SettingsView: View {
                 Button { Task { await store.refresh() } } label: { settingsRow(store.syncing ? "جاري المزامنة…" : "مزامنة الآن",icon:"arrow.clockwise") }.disabled(!store.online || store.syncing)
             }.card()
             VStack(alignment:.leading,spacing:16) {
+                WanyLink(.accountSecurity) { settingsRow("الأمان وكلمة المرور",icon:"lock.shield") }
                 Text(AppVersion.display).font(RanyTypography.font(.subheadline))
                 WanyLink(.updates) { settingsRow("سجل التحديثات",icon:"clock.arrow.circlepath") }
             }.card()

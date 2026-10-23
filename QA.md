@@ -72,3 +72,12 @@ Automated checks cover download accounting, persistent account separation, progr
 - Generate FYP and the New feed: the UI keeps responding to scrolling and taps while the feed is being prepared.
 - Open a large downloaded chapter offline and a long story chapter list: the reader opens without a stall, and progress is still saved after killing the app from the background.
 - Instruments (Time Profiler, SwiftUI): no JSON decoding, image decoding or file writes on the main thread during scrolling or reading.
+
+## Merged 1.3.35 + 1.4.x (1.4.5+)
+
+- Cold launch and login: only the R mark appears, shines once and flies to its place; in the navigation bar it becomes a circle and sits directly in the bar's circle (no square inside a circle).
+- Story page: each chapter row has its read/unread control beside the download control; "mark all read" and "clear progress" ask for confirmation and sync with the website.
+- Statistics › reading calendar: weekdays read right to left starting with Sunday; every day is the same circle; tapping a day shows its count.
+- Login: the submit button is solid gold with dark text and dims only while disabled.
+- Wallpaper: only your own covers of at least 432×595 appear; with none available the background stays plain. No soft or blurry cover may appear behind content.
+- Reader: the bar touches the top edge (glass under the status bar and camera, no gap), the chapter number appears once, and the slider menu offers image quality plus re-download of the current chapter in that quality.

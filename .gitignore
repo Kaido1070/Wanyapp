@@ -7,3 +7,6 @@ output/
 *.ipa
 *.p12
 *.mobileprovision
+
+# Rendered from the frozen approved reference before Xcode generation in CI.
+Tests/Fixtures/approved-*.png

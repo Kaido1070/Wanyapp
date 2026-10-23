@@ -3,6 +3,16 @@ import Foundation
 let website = URL(string: "https://wany.site")!
 let sources = ["mangatime", "teamx", "3asq", "starzmanga", "xsano", "mangalik", "azora"]
 func chapterNumber(_ n: Double) -> String { n.rounded() == n ? String(format: "%.0f", n) : String(n) }
+// Sources often repeat the number inside the title ("الفصل 355.2 355.2"). Show the
+// number once and keep any real chapter name after it.
+func chapterDisplayTitle(_ title: String, number: Double) -> String {
+    let id = chapterNumber(number)
+    let trim = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters).union(.symbols)
+    let rest = title.split(whereSeparator:\.isWhitespace).map { $0.trimmingCharacters(in:trim) }
+        .filter { !$0.isEmpty && !["الفصل","فصل","رقم","Chapter","chapter","Ch","ch",id].contains($0) }
+        .joined(separator:" ")
+    return rest.isEmpty ? "الفصل \(id)" : "الفصل \(id) · \(rest)"
+}
 func milliseconds() -> Double { Date().timeIntervalSince1970 * 1000 }
 func byteLabel(_ n: Int64) -> String { ByteCountFormatter.string(fromByteCount: n, countStyle: .file) }
 func sourceLabel(_ source: String) -> String { ["teamx":"Team-X", "mangatime":"MangaTime", "3asq":"3asq", "starzmanga":"StarzManga", "xsano":"XSano", "mangalik":"MangaLik", "azora":"Azora"][source] ?? source }
@@ -25,6 +35,7 @@ struct Story: Codable, Hashable, Identifiable {
     var chapterListComplete: Bool?
     var chapterPageCount: Int?
     var sourceTemporarilyUnavailable: Bool?
+    var snapshotOriginalCover: String?
     var id: String { key }
     var orderedChapters: [Chapter] { (chapters ?? []).sorted { $0.number < $1.number } }
 }
@@ -95,6 +106,8 @@ struct AccountState: Codable {
     var data = AccountData()
     var pending: [String: ProgressRecord] = [:]
     var completedPending: [String:ProgressRecord]?
+    var pendingOpens: [String:ReadingOpenEvent]?
+    var pendingSnapshots: [String:WorkSnapshotWrite]?
     var positions: [String: Int] = [:]
     var stats: [String: JSONValue] = [:]
     var profile: JSONValue?
@@ -159,6 +172,11 @@ struct ImageRecord: Codable, Identifiable {
     var done = false
     var failure: String?
     var edgeOptimized: Bool?
+    var quality: String?
+    var fallbackFile: String?
+    var fallbackBytes: Int64?
+    var storedFiles: [String] { [file] + (fallbackFile.map { [$0] } ?? []) }
+    var storageBytes: Int64 { bytes + (fallbackBytes ?? 0) }
     var attempts = 0
     var id: String { file }
 }
@@ -169,6 +187,7 @@ struct ChapterDownload: Codable, Identifiable {
     var error: String?
     var keepOffline: Bool?
     var expiresAt: Date?
+    var requestedQuality: String?
     var saved: Bool { keepOffline != false }
     var id: String { chapter.id }
     var complete: Bool { payload != nil && !images.isEmpty && images.allSatisfy(\.done) }
@@ -193,7 +212,7 @@ struct DownloadJob: Codable, Identifiable {
     var completedChapters: Int { requestedChapters.filter(\.complete).count }
     var remainingChapters: Int { requestedChapters.count - completedChapters }
     var downloadedBytes: Int64 { requestedChapters.flatMap(\.images).reduce(0) { $0 + $1.bytes } }
-    var bytes: Int64 { chapters.filter(\.saved).flatMap(\.images).reduce(0) { $0 + $1.bytes } }
+    var bytes: Int64 { chapters.filter(\.saved).flatMap(\.images).reduce(0) { $0 + $1.storageBytes } }
     var total: Int64? {
         let images = requestedChapters.flatMap(\.images)
         guard chapterListComplete, requestedChapters.allSatisfy({ $0.payload != nil }), !images.isEmpty,
@@ -230,6 +249,13 @@ extension AccountState {
         }
         for record in completedPending?.values.map({ $0 }) ?? [] {
             if !data.completed.contains(record.id) { data.completed.append(record.id) }
+        }
+        for event in (pendingOpens?.values.map { $0 } ?? []).sorted(by:{$0.openedAt < $1.openedAt}) {
+            if let index=data.library.firstIndex(where:{$0.mangaId == event.mangaId}) {
+                if event.openedAt >= (data.library[index].lastReadAt ?? 0) { data.library[index].lastReadAt=event.openedAt; data.library[index].lastReadChapter=event.chapter }
+                data.library[index].highestReachedChapter=max(data.library[index].highestReachedChapter ?? 0,event.chapter)
+            } else { data.library.append(LibraryEntry(mangaId:event.mangaId,status:"reading",addedAt:event.openedAt,updatedAt:event.openedAt,lastReadAt:event.openedAt,lastReadChapter:event.chapter,highestReachedChapter:event.chapter)) }
+            if event.openedAt >= (remote.library.compactMap(\.lastReadAt).max() ?? 0) { data.lastOpened=LastOpened(mangaId:event.mangaId,chapter:event.chapter) }
         }
         if let latest = pending.values.max(by: { $0.updatedAt < $1.updatedAt }), latest.updatedAt >= (remote.library.compactMap(\.lastReadAt).max() ?? 0) {
             data.lastOpened = LastOpened(mangaId:latest.mangaId,chapter:latest.chapter)

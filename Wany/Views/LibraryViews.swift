@@ -4,6 +4,12 @@ import ImageIO
 struct DiscoverView: View {
     @Environment(AppStore.self) private var store
     @State private var source = "all"
+    @State private var filter=CatalogFilter()
+    @State private var filtersOpen=false
+    @State private var groups: [StorySourceGroup] = []
+    @State private var filterLoading=false
+    @State private var metadataVerified: Set<String> = []
+    @State private var groupToken=UUID()
     @State private var mode = "latest"
     @State private var query = ""
     @State private var submittedQuery = ""
@@ -16,7 +22,7 @@ struct DiscoverView: View {
     @State private var message: String?
     @State private var requestToken = UUID()
     @State private var wideKeys: Set<String> = []
-    var requestKey: String { source + "|" + mode + "|" + submittedQuery }
+    var requestKey: String { source + "|" + mode + "|" + submittedQuery + "|" + filter.type + "|" + filter.status + "|" + filter.genres.sorted().joined(separator:",") }
     var hasMore: Bool { !more.isEmpty || !failed.isEmpty }
     var body: some View {
         WanyScroll {
@@ -33,22 +39,53 @@ struct DiscoverView: View {
             }.card()
             Picker("ترتيب",selection:$mode) { Text("الأحدث").tag("latest"); Text("الأكثر شعبية").tag("popular") }.pickerStyle(.segmented)
             if let message { Text(message).font(RanyTypography.font(.caption)).foregroundStyle(.orange) }
-            let featured = items.filter { wideKeys.contains($0.key) }
-            if !featured.isEmpty { DiscoverFeaturedStories(stories:featured) }
-            StoryGrid(stories:items.filter { !wideKeys.contains($0.key) })
+            HStack { Button("فلاتر النوع والحالة والتصنيفات",systemImage:"line.3.horizontal.decrease.circle") { filtersOpen=true }.frame(minHeight:44); Spacer(); if filterLoading { ProgressView() } }.font(.caption)
+            let featured=groups.filter { wideKeys.contains($0.primary.key) }
+            if !featured.isEmpty { DiscoverFeaturedStories(stories:featured.map(\.primary),sourceGroups:Dictionary(featured.map { ($0.primary.key,$0.items.map(\.key)) },uniquingKeysWith:{ _,b in b })) }
+            LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],spacing:20) {
+                ForEach(groups.filter { !wideKeys.contains($0.primary.key) }) { group in StoryCard(story:group.primary,sourceKeys:group.items.map(\.key)) }
+            }
             if busy { ProgressView("جاري تحميل القصص") }
             if hasMore && !busy { Button("تحميل المزيد") { Task { await load(reset:false) } }.buttonStyle(.bordered) }
-        }.task(id:requestKey) { await load(reset:true) }.refreshable { await load(reset:true) }
-        .task(id:WideCoverRequest(keys:items.map(\.key),revision:store.coverRevision)) { await measureWideCovers() }
+        }.sheet(isPresented:$filtersOpen) { DiscoveryFilterSheet(filter:$filter,source:$source) }
+        .task(id:items) { await refreshGroups() }
+        .task(id:requestKey) { await load(reset:true) }.refreshable { await load(reset:true) }
+        .task(id:WideCoverRequest(keys:groups.map(\.primary.key),revision:store.coverRevision)) { await measureWideCovers() }
         .task(id:items.map(\.cover)) {
             // Warm the first covers so wide artwork can move into the carousel before scrolling.
             for story in items.prefix(28) { guard !Task.isCancelled else { return }; await store.cacheCover(story) }
         }
     }
+    private func refreshGroups() async {
+        let token=UUID(); groupToken=token; filterLoading=true
+        defer { if groupToken == token { filterLoading=false } }
+        var enriched=items.map { store.stories[$0.key] ?? $0 }
+        if filter.requiresMetadata,store.online {
+            let missing=enriched.filter { !metadataVerified.contains($0.key) }
+            var failures=0
+            for start in stride(from:0,to:missing.count,by:3) {
+                guard !Task.isCancelled,groupToken == token else { return }
+                let batch=Array(missing[start..<min(start+3,missing.count)])
+                let resolved=await withTaskGroup(of:(String,Story?).self,returning:[(String,Story?)].self) { group in
+                    for story in batch { group.addTask { (story.key,try? await API.shared.get("/api/source/series",query:["key":story.key],as:SeriesResponse.self).item) } }
+                    var result: [(String,Story?)] = []; for await row in group { result.append(row) }; return result
+                }
+                guard !Task.isCancelled,groupToken == token else { return }
+                for (key,value) in resolved {
+                    if let value { metadataVerified.insert(key); store.remember(value); if let i=enriched.firstIndex(where:{$0.key == key}) { enriched[i]=value } }
+                    else { failures += 1 }
+                }
+            }
+            if failures>0 { message="تعذر استكمال بيانات \(failures) قصة؛ نتائج الفلاتر قد تكون جزئية. أعد المحاولة بالسحب للتحديث." }
+        }
+        var applied=filter; applied.source=source
+        let result=await CatalogRules.groups(enriched,filter:applied)
+        if !Task.isCancelled,groupToken == token { groups=result }
+    }
     // Cover dimensions come from file headers; read them off the main thread, never in body.
     private func measureWideCovers() async {
         guard let owner = store.accountID else { wideKeys = []; return }
-        let files = items.map { ($0.key,Disk.file(owner,Disk.coverName($0.key))) }
+        let files = groups.map { ($0.primary.key,Disk.file(owner,Disk.coverName($0.primary.key))) }
         let wide = await Task.detached(priority:.utility) { () -> Set<String> in
             Set(files.compactMap { key,url in
                 guard let image = CGImageSourceCreateWithURL(url as CFURL,nil),
@@ -105,13 +142,14 @@ struct DiscoverView: View {
 private struct WideCoverRequest: Hashable { let keys: [String]; let revision: Int }
 struct DiscoverFeaturedStories: View {
     let stories: [Story]
+    var sourceGroups: [String:[String]] = [:]
     @State private var selected: String?
     var body: some View {
         VStack(spacing:10) {
             ScrollView(.horizontal) {
                 LazyHStack(spacing:16) {
                     ForEach(stories) { story in
-                        WanyLink(.story(story)) {
+                        WanyLink(.story(story,sourceKeys:sourceGroups[story.key] ?? [])) {
                             VStack(alignment:.leading,spacing:10) {
                                 CoverView(story:story).frame(height:190).clipShape(RoundedRectangle(cornerRadius:20))
                                 Text(story.title).font(RanyTypography.font(.headline)).lineLimit(2).frame(maxWidth:.infinity,minHeight:44,alignment:.topLeading)
@@ -136,24 +174,25 @@ struct FeedView: View {
     var groups: [FeedGroup] { followed ? (store.state?.newFeed?.followed ?? []) : (store.state?.newFeed?.all ?? []) }
     var body: some View {
         WanyScroll {
+            if let error=store.feedError { Text(error).font(.caption).foregroundStyle(.orange) }
             if store.loadingFeed { HStack { ProgressView(); Text(store.feedProgress).font(RanyTypography.font(.caption)) }.card() }
             if kind == "fyp" {
                 let recommendations = Array((store.state?.fyp ?? []).prefix(visible))
                 if recommendations.isEmpty && !store.loadingFeed { EmptyState(icon:"sparkles",title:"اقتراحات تناسب قراءتك",detail:"تُجهز من مفضلتك وسجل قراءتك وقوائمك، بنفس خوارزمية الموقع.") }
-                LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],spacing:20) { ForEach(recommendations) { r in VStack(alignment:.leading,spacing:6) { StoryCard(story:r.item); Text(r.reason).font(RanyTypography.font(.caption2)).foregroundStyle(.secondary).lineLimit(3) } } }
+                LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],spacing:20) { ForEach(recommendations) { r in VStack(alignment:.leading,spacing:6) { StoryCard(story:r.item,sourceKeys:r.sourceKeys); Text(r.reason).font(RanyTypography.font(.caption2)).foregroundStyle(.secondary).lineLimit(3) } } }
                 if visible < (store.state?.fyp.count ?? 0) { Button("عرض المزيد") { visible += 12 }.buttonStyle(.bordered) }
             } else {
                 Picker("العرض",selection:$followed) { Text("الكل").tag(false); Text("أتابعها").tag(true) }.pickerStyle(.segmented)
                 if groups.isEmpty && !store.loadingFeed { EmptyState(icon:"sparkle",title:"لا توجد فصول جديدة هنا",detail:"الفصول المنشورة خلال آخر 24 ساعة، مع توضيح مصدر كل فصل واستبعاد الإصدارات القديمة المكررة.") }
                 ForEach(groups) { group in
                     VStack(alignment:.leading,spacing:14) {
-                        WanyLink(.story(group.item)) { HStack { CoverView(story:group.item).frame(width:55,height:78).clipShape(RoundedRectangle(cornerRadius:8)); Text(group.item.title).font(RanyTypography.font(.headline)).foregroundStyle(.primary) } }
+                        WanyLink(.story(group.item,sourceKeys:group.sourceKeys)) { HStack { CoverView(story:group.item).frame(width:55,height:78).clipShape(RoundedRectangle(cornerRadius:8)); Text(group.item.title).font(RanyTypography.font(.headline)).foregroundStyle(.primary) } }
                         ForEach(group.chapters) { chapter in
                             WanyLink(.sourceChapter(key:chapter.sourceKey,chapter:Chapter(number:chapter.number,title:chapter.title),fallback:group.item)) { HStack { Text(chapter.title); Spacer(); Text(chapter.sourceLabel).foregroundStyle(Theme.accent); if chapter.read { Image(systemName:"checkmark") } }.font(RanyTypography.font(.caption)).foregroundStyle(.primary).padding(.vertical,4) }
                         }
                     }.card()
                 }
-                if store.state?.newFeed?.hasMore == true { Button("الصفحة التالية") { Task { await store.loadFeed("new",page:(store.state?.newFeed?.page ?? 1)+1) } }.disabled(store.loadingFeed || !store.online) }
+                if store.state?.newFeed?.hasMore == true { Button(store.feedError == nil ? "تحميل المزيد" : "إعادة محاولة تحميل المزيد") { Task { await store.loadFeed("new",page:(store.state?.newFeed?.page ?? 1)+1) } }.disabled(store.loadingFeed || !store.online) }
             }
         }.toolbar {
             ToolbarItem(placement:.topBarTrailing) {
@@ -183,6 +222,7 @@ struct ProfileView: View {
     @StateObject private var lists = CachedPage()
     @StateObject private var selectedList = CachedPage()
     @State private var listID = ""
+    @State private var listSections: [RanyProfileSection] = []
     @State private var creating = false
     @State private var newName = ""
     @State private var adding = false
@@ -194,9 +234,14 @@ struct ProfileView: View {
     @State private var pickingAvatar = false
     @State private var savingProfile = false
     @FocusState private var nameFocused: Bool
+    private var visibleLists: [JSONValue] {
+        let visibility=Dictionary(listSections.filter { $0.sectionType == "custom_list" }.map { ($0.referenceId ?? "",$0.isVisible) },uniquingKeysWith:{ _,b in b })
+        return lists.value["lists"].array.filter { visibility[$0["id"].string] ?? true }
+    }
+    private var favoriteSectionHidden: Bool { listSections.first { $0.sectionType == "favorites" }?.isVisible == false }
     var keys: [String] {
         guard let state = store.state else { return [] }
-        if tab == "favorites" { return state.data.favorites }
+        if tab == "favorites" { return favoriteSectionHidden ? [] : state.data.favorites }
         if tab == "lists" { return selectedList.value["items"].array.map { $0["mangaId"].string } }
         return state.data.library.filter { $0.status == "reading" }.sorted { ($0.lastReadAt ?? $0.updatedAt) > ($1.lastReadAt ?? $1.updatedAt) }.map(\.mangaId)
     }
@@ -211,6 +256,7 @@ struct ProfileView: View {
             }
         }.task { await loadLists(); await loadSelectedList() }
         .refreshable { await store.refresh(); await loadLists(); await loadSelectedList() }
+        .onReceive(NotificationCenter.default.publisher(for:.ranyCollectionsChanged)) { _ in Task { await loadLists(); await loadSelectedList() } }
         .onChange(of:tab) { _,value in if value == "lists" { Task { await loadLists(); await loadSelectedList() } } }
         .onChange(of:listID) { _,_ in Task { await loadSelectedList() } }
         .sheet(isPresented:$adding,onDismiss:{ Task { await loadSelectedList(); await loadLists() } }) { AddStoriesToListView(id:listID) }
@@ -323,7 +369,7 @@ struct ProfileView: View {
                 VStack(spacing:12) {
                     HStack(spacing:6) {
                         WanyLink(.stats) { accountTool("الإحصائيات","chart.xyaxis.line") }
-                        WanyLink(.friends) { accountTool("الأصدقاء","person.2") }
+                        WanyLink(.friends) { accountTool(store.incomingFriendRequests > 0 ? "الأصدقاء · \(store.incomingFriendRequests)" : "الأصدقاء","person.2") }
                         WanyLink(.activity) { accountTool("النشاط","clock") }
                     }.buttonStyle(.plain).ranyGlassGroup()
                     HStack {
@@ -367,10 +413,11 @@ struct ProfileView: View {
                 }
                 if tab == "lists" {
                     ScrollView(.horizontal,showsIndicators:false) {
-                        HStack(spacing:12) { ForEach(lists.value["lists"].array.identified { $0["id"].string }) { row in let list = row.value
-                            Button { listID = list["id"].string } label: { Text(list["name"].string).font(RanyTypography.font(.subheadline)).padding(.horizontal,16).frame(minHeight:48).background(listID == list["id"].string ? Theme.accent.opacity(0.25) : Theme.surface.opacity(0.22),in:Capsule()).contentShape(Capsule()) }.buttonStyle(.plain)
+                        HStack(spacing:12) { ForEach(visibleLists.identified { $0["id"].string }) { row in let list = row.value
+                            Button { listID = list["id"].string } label: { Label(list["name"].string,systemImage:ListIcons.symbol(list["iconKey"].string)).font(RanyTypography.font(.subheadline)).padding(.horizontal,16).frame(minHeight:48).background(listID == list["id"].string ? Theme.accent.opacity(0.25) : Theme.surface.opacity(0.22),in:Capsule()).contentShape(Capsule()) }.buttonStyle(.plain)
                         } }
                     }
+                    WanyLink(.lists) { Label("إدارة القوائم وترتيب الأقسام",systemImage:"slider.horizontal.3").font(.caption).frame(minHeight:44) }
                     if !listID.isEmpty {
                         HStack(spacing:16) {
                             Button { adding = true } label: { Label("إضافة قصص",systemImage:"plus").frame(maxWidth:.infinity,minHeight:48).contentShape(Rectangle()) }.disabled(!store.online)
@@ -378,15 +425,20 @@ struct ProfileView: View {
                         }.font(RanyTypography.font(.caption)).buttonStyle(.plain)
                     } else { Text("أنشئ قائمتك من زر + وأضف لها القصص التي تختارها.").font(RanyTypography.font(.subheadline)).foregroundStyle(.secondary) }
                 }
-                StoryGrid(stories:keys.compactMap { store.stories[$0] },showReadingProgress:true)
+                if tab == "favorites" { MergedStoryGrid(stories:keys.compactMap { store.stories[$0] },showReadingProgress:true) } else { StoryGrid(stories:keys.compactMap { store.stories[$0] },showReadingProgress:true) }
                 let missing = keys.filter { store.stories[$0] == nil }.count
                 if missing > 0 { Text("\(missing) قصة بانتظار حفظ تفاصيلها عند الاتصال").font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
-                if keys.isEmpty { EmptyState(icon:"books.vertical",title:"لا توجد قصص هنا",detail:"أضف قصة من صفحة الاستكشاف لتظهر في مكتبتك.") }
+                if keys.isEmpty { if tab == "favorites" && favoriteSectionHidden { Text("القسم مخفي من صفحتك. يمكنك إظهاره من إدارة القوائم.").font(.caption).foregroundStyle(.secondary) } else { EmptyState(icon:"books.vertical",title:"لا توجد قصص هنا",detail:"أضف قصة من صفحة الاستكشاف لتظهر في مكتبتك.") } }
                 }.card()
     }
     func loadLists() async {
         await lists.load("/api/lists",store:store)
-        if listID.isEmpty { listID = lists.value["lists"].array.first?["id"].string ?? "" }
+        if let owner=store.state?.user.id {
+            if store.online,let result=try? await API.shared.get("/api/profile/sections",as:SectionsResponse.self),store.state?.user.id == owner {
+                listSections=result.sections; try? Disk.save(result.sections,owner:owner,name:"collections/sections.json")
+            } else { listSections=Disk.read([RanyProfileSection].self,owner:owner,name:"collections/sections.json") ?? [] }
+        }
+        if !visibleLists.contains(where:{$0["id"].string == listID}) { listID=visibleLists.first?["id"].string ?? "" }
     }
     func loadSelectedList() async {
         guard !listID.isEmpty else { return }
@@ -428,19 +480,5 @@ struct ProfileAvatar: View {
                     image = value; try? FileManager.default.createDirectory(at:path.deletingLastPathComponent(),withIntermediateDirectories:true); try? data.write(to:path,options:.atomic)
                 }
             }
-    }
-}
-struct StatsView: View {
-    @Environment(AppStore.self) private var store
-    let fields = [("storiesRead","القصص المقروءة"),("organicChapters","الفصول المقروءة"),("organicCompletedChapters","الفصول المكتملة"),("bulkChapters","الفصول المحددة دفعة واحدة"),("activeDays","أيام القراءة"),("dailyAverage","المعدل اليومي"),("currentStreak","سلسلة الأيام الحالية"),("bestStreak","أفضل سلسلة"),("accountDays","عمر الحساب بالأيام")]
-    var body: some View {
-        WanyScroll {
-            if let state = store.state {
-                if !state.pending.isEmpty { Text("يوجد تقدم محلي بانتظار المزامنة. تتحدث الإحصائيات بعد رفعه.").font(RanyTypography.font(.caption)).foregroundStyle(.orange) }
-                LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())],spacing:12) { ForEach(fields,id:\.0) { field in VStack(spacing:9) { Text(String(format:"%g",state.stats[field.0]?.number ?? 0)).font(RanyTypography.font(.largeTitle).bold()).foregroundStyle(Theme.accent); Text(field.1).font(RanyTypography.font(.caption)) }.frame(maxWidth:.infinity).card() } }
-                Text("الأيام الأخيرة").font(RanyTypography.font(.headline)).frame(maxWidth:.infinity,alignment:.leading)
-                ForEach(Array((state.stats["recentDays"]?.array ?? []).enumerated()),id:\.offset) { _,day in HStack { Text(day["day"].string); Spacer(); Text("\(Int(day["chapters"].number)) فصل") }.font(RanyTypography.font(.subheadline)).card() }
-            }
-        }.navigationTitle("إحصائيات القراءة").refreshable { await store.refresh() }
     }
 }

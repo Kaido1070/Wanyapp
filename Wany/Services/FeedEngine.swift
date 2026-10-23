@@ -61,7 +61,7 @@ final class FeedEngine: @unchecked Sendable {
         let id = UUID().uuidString
         return try await withCheckedThrowingContinuation { continuation in
             queue.async {
-                guard let context = self.context else { continuation.resume(throwing:APIError(message:"تعذر تجهيز الصفحة",status:0)); return }
+                guard let context = self.context, context.objectForKeyedSubscript("runFeed")?.isObject == true else { continuation.resume(throwing:APIError(message:"تعذر تحميل محرك الاقتراحات المحلي",status:0)); return }
                 do {
                     let input = try JSONSerialization.jsonObject(with:JSONEncoder().encode(data))
                     self.completions[id] = continuation; self.callbacks[id] = progress

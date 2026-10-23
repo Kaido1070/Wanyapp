@@ -12,12 +12,16 @@ private struct RanyBackdropManifest: Codable, Sendable { let entries: [RanyBackd
 
 @MainActor final class RanyAmbience: ObservableObject {
     @Published private(set) var images: [UIImage] = RanyAmbience.defaults()
+    @Published private(set) var openingReady = false
     private var owner: String?
     private var generation = UUID()
     private var task: Task<Void,Never>?
     private var fingerprint = ""
     private var activeFiles: [String] = []
-    private static func defaults() -> [UIImage] { (1...14).compactMap { UIImage(named:"RanyDefault\($0)") } }
+    // The bundled covers are only 320 px wide and looked soft when enlarged behind
+    // the content, so the wallpaper shows the reader's own high-resolution covers or nothing.
+    private static func defaults() -> [UIImage] { [] }
+    func isOpeningReady(accountID: String?) -> Bool { openingReady && accountID == owner }
     func displayImages(accountID: String?) -> [UIImage] { accountID == owner ? images : Self.defaults() }
     nonisolated private static func completePool(_ primary: [UIImage], defaults: [UIImage]) -> [UIImage] {
         var result: [UIImage] = [], signatures: [UInt64] = []
@@ -29,11 +33,12 @@ private struct RanyBackdropManifest: Codable, Sendable { let entries: [RanyBackd
         return result
     }
     func attach(state: AccountState?, stories: [String:Story]) async {
-        guard owner != state?.user.id else { return }
+        guard owner != state?.user.id else { openingReady = true; return }
+        openingReady = false
         task?.cancel(); generation = UUID(); owner = state?.user.id; fingerprint = ""; activeFiles = []
         // Never leave the preceding account's artwork on screen, even for one decoded frame.
         images = Self.defaults()
-        guard let state else { return }
+        guard let state else { openingReady = true; return }
         let allowed = RanyBackdropPlan.candidates(data:state.data,stories:stories)
         let folder = Disk.folder(state.user.id), token = generation, fallback = Self.defaults()
         let prepared = await Task.detached(priority:.utility) {
@@ -42,7 +47,7 @@ private struct RanyBackdropManifest: Codable, Sendable { let entries: [RanyBackd
         }.value
         let entries = prepared.0
         guard generation == token, !Task.isCancelled else { return }
-        images = prepared.1; activeFiles = entries.map { $0.0.file }
+        images = prepared.1; activeFiles = entries.map { $0.0.file }; openingReady = true
     }
 
     func prepare(state: AccountState?, stories: [String:Story]) {
@@ -76,7 +81,7 @@ private struct RanyBackdropManifest: Codable, Sendable { let entries: [RanyBackd
         }
     }
     nonisolated private static func readPrepared(folder: URL, allowed: [RanyBackdropCandidate]) -> [(RanyBackdropEntry,UIImage)] {
-        guard let bytes = try? Data(contentsOf:folder.appendingPathComponent("ambience/pending.json")), let manifest = try? JSONDecoder().decode(RanyBackdropManifest.self,from:bytes), manifest.qualityVersion == 3 else { return [] }
+        guard let bytes = try? Data(contentsOf:folder.appendingPathComponent("ambience/pending.json")), let manifest = try? JSONDecoder().decode(RanyBackdropManifest.self,from:bytes), manifest.qualityVersion == 4 else { return [] }
         let allowedSet = Set(allowed)
         return manifest.entries.prefix(RanyIdentity.maxBackdropCovers).compactMap { entry in
             guard allowedSet.contains(RanyBackdropCandidate(key:entry.key,cover:entry.cover)), let image = thumbnail(folder.appendingPathComponent("ambience/"+entry.file)) else { return nil }
@@ -91,9 +96,9 @@ private struct RanyBackdropManifest: Codable, Sendable { let entries: [RanyBackd
                   RanyCoverQuality.acceptsDimensions(width:width,height:height) else { return nil }
         }
         guard
-              let cg = CGImageSourceCreateThumbnailAtIndex(source,0,[kCGImageSourceCreateThumbnailFromImageAlways:true,kCGImageSourceCreateThumbnailWithTransform:true,kCGImageSourceThumbnailMaxPixelSize:240,kCGImageSourceShouldCacheImmediately:true] as CFDictionary), cg.width >= 32, cg.height >= 32 else { return nil }
+              let cg = CGImageSourceCreateThumbnailAtIndex(source,0,[kCGImageSourceCreateThumbnailFromImageAlways:true,kCGImageSourceCreateThumbnailWithTransform:true,kCGImageSourceThumbnailMaxPixelSize:720,kCGImageSourceShouldCacheImmediately:true] as CFDictionary), cg.width >= 32, cg.height >= 32 else { return nil }
         if validateSource && !RanyCoverQuality.hasDetail(cg) { return nil }
-        let image = UIImage(cgImage:cg), size = CGSize(width:180,height:248)
+        let image = UIImage(cgImage:cg), size = CGSize(width:432,height:595)
         let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.opaque = true
         return UIGraphicsImageRenderer(size:size,format:format).image { context in
             UIColor(red:0.09,green:0.10,blue:0.11,alpha:1).setFill(); context.fill(CGRect(origin:.zero,size:size))
@@ -119,7 +124,7 @@ private struct RanyBackdropManifest: Codable, Sendable { let entries: [RanyBackd
                 entries.append(RanyBackdropEntry(key:candidate.key,cover:candidate.cover,file:file))
             }
             guard !Task.isCancelled else { return false }
-            let bytes = try JSONEncoder().encode(RanyBackdropManifest(entries:entries,qualityVersion:3))
+            let bytes = try JSONEncoder().encode(RanyBackdropManifest(entries:entries,qualityVersion:4))
             try bytes.write(to:target.appendingPathComponent("pending.json"),options:[.atomic,.completeFileProtectionUntilFirstUserAuthentication])
             let retained = Set(keep+entries.map(\.file))
             for url in (try? FileManager.default.contentsOfDirectory(at:target,includingPropertiesForKeys:nil)) ?? [] where url.pathExtension == "jpg" && !retained.contains(url.lastPathComponent) { try? FileManager.default.removeItem(at:url) }
@@ -137,26 +142,51 @@ struct RanyBackdrop: View {
     var accountID: String?
     var assembly: Double = 1
     var held = false
+    var cinematicOpening = false
+    var skipOpeningSequence = false
+    var openingTitleReady = true
+    var onOpeningPrepared: () -> Void = {}
+    var onOpeningReady: (Date) -> Void = { _ in }
+    @State private var openingFinished = false
+    @State private var openingStartedAt: Date?
+    @State private var rendererFailed = false
+    @State private var accountTransition = false
     @AppStorage(RanyAppearanceKeys.background) private var enabled = true
     @State private var elapsed: TimeInterval = 0
     @State private var resumedAt = Date()
     @State private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
     // Scrolling and page transitions freeze the circuit in place; it resumes from the same position.
     private var paused: Bool { !enabled || reading || held || scenePhase != .active || reduceMotion || reduceTransparency || lowPower }
+    private var approved: Bool { cinematicOpening && !reduceMotion && !reduceTransparency && !lowPower && !rendererFailed && !accountTransition }
     var body: some View {
         let visibleImages = ambience.displayImages(accountID:accountID)
         ZStack {
             Theme.background
             if enabled && !reading && !reduceTransparency {
-                TimelineView(.animation(minimumInterval:1.0/24.0,paused:paused)) { timeline in
-                    RanyBackdropArtwork(images:visibleImages,time:elapsed + (paused ? 0 : max(0,timeline.date.timeIntervalSince(resumedAt))),assembly:reduceMotion || lowPower ? 1 : assembly)
-
+                if approved {
+                    RanyApprovedBackground(images:visibleImages,accountID:accountID,canStart:!paused && ambience.isOpeningReady(accountID:accountID),playOpening:!skipOpeningSequence && openingStartedAt == nil && !openingFinished,typographyReady:openingTitleReady,onPrepared:onOpeningPrepared,onStarted:{ date in
+                        guard openingStartedAt == nil else { return }
+                        openingStartedAt = date; onOpeningReady(date)
+                    },onFailure:{
+                        rendererFailed = true; openingFinished = true; onOpeningReady(Date())
+                    })
+                } else {
+                    TimelineView(.animation(minimumInterval:1.0/24.0,paused:paused)) { timeline in
+                        RanyBackdropArtwork(images:visibleImages,time:elapsed + (paused ? 0 : max(0,timeline.date.timeIntervalSince(resumedAt))),assembly:reduceMotion || lowPower ? 1 : assembly)
+                    }
+                    RadialGradient(colors:[Theme.background.opacity(0.74),Theme.background.opacity(0.22),.clear],center:.center,startRadius:15,endRadius:460)
+                    LinearGradient(colors:[Theme.background.opacity(0.12),.clear,Theme.background.opacity(0.36)],startPoint:.top,endPoint:.bottom)
                 }
-                RadialGradient(colors:[Theme.background.opacity(0.74),Theme.background.opacity(0.22),.clear],center:.center,startRadius:15,endRadius:460)
-                LinearGradient(colors:[Theme.background.opacity(0.12),.clear,Theme.background.opacity(0.36)],startPoint:.top,endPoint:.bottom)
             }
         }.ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
+        .task(id:approved && enabled) {
+            guard cinematicOpening, !openingFinished else { return }
+            if !enabled || !approved { openingFinished = true; onOpeningReady(Date()) }
+        }
+        // Login/account transitions keep the native 1.3.29 assembly behavior.
+        .onChange(of:accountID) { _,_ in if openingStartedAt != nil { openingFinished = true; accountTransition = true } }
         .onChange(of:paused) { _,value in
+            if value && openingStartedAt != nil { openingFinished = true }
             if value { elapsed += max(0,Date().timeIntervalSince(resumedAt)) }
             else { resumedAt = Date() }
         }
@@ -165,7 +195,7 @@ struct RanyBackdrop: View {
 }
 
 
-private struct RanyBackdropArtwork: View, Animatable {
+struct RanyBackdropArtwork: View, Animatable {
     let images: [UIImage]
     let time: TimeInterval
     var assembly: Double
@@ -200,6 +230,12 @@ struct RanyBackdropHost: UIViewControllerRepresentable {
     let accountID: String?
     let assembly: Double
     var held = false
+    var cinematicOpening = false
+    var skipOpeningSequence = false
+    var openingTitleReady = true
+    var onOpeningPrepared: () -> Void = {}
+    var onOpeningReady: (Date) -> Void = { _ in }
+    var phase: ScenePhase = .active
     func makeUIViewController(context: Context) -> UIHostingController<AnyView> {
         let controller = UIHostingController(rootView:scene(context))
         controller.view.backgroundColor = .clear
@@ -211,7 +247,10 @@ struct RanyBackdropHost: UIViewControllerRepresentable {
         withTransaction(context.transaction) { controller.rootView = scene(context) }
     }
     private func scene(_ context: Context) -> AnyView {
-        AnyView(RanyBackdrop(ambience:ambience,reading:reading,accountID:accountID,assembly:assembly,held:held)
-            .environment(\.self,context.environment))
+        AnyView(RanyBackdrop(ambience:ambience,reading:reading,accountID:accountID,assembly:assembly,held:held,cinematicOpening:cinematicOpening,skipOpeningSequence:skipOpeningSequence,openingTitleReady:openingTitleReady,onOpeningPrepared:onOpeningPrepared,onOpeningReady:onOpeningReady)
+            .environment(\.self,context.environment)
+            // A nested UIHostingController owns a separate scene environment.
+            // Carry the outer scene's activity as an explicit representable input.
+            .environment(\.scenePhase,phase))
     }
 }

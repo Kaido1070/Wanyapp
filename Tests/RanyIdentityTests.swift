@@ -44,6 +44,7 @@ final class RanyIdentityTests: XCTestCase {
         XCTAssertFalse(RanyCoverQuality.acceptsDimensions(width:160,height:220))
         XCTAssertFalse(RanyCoverQuality.acceptsDimensions(width:1200,height:600))
         XCTAssertTrue(RanyCoverQuality.acceptsDimensions(width:512,height:724))
+        XCTAssertFalse(RanyCoverQuality.acceptsDimensions(width:320,height:440),"Covers smaller than the staged wallpaper size would be enlarged and look soft.")
         let flat = UIGraphicsImageRenderer(size:CGSize(width:100,height:140)).image { context in
             UIColor.gray.setFill(); context.fill(CGRect(x:0,y:0,width:100,height:140))
         }

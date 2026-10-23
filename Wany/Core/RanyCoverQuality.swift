@@ -19,7 +19,8 @@ enum RanyCoverQuality {
     static func matches(_ a: UInt64, _ b: UInt64) -> Bool { (a ^ b).nonzeroBitCount <= 3 }
     static func acceptsDimensions(width: Int, height: Int) -> Bool {
         let ratio = Double(width) / Double(max(1,height))
-        return width >= 320 && height >= 440 && ratio >= 0.48 && ratio <= 0.88
+        // At least the staged size (432×595): a cover is never enlarged behind the content.
+        return width >= 432 && height >= 595 && ratio >= 0.48 && ratio <= 0.88
     }
     // A conservative gate for blank, extremely soft and low-detail responses.
     // It deliberately prefers the reviewed offline set when a source is uncertain.

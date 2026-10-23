@@ -12,6 +12,7 @@ struct ReaderChapterScroll: UIViewRepresentable {
     let initialPage: Int
     let nextTitle: String?
     let online: Bool
+    var quality: ImageQuality = .balanced
     var onNext: () -> Void
     var onBack: () -> Void
     var onRetry: () -> Void
@@ -22,7 +23,7 @@ struct ReaderChapterScroll: UIViewRepresentable {
     func updateUIView(_ view: ChapterScroll, context: Context) {
         view.onNext = onNext; view.onBack = onBack; view.onRetry = onRetry
         view.onInvalid = onInvalid; view.onPosition = onPosition; view.onScroll = onScroll
-        view.configure(id:id,urls:urls,ratios:ratios,initialPage:initialPage,nextTitle:nextTitle,online:online,endTitle:endTitle)
+        view.configure(id:id,urls:urls,ratios:ratios,initialPage:initialPage,nextTitle:nextTitle,online:online,endTitle:endTitle,quality:quality)
     }
     static func dismantleUIView(_ view: ChapterScroll, coordinator: Void) { view.stop(); view.onPosition = nil; view.onScroll = nil; view.delegate = nil }
 }
@@ -30,14 +31,14 @@ struct ReaderChapterScroll: UIViewRepresentable {
 private struct DecodedChapterPage: @unchecked Sendable {
     let image: UIImage
     let ratio: CGFloat
-    static func read(_ url: URL) -> Self? {
+    static func read(_ url: URL,quality: ImageQuality) -> Self? {
         guard !Task.isCancelled, let source = CGImageSourceCreateWithURL(url as CFURL,nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source,0,nil) as? [CFString:Any],
               let w = properties[kCGImagePropertyPixelWidth] as? NSNumber,
               let h = properties[kCGImagePropertyPixelHeight] as? NSNumber,
               w.doubleValue > 0, h.doubleValue > 0 else { return nil }
         let width = w.doubleValue, height = h.doubleValue
-        let factor = min(1,1800/width,sqrt(24_000_000/(width*height)),24000/max(width,height))
+        let factor = quality.decodeFactor(width:width,height:height)
         let options: [CFString:Any] = [kCGImageSourceCreateThumbnailFromImageAlways:true,
             kCGImageSourceThumbnailMaxPixelSize:max(1,max(width,height)*factor),
             kCGImageSourceCreateThumbnailWithTransform:true,kCGImageSourceShouldCacheImmediately:true]
@@ -61,6 +62,7 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
     private var pendingRatios: [Int:CGFloat] = [:]
     private var tasks: [Int:Task<Void,Never>] = [:]
     private var generation = UUID()
+    private var quality: ImageQuality = .balanced
     private var restored = false
     private var initialPage = 0
     private var layoutWidth: CGFloat = 0
@@ -100,7 +102,7 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
     @objc private func nextChapter() { onNext?() }
     @objc private func back() { onBack?() }
     @objc private func retry() { onRetry?() }
-    func configure(id: String, urls: [URL?], ratios: [Int:CGFloat], initialPage: Int, nextTitle: String?, online: Bool, endTitle: String = "نهاية الفصل") {
+    func configure(id: String, urls: [URL?], ratios: [Int:CGFloat], initialPage: Int, nextTitle: String?, online: Bool, endTitle: String = "نهاية الفصل",quality: ImageQuality = .balanced) {
         if chapterID != id || tiles.count != urls.count {
             stop(); chapterID = id; self.initialPage = initialPage; restored = false; interacted = false
             self.ratios = ratios; pendingRatios = [:]; layoutWidth = 0
@@ -117,6 +119,10 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
                 let button = UIButton(type:.system); button.setTitle("إعادة المحاولة",for:.normal)
                 button.addTarget(self,action:#selector(retry),for:.touchUpInside); canvas.addSubview(button); retries.append(button)
             }
+        }
+        if self.quality != quality {
+            stop(); self.quality=quality
+            tiles.forEach { $0.image=nil }
         }
         for (index,url) in urls.enumerated() where self.urls.indices.contains(index) && self.urls[index] != url {
             tasks[index]?.cancel(); tasks[index] = nil; tiles[index].image = nil
@@ -186,8 +192,9 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
                 tiles[index].image = nil; tasks[index]?.cancel(); tasks[index] = nil
             } else if tiles[index].image == nil, tasks[index] == nil, urls.indices.contains(index), let url = urls[index] {
                 let token = generation
+                let quality=self.quality
                 tasks[index] = Task { @MainActor [weak self] in
-                    let decode = Task.detached(priority:.userInitiated) { DecodedChapterPage.read(url) }
+                    let decode = Task.detached(priority:.userInitiated) { DecodedChapterPage.read(url,quality:quality) }
                     let result = await withTaskCancellationHandler(operation: { await decode.value },onCancel: { decode.cancel() })
                     guard !Task.isCancelled, let self, self.generation == token, self.urls.indices.contains(index), self.urls[index] == url else { return }
                     self.tasks[index] = nil

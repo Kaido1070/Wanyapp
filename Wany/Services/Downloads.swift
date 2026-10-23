@@ -24,8 +24,9 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
             guard ledger.contains(where: { $0.id == t.job && $0.chapters.contains(where: { $0.id == t.chapter && $0.images.contains(where: { $0.file == t.image }) }) }) else { finished?(t,0,nil,false); return }
             let destination = Disk.file(t.owner,t.image)
             try FileManager.default.createDirectory(at:destination.deletingLastPathComponent(),withIntermediateDirectories:true)
-            if FileManager.default.fileExists(atPath:destination.path) { try FileManager.default.removeItem(at:destination) }
-            try FileManager.default.moveItem(at:location,to:destination)
+            if FileManager.default.fileExists(atPath:destination.path) {
+                _ = try FileManager.default.replaceItemAt(destination,withItemAt:location)
+            } else { try FileManager.default.moveItem(at:location,to:destination) }
             try FileManager.default.setAttributes([.protectionKey:FileProtectionType.completeUntilFirstUserAuthentication],ofItemAtPath:destination.path)
             let originalBytes = Int64((try destination.resourceValues(forKeys:[.fileSizeKey])).fileSize ?? 0)
             let optimized = response.value(forHTTPHeaderField:"X-Wany-Image-Mode") == "edge"
@@ -79,7 +80,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
             return value.chapters.isEmpty ? nil : value
         }
     }
-    var temporaryBytes: Int64 { jobs.flatMap(\.chapters).filter { !$0.saved }.flatMap(\.images).reduce(0) { $0 + $1.bytes } }
+    var temporaryBytes: Int64 { jobs.flatMap(\.chapters).filter { !$0.saved }.flatMap(\.images).reduce(0) { $0 + $1.storageBytes } }
     private(set) var compacting = false
     private(set) var compactProgress = ""
     @ObservationIgnored private var lastSaved = Date.distantPast
@@ -189,11 +190,12 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     }
     private func install(_ payload: ChapterPayload, job: Int, chapter: Int, owner: String) {
         jobs[job].chapters[chapter].payload = payload; jobs[job].chapters[chapter].error = nil
+        let requested=jobs[job].chapters[chapter].requestedQuality
         jobs[job].chapters[chapter].images = payload.pages.enumerated().map { index, remote in
             let file = Disk.imageName(payload.id,index)
             let url = Disk.file(owner,file)
             let size = ((try? url.resourceValues(forKeys:[.fileSizeKey]))?.fileSize).map(Int64.init) ?? 0
-            return ImageRecord(remote:remote,file:file,expected:size > 0 ? size : nil,bytes:size,done:size > 0)
+            return ImageRecord(remote:remote,file:file,expected:size > 0 ? size : nil,bytes:size,done:size > 0,quality:requested)
         }
     }
     private func prepare(_ key: String) {
@@ -266,7 +268,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         for task in active.values where delegate.tag(task)?.job == key && delegate.tag(task)?.owner == owner { task.cancel() }
         do {
             for chapter in job.chapters {
-                for image in chapter.images where FileManager.default.fileExists(atPath:Disk.file(owner,image.file).path) { try FileManager.default.removeItem(at:Disk.file(owner,image.file)) }
+                for file in chapter.images.flatMap(\.storedFiles) where FileManager.default.fileExists(atPath:Disk.file(owner,file).path) { try FileManager.default.removeItem(at:Disk.file(owner,file)) }
             }
             jobs.removeAll { $0.id == key }; persist(); revision += 1
         } catch { notice = error.localizedDescription }
@@ -301,7 +303,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
                 guard !chapter.saved, readerPriority != id, all || (chapter.expiresAt.map { $0 <= now } ?? false) else { continue }
                 for task in active.values where delegate.tag(task)?.owner == owner && delegate.tag(task)?.job == jobs[j].id && delegate.tag(task)?.chapter == chapter.id { task.cancel() }
                 do {
-                    for image in chapter.images where FileManager.default.fileExists(atPath:Disk.file(owner,image.file).path) { try FileManager.default.removeItem(at:Disk.file(owner,image.file)) }
+                    for file in chapter.images.flatMap(\.storedFiles) where FileManager.default.fileExists(atPath:Disk.file(owner,file).path) { try FileManager.default.removeItem(at:Disk.file(owner,file)) }
                     let metadata = Disk.file(owner,Disk.chapterName(id))
                     if FileManager.default.fileExists(atPath:metadata.path) { try FileManager.default.removeItem(at:metadata) }
                     jobs[j].chapters.remove(at:c)
@@ -315,7 +317,8 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         guard !compacting, let account = owner else { return }
         compacting = true; defer { compacting = false; compactProgress = "" }
         let files = savedJobs.flatMap(\.chapters).flatMap(\.images).filter(\.done)
-        let chosen = quality == .original ? ImageQuality.balanced : quality
+        guard quality != .original else { notice="الجودة الأصلية لا تُضغط. اختر جودة أخرى إذا رغبت بتقليل الحجم."; return }
+        let chosen = quality
         var saved: Int64 = 0
         for (index,image) in files.enumerated() {
             guard owner == account, !Task.isCancelled else { break }
@@ -326,14 +329,63 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
             for j in jobs.indices { for c in jobs[j].chapters.indices { if let i = jobs[j].chapters[c].images.firstIndex(where:{$0.file == image.file && $0.done}) {
                 saved += max(0,jobs[j].chapters[c].images[i].bytes-size)
                 jobs[j].chapters[c].images[i].bytes = size; jobs[j].chapters[c].images[i].expected = size
+                jobs[j].chapters[c].images[i].quality=chosen.rawValue
+                jobs[j].chapters[c].requestedQuality=chosen.rawValue
             } } }
             persist()
         }
         revision += 1; notice = "اكتمل تقليل الحجم. تم توفير " + byteLabel(saved)
     }
+    func isQualityUpgrade(_ payload: ChapterPayload) -> Bool {
+        guard let part=jobs.first(where:{$0.id == payload.item.key})?.chapters.first(where:{$0.id == chapterNumber(payload.number)}) else { return false }
+        return part.requestedQuality != nil && !part.complete
+    }
+    func qualityError(_ payload: ChapterPayload) -> String? {
+        guard let job=jobs.first(where:{$0.id == payload.item.key}),let part=job.chapters.first(where:{$0.id == chapterNumber(payload.number)}) else { return nil }
+        return job.error ?? part.error ?? part.images.compactMap(\.failure).first
+    }
+    func redownload(_ payload: ChapterPayload,quality: ImageQuality) {
+        guard let owner,let j=jobs.firstIndex(where:{$0.id == payload.item.key}),
+              let c=jobs[j].chapters.firstIndex(where:{$0.id == chapterNumber(payload.number)}) else { return }
+        let before=jobs
+        let old=jobs[j].chapters[c].images
+        let token=UUID().uuidString
+        jobs[j].chapters[c].payload=payload
+        jobs[j].chapters[c].requestedQuality=quality.rawValue
+        jobs[j].chapters[c].error=nil
+        jobs[j].chapters[c].images=payload.pages.enumerated().map { index,remote in
+            let previous=old.indices.contains(index) ? old[index] : nil
+            let fallback=previous?.storedFiles.first { FileManager.default.fileExists(atPath:Disk.file(owner,$0).path) }
+            let bytes=fallback.flatMap { try? Disk.file(owner,$0).resourceValues(forKeys:[.fileSizeKey]).fileSize }.map(Int64.init)
+            return ImageRecord(remote:remote,file:Disk.imageName(payload.id,index)+"."+token,quality:quality.rawValue,fallbackFile:fallback,fallbackBytes:bytes)
+        }
+        jobs[j].paused=false; jobs[j].error=nil
+        if let targets=jobs[j].activeChapterIDs,!targets.contains(chapterNumber(payload.number)) {
+            jobs[j].activeChapterIDs=targets+[chapterNumber(payload.number)]; jobs[j].selectionMode="selected"
+        }
+        do { try Disk.save(jobs,owner:owner,name:"downloads.json") }
+        catch { jobs=before; notice="تعذر تجهيز الجودة الجديدة: "+error.localizedDescription; return }
+        // New transfer identities make late callbacks unable to replace the new selection.
+        for task in active.values where delegate.tag(task)?.owner == owner && delegate.tag(task)?.job == payload.item.key && delegate.tag(task)?.chapter == chapterNumber(payload.number) { task.cancel() }
+        let retained=Set(jobs[j].chapters[c].images.flatMap(\.storedFiles))
+        for file in old.flatMap(\.storedFiles) where !retained.contains(file) { try? FileManager.default.removeItem(at:Disk.file(owner,file)) }
+        revision += 1; notice="أضيف تنزيل الفصل بجودة "+quality.label+". تبقى الصور الحالية متاحة حتى يكتمل البديل."
+        pump()
+    }
+    func redownloadSaved(_ key: String,quality: ImageQuality) {
+        guard let j=jobs.firstIndex(where:{$0.id == key}) else { return }
+        for c in jobs[j].chapters.indices where jobs[j].chapters[c].saved { jobs[j].chapters[c].requestedQuality=quality.rawValue }
+        let payloads=jobs[j].chapters.filter(\.saved).compactMap(\.payload)
+        if !jobs[j].wholeStory { jobs[j].activeChapterIDs=jobs[j].chapters.filter(\.saved).map(\.id); jobs[j].selectionMode="selected" }
+        persist()
+        for payload in payloads { redownload(payload,quality:quality) }
+        prepare(key); pump()
+    }
     func pageURL(_ payload: ChapterPayload, index: Int) -> URL? {
         guard let owner else { return nil }
-        let u = Disk.file(owner,Disk.imageName(payload.id,index)); return FileManager.default.fileExists(atPath:u.path) ? u : nil
+        let image=jobs.first(where:{$0.id == payload.item.key})?.chapters.first(where:{$0.id == chapterNumber(payload.number)})?.images
+        let files=image.flatMap { $0.indices.contains(index) ? $0[index].storedFiles : nil } ?? [Disk.imageName(payload.id,index)]
+        return files.map { Disk.file(owner,$0) }.first { FileManager.default.fileExists(atPath:$0.path) }
     }
     private func pump() {
         guard restored, online, let owner else { return }
@@ -354,8 +406,10 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
                     do {
                         let free = (try? Disk.root.resourceValues(forKeys:[.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage ?? Int64.max
                         guard free > 80 * 1024 * 1024 else { jobs[j].error = "المساحة المتاحة منخفضة؛ أفرغ مساحة ثم استكمل"; jobs[j].paused = true; persist(); return }
-                        let req = try API.shared.imageRequest(source:payload.item.source,url:image.remote,referer:payload.chapterUrl ?? payload.item.url,quality:quality)
-                        let tag = TransferTag(owner:owner,job:jobs[j].id,chapter:jobs[j].chapters[c].id,image:image.file,quality:quality.rawValue)
+                        let chosen=ImageQuality(rawValue:image.quality ?? part.requestedQuality ?? quality.rawValue) ?? quality
+                        var req = try API.shared.imageRequest(source:payload.item.source,url:image.remote,referer:payload.chapterUrl ?? payload.item.url,quality:chosen)
+                        if part.requestedQuality != nil { req.cachePolicy = .reloadIgnoringLocalCacheData }
+                        let tag = TransferTag(owner:owner,job:jobs[j].id,chapter:jobs[j].chapters[c].id,image:image.file,quality:chosen.rawValue)
                         let task = session.downloadTask(with:req)
                         task.taskDescription = String(data:try JSONEncoder().encode(tag),encoding:.utf8)
                         jobs[j].chapters[c].images[i].attempts += 1
@@ -395,7 +449,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         liveBytes[tag.owner+":"+tag.image] = (tag,total,expected)
         speedSamples.append((Date(),delta,tag.job))
     }
-    private func didFinish(_ tag: TransferTag, bytes: Int64, error: String?, optimized: Bool) {
+    func didFinish(_ tag: TransferTag, bytes: Int64, error: String?, optimized: Bool) {
         active.removeValue(forKey:tag.owner+":"+tag.image)
         liveBytes.removeValue(forKey:tag.owner+":"+tag.image)
         if tag.owner != owner {
@@ -405,18 +459,33 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
                 other[j].chapters[c].images[i].done = error == nil; other[j].chapters[c].images[i].bytes = bytes
                 other[j].chapters[c].images[i].failure = error
                 other[j].chapters[c].images[i].edgeOptimized = optimized
+                other[j].chapters[c].images[i].quality=tag.quality
+                if error == nil {
+                    if let file=other[j].chapters[c].images[i].fallbackFile { try? FileManager.default.removeItem(at:Disk.file(tag.owner,file)) }
+                    other[j].chapters[c].images[i].fallbackFile=nil; other[j].chapters[c].images[i].fallbackBytes=nil
+                }
                 try? Disk.save(other,owner:tag.owner,name:"downloads.json")
+            } else if !other.flatMap(\.chapters).flatMap(\.images).flatMap(\.storedFiles).contains(tag.image) {
+                try? FileManager.default.removeItem(at:Disk.file(tag.owner,tag.image))
             }
             return
         }
         guard let j = jobs.firstIndex(where:{$0.id == tag.job}), let c = jobs[j].chapters.firstIndex(where:{$0.id == tag.chapter}), let i = jobs[j].chapters[c].images.firstIndex(where:{$0.file == tag.image}) else {
-            try? FileManager.default.removeItem(at:Disk.file(tag.owner,tag.image)); return
+            if !jobs.flatMap(\.chapters).flatMap(\.images).contains(where:{$0.fallbackFile == tag.image}) {
+                try? FileManager.default.removeItem(at:Disk.file(tag.owner,tag.image))
+            }
+            return
         }
         jobs[j].chapters[c].images[i].done = error == nil
         jobs[j].chapters[c].images[i].bytes = bytes
         jobs[j].chapters[c].images[i].failure = error
         jobs[j].chapters[c].images[i].edgeOptimized = optimized
-        if error == nil { jobs[j].chapters[c].images[i].expected = bytes }
+        jobs[j].chapters[c].images[i].quality=tag.quality
+        if error == nil {
+            jobs[j].chapters[c].images[i].expected = bytes
+            if let file=jobs[j].chapters[c].images[i].fallbackFile { try? FileManager.default.removeItem(at:Disk.file(tag.owner,file)) }
+            jobs[j].chapters[c].images[i].fallbackFile=nil; jobs[j].chapters[c].images[i].fallbackBytes=nil
+        }
         persist(); revision += 1
         if error != nil { Task { try? await Task.sleep(for:.seconds(2)); self.pump() } } else { pump() }
     }

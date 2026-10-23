@@ -2,12 +2,14 @@ name: Build Rany IPA
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: write
 concurrency:
   group: wany-ios-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   build:
     runs-on: macos-26
@@ -19,10 +21,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Require version bump and release notes
-        run: node scripts/check-release.mjs
+      - name: Validate development version and preserved release history
+        env:
+          DEVELOPMENT_BASE: ${{ github.event.pull_request.head.sha && format('{0}^', github.event.pull_request.head.sha) || github.event.before || 'HEAD^' }}
+        run: node scripts/check-release.mjs --development --base "$DEVELOPMENT_BASE"
+      - name: Verify release-policy regression cases
+        run: node --test scripts/check-release.test.mjs
       - name: Verify shared feed algorithms
         run: node --test scripts/feed-engine.test.mjs
+      - name: Verify exact approved background source
+        run: node --test scripts/approved-background.test.mjs
+      - name: Render approved visual reference fixtures
+        run: |
+          npm install --prefix "$RUNNER_TEMP/rany-reference" --no-save --ignore-scripts @napi-rs/canvas@0.1.100
+          NODE_PATH="$RUNNER_TEMP/rany-reference/node_modules" node scripts/render-approved-background.cjs
       - name: Generate Xcode project
         run: |
           brew install xcodegen
@@ -31,18 +43,16 @@ jobs:
         run: |
           DEVICE=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for k,vs in d["devices"].items() if "iOS" in k for v in vs if v["name"].startswith("iPhone")))')
           echo "SIMULATOR_ID=$DEVICE" >> "$GITHUB_ENV"
-      - name: Run persistence and download tests
-        if: "!contains(github.event.head_commit.message, '[package-only]')"
-        run: xcodebuild test -project Wany.xcodeproj -scheme Wany -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath build-simulator -resultBundlePath TestResults CODE_SIGNING_ALLOWED=NO
-      - name: Export native presentation regression screenshots
-        if: "!contains(github.event.head_commit.message, '[package-only]')"
-        run: xcrun xcresulttool export attachments --path TestResults.xcresult --output-path screenshots
-      - uses: actions/upload-artifact@v4
-        if: "!contains(github.event.head_commit.message, '[package-only]')"
-        with:
-          name: Rany-native-preview
-          path: screenshots
-          retention-days: 7
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
+      - name: Compile application and tests
+        run: xcodebuild build-for-testing -project Wany.xcodeproj -scheme Wany -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath build-simulator CODE_SIGNING_ALLOWED=NO
+      - name: Run mandatory application tests
+        run: xcodebuild test-without-building -project Wany.xcodeproj -scheme Wany -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -destination-timeout 120 -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 90 -maximum-test-execution-time-allowance 180 -derivedDataPath build-simulator -resultBundlePath TestResults CODE_SIGNING_ALLOWED=NO
+      - name: Validate release candidate against production baseline
+        env:
+          RELEASE_BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD^' }}
+        run: node scripts/check-release.mjs --base "$RELEASE_BASE"
       - name: Build iPhone app
         run: xcodebuild build -project Wany.xcodeproj -scheme Wany -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO
       - name: Package unsigned IPA for sideload signing
@@ -57,6 +67,24 @@ jobs:
           name: Rany-IPA-unsigned
           path: output/Rany-*.ipa
           retention-days: 14
+      - name: Archive tested simulator application for independent capture
+        run: ditto -c -k --sequesterRsrc --keepParent build-simulator/Build/Products/Debug-iphonesimulator/Wany.app Rany-simulator.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Rany-tested-simulator
+          path: Rany-simulator.zip
+          retention-days: 14
+      - name: Export optional presentation screenshots
+        if: always()
+        continue-on-error: true
+        run: xcrun xcresulttool export attachments --path TestResults.xcresult --output-path screenshots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: Rany-native-preview
+          path: screenshots
+          retention-days: 7
       - name: Publish GitHub Release with the IPA
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
@@ -80,3 +108,55 @@ jobs:
           name: Wany-test-results
           path: TestResults.xcresult
           retention-days: 7
+  capture:
+    name: Production opening recording (retry this job independently)
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 12
+    steps:
+      - name: Download previously tested application without rebuilding
+        uses: actions/download-artifact@v4
+        with:
+          name: Rany-tested-simulator
+      - name: Select and boot recording simulator
+        run: |
+          ditto -x -k Rany-simulator.zip .
+          DEVICE=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for k,vs in d["devices"].items() if "iOS" in k for v in vs if v["name"].startswith("iPhone")))')
+          echo "SIMULATOR_ID=$DEVICE" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl install "$DEVICE" Wany.app
+      - name: Record actual cold launch for guest and signed-in fixtures
+        run: |
+          mkdir -p cinematic-preview
+          record_intro() {
+            CASE_NAME="$1"
+            shift
+            xcrun simctl terminate "$SIMULATOR_ID" site.wany.reader || true
+            RECORD_LOG="cinematic-preview/$CASE_NAME-recording.log"
+            xcrun simctl io "$SIMULATOR_ID" recordVideo --codec=h264 "cinematic-preview/Rany-$CASE_NAME.mp4" > "$RECORD_LOG" 2>&1 &
+            RECORD_PID=$!
+            trap 'kill -INT "$RECORD_PID" 2>/dev/null || true' EXIT
+            for ATTEMPT in {1..300}; do
+              if grep -q "Recording started" "$RECORD_LOG"; then break; fi
+              kill -0 "$RECORD_PID" || { cat "$RECORD_LOG"; return 1; }
+              sleep 0.1
+            done
+            grep -q "Recording started" "$RECORD_LOG" || { cat "$RECORD_LOG"; return 1; }
+            xcrun simctl launch "$SIMULATOR_ID" site.wany.reader --rany-opening-fixture "$@"
+            sleep 20
+            kill -INT "$RECORD_PID"
+            wait "$RECORD_PID" || true
+            trap - EXIT
+            test -s "cinematic-preview/Rany-$CASE_NAME.mp4"
+          }
+          record_intro login
+          record_intro signed-in --rany-cinematic-signed-in
+          printf '%s\n' '${{ github.event.pull_request.head.sha || github.sha }}' > cinematic-preview/source-commit.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Rany-production-opening-video
+          overwrite: true
+          path: cinematic-preview
+          retention-days: 14
