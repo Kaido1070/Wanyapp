@@ -16,6 +16,15 @@ final class APIStubProtocol: URLProtocol {
     override func stopLoading() {}
 }
 @MainActor final class SecurityTests: XCTestCase {
+    func testSecurityFormsExplainProblemsInPlainArabic() {
+        XCTAssertNil(SecurityInput.passwordProblem(""))
+        XCTAssertNotNil(SecurityInput.passwordProblem("12345"))
+        XCTAssertNil(SecurityInput.passwordProblem("123456"))
+        XCTAssertNotNil(SecurityInput.questionProblem("قصير"))
+        XCTAssertNil(SecurityInput.questionProblem("ما اسم أول مدرسة؟"))
+        XCTAssertEqual(SecurityInput.explain(APIError(message:"تعذر إكمال الطلب (401)",status:401)),"كلمة المرور الحالية غير صحيحة. لم يتغير شيء.")
+        XCTAssertEqual(SecurityInput.explain(APIError(message:"رسالة الخادم",status:400)),"رسالة الخادم")
+    }
     private func client() -> API {
         let config=URLSessionConfiguration.ephemeral; config.protocolClasses=[APIStubProtocol.self]
         return API(configuration:config,credential:"fixture-old",persistCredentials:false)

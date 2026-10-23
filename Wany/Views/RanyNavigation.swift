@@ -10,6 +10,7 @@ enum RanyRoute: Hashable {
     case listDetail(id: String, title: String)
     case publicProfile(String)
     case settings, stats, friends, activity, updates, avatarPicker, lists, accountSecurity
+    case securityPassword, securityQuestion, securityRecovery
 }
 struct RanyDestination: View {
     let route: RanyRoute
@@ -28,6 +29,9 @@ struct RanyDestination: View {
         case .avatarPicker: AvatarPickerView()
         case .lists: ListsView()
         case .accountSecurity: AccountSecurityView()
+        case .securityPassword: SecurityPasswordView()
+        case .securityQuestion: SecurityQuestionView()
+        case .securityRecovery: SecurityRecoveryView()
         }
     }
 }

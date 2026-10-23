@@ -110,3 +110,10 @@ Automated checks cover download accounting, persistent account separation, progr
 - Profile › القوائم › إدارة القوائم وترتيب الأقسام: the page loads without "The data couldn't be read" and shows favourites plus each list with its name, icon and count; hide/show and reorder save and survive a refresh.
 - Activity page: each event is a compact two-line row (avatar, who/what/when, then the story and chapter); long titles truncate to one line.
 - Tap the R mark: the sheet's إغلاق button closes it on the first tap; swiping down still works.
+
+## 1.4.9
+
+- Settings › الأمان: one card with three equal rows (password, security question, recovery code) and a separate full-width sign-out-everywhere card; check both glass on and glass off.
+- Each row opens its own page: labelled fields, live hints (short password, mismatch, question length), the action button stays dim until valid, a confirmation explains what happens, and a green or orange result appears below.
+- Wrong current password shows "كلمة المرور الحالية غير صحيحة" and changes nothing.
+- رمز الاستعادة: the button is disabled until the current password is typed; the new code appears with a copy button and disappears when leaving the page.
