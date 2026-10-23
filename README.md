@@ -2,7 +2,7 @@
 
 تطبيق iOS أصلي باستخدام SwiftUI، مرتبط بـ **https://wany.site** ونفس الحسابات والشارات. هوية Rany الجديدة تستخدم خط Script مضمّنًا وشعار R من الخط نفسه؛ معرّف الحزمة ومسارات الحسابات القديمة محفوظة لضمان الترقية.
 
-**تحميل التطبيق (Rany 1.4.2):** https://github.com/Kaido1070/Wanyapp/actions/runs/39919457925/artifacts/12486428693
+**تحميل التطبيق (آخر إصدار):** https://github.com/Kaido1070/Wanyapp/releases/latest
 
 ## المزايا
 

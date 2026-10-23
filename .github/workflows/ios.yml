@@ -4,7 +4,7 @@ on:
     branches: [main]
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 concurrency:
   group: wany-ios-${{ github.ref }}
   cancel-in-progress: true
@@ -57,6 +57,23 @@ jobs:
           name: Rany-IPA-unsigned
           path: output/Rany-*.ipa
           retention-days: 14
+      - name: Publish GitHub Release with the IPA
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PLIST=output/Payload/Wany.app/Info.plist
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$PLIST")
+          BUILD=$(/usr/libexec/PlistBuddy -c "Print CFBundleVersion" "$PLIST")
+          # The IPA must match the newest release note before it is published.
+          node -e 'const [n]=require("./Wany/Resources/Releases.json");if(n.version!==process.argv[1]||String(n.build)!==process.argv[2]){console.error(`IPA ${process.argv[1]} (${process.argv[2]}) does not match release notes ${n.version} (${n.build})`);process.exit(1)}' "$VERSION" "$BUILD"
+          node -e 'const [n]=require("./Wany/Resources/Releases.json");console.log(`**الإصدار:** ${n.version} · **البناء:** ${n.build} · **التاريخ:** ${n.date}\n\n### التغييرات\n${n.changes.map(c=>"- "+c).join("\n")}\n\nملف IPA غير موقّع؛ وقّعه بأداة التثبيت الخاصة بك.`)' > release-notes.md
+          TAG="v$VERSION-build$BUILD"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "output/Rany-$VERSION.ipa" --clobber
+          else
+            gh release create "$TAG" "output/Rany-$VERSION.ipa" --target "$GITHUB_SHA" --title "Rany $VERSION ($BUILD)" --notes-file release-notes.md --latest
+          fi
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
