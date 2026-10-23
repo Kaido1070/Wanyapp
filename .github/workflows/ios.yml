@@ -51,8 +51,13 @@ jobs:
         run: xcodebuild test-without-building -project Wany.xcodeproj -scheme Wany -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -destination-timeout 120 -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 90 -maximum-test-execution-time-allowance 180 -derivedDataPath build-simulator -resultBundlePath TestResults CODE_SIGNING_ALLOWED=NO
       - name: Validate release candidate against production baseline
         env:
-          RELEASE_BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD^' }}
-        run: node scripts/check-release.mjs --base "$RELEASE_BASE"
+          RELEASE_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Compare with the last published release, not the previous push: a failed,
+          # undelivered candidate keeps its number while it is being fixed.
+          BASE="${RELEASE_BASE:-$(git describe --tags --abbrev=0 --match 'v*-build*' 2>/dev/null || echo 'HEAD^')}"
+          echo "Release baseline: $BASE"
+          node scripts/check-release.mjs --base "$BASE"
       - name: Build iPhone app
         run: xcodebuild build -project Wany.xcodeproj -scheme Wany -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO
       - name: Package unsigned IPA for sideload signing

@@ -44,9 +44,14 @@ struct RanyLogoIntro: View {
                 let frame=RanyLogoTimeline.frame(size:geometry.size,origin:geometry.frame(in:.global).origin,source:source,destination:destination,elapsed:reduced ? 0 : time)
                 ZStack {
                     Theme.background.opacity(1-departure)
-                    let light=min(1,max(0,(time-0.12)/0.72))
-                    RanyMark(size:frame.width,shineProgress:reduced ? -1.5 : CGFloat(-1.5+3*light*light*(3-2*light)),roundness:roundTarget ? 0.25+0.25*CGFloat(departure) : 0.25)
-                        .opacity(min(1,time/0.14) * (reduced || destination == nil ? 1-departure : 1))
+                    let light: Double = min(1,max(0,(time-0.12)/0.72))
+                    let eased: Double = light*light*(3-2*light)
+                    let shine: CGFloat = reduced ? -1.5 : CGFloat(-1.5+3*eased)
+                    let roundness: CGFloat = roundTarget ? 0.25+0.25*CGFloat(departure) : 0.25
+                    let fade: Double = reduced || destination == nil ? 1-departure : 1
+                    let alpha: Double = min(1,time/0.14)*fade
+                    RanyMark(size:frame.width,shineProgress:shine,roundness:roundness)
+                        .opacity(alpha)
                         .position(x:frame.midX,y:frame.midY)
                 }
                 .transaction { $0.animation=nil }
