@@ -23,9 +23,9 @@ final class ChapterControlsInteractionTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(read.frame.width,44)
         XCTAssertTrue(read.label.hasPrefix("غير مقروء"))
         read.coordinate(withNormalizedOffset:CGVector(dx:0.08,dy:0.5)).tap()
-        XCTAssertTrue(read.label.hasPrefix("مقروء"))
+        XCTAssertTrue(waitForLabel(read,prefix:"مقروء"),"A tap near the leading edge must toggle the chapter.")
         read.coordinate(withNormalizedOffset:CGVector(dx:0.92,dy:0.5)).tap()
-        XCTAssertTrue(read.label.hasPrefix("غير مقروء"))
+        XCTAssertTrue(waitForLabel(read,prefix:"غير مقروء"),"A tap near the trailing edge must toggle the chapter back.")
 
         // Bulk actions are behind the reading-tools menu, away from the chapter rows.
         let tools=app.buttons["reading.tools"]
@@ -67,5 +67,11 @@ final class ChapterControlsInteractionTests: XCTestCase {
         XCTAssertEqual(disabled.value as? String,"1")
         XCTAssertFalse(read.isEnabled)
         XCTAssertFalse(tools.isEnabled,"Disabled reading tools must not open their bulk actions.")
+    }
+    // SwiftUI applies the new label on the next render pass; wait for it instead of
+    // reading the accessibility label in the same instant as the tap.
+    private func waitForLabel(_ element: XCUIElement,prefix: String,timeout: TimeInterval = 3) -> Bool {
+        let predicate=NSPredicate(format:"label BEGINSWITH %@",prefix)
+        return XCTWaiter.wait(for:[XCTNSPredicateExpectation(predicate:predicate,object:element)],timeout:timeout) == .completed
     }
 }

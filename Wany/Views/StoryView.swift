@@ -180,13 +180,14 @@ struct ChapterReadingTools: View {
 
     var body: some View {
         Button(action:completed ? markUnread : markRead) {
+            // The outline and the hit area are the same shape, edge to edge.
             Text(completed ? "مقروء ✓" : "غير مقروء")
                 .font(RanyTypography.font(.footnote))
                 .frame(minWidth:72,minHeight:44)
-                .contentShape(Rectangle())
+                .overlay(RoundedRectangle(cornerRadius:10).stroke(Theme.accent.opacity(0.22)))
+                .contentShape(RoundedRectangle(cornerRadius:10))
         }
         .buttonStyle(.plain).foregroundStyle(Theme.accent)
-        .overlay(RoundedRectangle(cornerRadius:10).stroke(Theme.accent.opacity(0.22)))
         .disabled(disabled).opacity(disabled ? 0.45 : 1)
         .accessibilityLabel(completed ? "مقروء، إعادة الفصل إلى غير مقروء" : "غير مقروء، تعليم الفصل كمقروء")
         .accessibilityIdentifier("reading.toggleChapter")
