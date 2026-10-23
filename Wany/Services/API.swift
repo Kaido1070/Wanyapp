@@ -3,6 +3,8 @@ import Foundation
 struct APIError: LocalizedError {
     let message: String
     let status: Int
+    // Server wording can carry the old name; people only ever see Rany.
+    init(message: String,status: Int) { self.message = RanyCopy.visible(message); self.status = status }
     var errorDescription: String? { message }
 }
 @MainActor final class API {

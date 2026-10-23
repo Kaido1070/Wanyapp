@@ -24,7 +24,7 @@ struct ListsView: View {
                 }.card().draggable(section.id)
                 .dropDestination(for:String.self) { ids,_ in drop(ids.first,onto:section); return ids.first != nil }
             }
-            Text("اسحب القسم لتغيير ترتيبه، أو استخدم قائمة الخيارات. يُحفظ الترتيب نفسه في الموقع.").font(.caption).foregroundStyle(.secondary)
+            Text("اسحب القسم لتغيير ترتيبه، أو استخدم قائمة الخيارات. يُحفظ الترتيب في حسابك.").font(.caption).foregroundStyle(.secondary)
             if collections.busy { ProgressView() }
             if let message=collections.message { Text(message).font(.caption).foregroundStyle(.secondary) }
         }.task(id:store.state?.user.id) { await collections.load(store) }.refreshable { await collections.load(store) }

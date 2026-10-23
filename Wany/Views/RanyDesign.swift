@@ -228,7 +228,7 @@ struct RanyLoginView: View {
                     }.padding(4).ranyInsetGlass(radius:24).padding(.top,24)
                     VStack(alignment:.leading,spacing:15) {
                         Text(created ? "حسابك جاهز" : (creating ? "أهلًا ببدايتك الجديدة" : "مرحبًا بك")).font(RanyTypography.font(.headline))
-                        Text(created ? "سجّل دخولك لفتح مكتبتك الجديدة" : (creating ? "حساب واحد للتطبيق والموقع" : "أكمل رحلتك من حيث توقفت")).font(RanyTypography.font(.caption)).foregroundStyle(.secondary).padding(.top,-8)
+                        Text(created ? "سجّل دخولك لفتح مكتبتك الجديدة" : (creating ? "حساب واحد يحفظ قراءتك على كل أجهزتك" : "أكمل رحلتك من حيث توقفت")).font(RanyTypography.font(.caption)).foregroundStyle(.secondary).padding(.top,-8)
                         field("اسم المستخدم",icon:"person") {
                             TextField("اسم المستخدم",text:$username).textContentType(.username).textInputAutocapitalization(.never).autocorrectionDisabled().focused($focus,equals:.username).submitLabel(.next).onSubmit { focus = .password }
                         }
@@ -250,7 +250,7 @@ struct RanyLoginView: View {
                             .accessibilityIdentifier("login.submit")
                     }.padding(20).ranyGlass(radius:27).padding(.top,18).disabled(busy)
                     if !creating { Button("نسيت كلمة المرور؟") { recovery=true }.font(.footnote).padding(.top,18) }
-                    Text(creating ? "احتفظ بإجابة الأمان؛ تحتاجها لاستعادة حسابك." : "استخدم حسابك الحالي في الموقع").font(RanyTypography.font(.caption)).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.top,18)
+                    Text(creating ? "احتفظ بإجابة الأمان؛ تحتاجها لاستعادة حسابك." : "سجّل الدخول بحسابك الحالي").font(RanyTypography.font(.caption)).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.top,18)
                     Text(AppVersion.display).font(RanyTypography.font(.caption2)).foregroundStyle(.tertiary).padding(.top,20).padding(.bottom,24)
                 }.frame(maxWidth:430).frame(maxWidth:.infinity).padding(.horizontal,26).frame(minHeight:geometry.size.height,alignment:.top)
             }.scrollDismissesKeyboard(.interactively)

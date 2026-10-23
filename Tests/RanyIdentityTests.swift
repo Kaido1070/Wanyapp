@@ -105,4 +105,13 @@ final class RanyIdentityTests: XCTestCase {
     private func story(_ key: String, cover: String = "https://example.invalid/cover.jpg") -> Story {
         Story(key:key,source:"teamx",slug:key,type:"manhwa",url:"https://example.invalid/"+key,title:key,cover:cover,genres:[])
     }
+    func testVisibleTextNeverShowsTheOldNameOrTheWebsite() {
+        let releases=AppVersion.releases.flatMap(\.changes).map(RanyCopy.visible)
+        XCTAssertFalse(releases.isEmpty)
+        let trophies=ReadingMilestones.groups.flatMap(\.milestones).flatMap { [$0.label,$0.description] }
+        for text in releases+trophies {
+            XCTAssertFalse(text.contains("Wany"),text); XCTAssertFalse(text.contains("الموقع"),text); XCTAssertFalse(text.contains("للموقع"),text)
+        }
+        XCTAssertEqual(APIError(message:"Wany لن يعتبر القائمة كاملة",status:0).message,"Rany لن يعتبر القائمة كاملة")
+    }
 }

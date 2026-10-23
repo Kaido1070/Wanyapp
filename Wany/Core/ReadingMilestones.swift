@@ -26,7 +26,7 @@ enum ReadingMilestones {
         return definitions.map { category,title,metric,unit,key in
             ReadingMilestoneGroup(id:category,title:title,metric:metric,unit:unit,milestones:value[key].array.compactMap { row in
                 let cells=row.array; guard cells.count==3,cells[0].number>0 else { return nil }
-                return ReadingMilestone(id:category+"-"+String(cells[0].number),threshold:cells[0].number,label:cells[1].string,description:cells[2].string)
+                return ReadingMilestone(id:category+"-"+String(cells[0].number),threshold:cells[0].number,label:RanyCopy.visible(cells[1].string),description:RanyCopy.visible(cells[2].string))
             })
         }
     }()

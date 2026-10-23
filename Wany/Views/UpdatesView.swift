@@ -29,7 +29,7 @@ struct UpdatesView: View {
             }
             ForEach(AppVersion.releases) { release in
                 Section {
-                    ForEach(release.changes,id:\.self) { change in Text(change).font(RanyTypography.font(.subheadline)).padding(.vertical,3).listRowBackground(Theme.surface.opacity(0.25)) }
+                    ForEach(release.changes,id:\.self) { change in Text(RanyCopy.visible(change)).font(RanyTypography.font(.subheadline)).padding(.vertical,3).listRowBackground(Theme.surface.opacity(0.25)) }
                 } header: {
                     VStack(alignment:.leading,spacing:4) {
                         Text("\(release.version) · بناء \(release.build)").font(RanyTypography.font(.headline))

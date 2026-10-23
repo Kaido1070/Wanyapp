@@ -5,7 +5,7 @@ struct StatsView: View {
     private var stats: [String:JSONValue] { store.state?.stats ?? [:] }
     var body: some View {
         WanyScroll {
-            if stats.isEmpty { EmptyState(icon:"chart.bar",title:"الإحصائيات غير متاحة حاليًا",detail:"تُعرض قيم الموقع الحقيقية عند اكتمال المزامنة.") }
+            if stats.isEmpty { EmptyState(icon:"chart.bar",title:"الإحصائيات غير متاحة حاليًا",detail:"تظهر إحصائياتك الحقيقية عند اكتمال المزامنة.") }
             else {
                 if store.state?.pending.isEmpty == false || store.state?.pendingOpens?.isEmpty == false { Text("يوجد تقدم محلي بانتظار المزامنة. تتحدث الإحصائيات بعد رفعه.").font(.caption).foregroundStyle(.orange) }
                 overview
@@ -97,7 +97,7 @@ private struct ReadingCalendarView: View {
         let maximum=max(1,days.map(\.count).max() ?? 1)
         VStack(alignment:.leading,spacing:12) {
             Text("تقويم القراءة · آخر 30 يومًا").font(.headline)
-            Text("بتوقيت الموقع UTC+3").font(.caption2).foregroundStyle(.secondary)
+            Text("بتوقيت UTC+3").font(.caption2).foregroundStyle(.secondary)
             // Right-to-left like an Arabic calendar: the week starts at the right edge.
             VStack(spacing:4) {
                 HStack(spacing:4) {
