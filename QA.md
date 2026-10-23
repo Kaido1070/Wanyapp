@@ -75,7 +75,7 @@ Automated checks cover download accounting, persistent account separation, progr
 
 ## Merged 1.3.35 + 1.4.x (1.4.5+)
 
-- Cold launch and login: only the R mark appears, shines once and flies to its place; in the navigation bar it becomes a circle and sits directly in the bar's circle (no square inside a circle).
+- Cold launch and login: identical to 1.3.35 — only the R mark appears, shines once and flies to its place, then the approved wallpaper settles. In the navigation bar the mark sits directly in the bar circle.
 - Story page: each chapter row has its read/unread control beside the download control; "mark all read" and "clear progress" ask for confirmation and sync with the website.
 - Statistics › reading calendar: weekdays read right to left starting with Sunday; every day is the same circle; tapping a day shows its count.
 - Login: the submit button is solid gold with dark text and dims only while disabled.

@@ -84,8 +84,14 @@ import WebKit
                 XCTAssertFalse(descendants(window).contains { $0 is WKWebView },"WebKit must not consume the appearance and shine interval.")
             }
         }
-        try await Task.sleep(for:.milliseconds(400))
-        XCTAssertFalse(descendants(window).contains { $0 is WKWebView },"The wallpaper is the native cover renderer; no WebKit page is created.")
+        var backgroundState:[String:Any]?
+        for _ in 0..<100 {
+            if let web=descendants(window).compactMap({$0 as? WKWebView}).first(where:{$0.accessibilityIdentifier == "rany.background.approved-canvas"}),
+               let value=try? await approvedJavaScript(web,"return window.RanyBackground ? window.RanyBackground.state() : null"),
+               let state=value as? [String:Any],state["ready"] as? Bool == true { backgroundState=state; break }
+            try await Task.sleep(for:.milliseconds(50))
+        }
+        XCTAssertEqual(backgroundState?["openingStarts"] as? Int,0,"The approved wallpaper must start settled without replaying page turns.")
         XCTAssertFalse(descendants(window).contains { $0 is PageStage })
         XCTAssertEqual(descendants(window).filter { $0.accessibilityIdentifier == "rany.background.renderer" }.count,1)
         fixture.phase = .inactive

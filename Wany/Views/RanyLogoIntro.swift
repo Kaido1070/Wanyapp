@@ -23,8 +23,6 @@ struct RanyLogoTimeline {
 struct RanyLogoIntro: View {
     var destination: CGRect?
     var source: CGRect?
-    // Morph into the circular navigation-bar mark while flying to the header.
-    var roundTarget = false
     var onStart: (Date) -> Void = { _ in }
     var reduceMotionOverride: Bool? = nil
     let onReveal: () -> Void
@@ -47,10 +45,9 @@ struct RanyLogoIntro: View {
                     let light: Double = min(1,max(0,(time-0.12)/0.72))
                     let eased: Double = light*light*(3-2*light)
                     let shine: CGFloat = reduced ? -1.5 : CGFloat(-1.5+3*eased)
-                    let roundness: CGFloat = roundTarget ? 0.25+0.25*CGFloat(departure) : 0.25
                     let fade: Double = reduced || destination == nil ? 1-departure : 1
                     let alpha: Double = min(1,time/0.14)*fade
-                    RanyMark(size:frame.width,shineProgress:shine,roundness:roundness)
+                    RanyMark(size:frame.width,shineProgress:shine)
                         .opacity(alpha)
                         .position(x:frame.midX,y:frame.midY)
                 }

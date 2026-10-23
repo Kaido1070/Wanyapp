@@ -94,7 +94,11 @@ import SceneKit
                 let context=CGContext(data:bytes.baseAddress,width:16,height:16,bitsPerComponent:8,bytesPerRow:64,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue)!
                 context.draw(cg,in:CGRect(x:0,y:0,width:16,height:16))
             }
-            let luminance=(0..<256).map { Int(sample[$0*4])+Int(sample[$0*4+1])+Int(sample[$0*4+2]) }
+            var luminance: [Int] = []
+            for pixel in 0..<256 {
+                let red: Int = Int(sample[pixel*4]), green: Int = Int(sample[pixel*4+1]), blue: Int = Int(sample[pixel*4+2])
+                luminance.append(red+green+blue)
+            }
             XCTAssertGreaterThan(luminance.max() ?? 0,90,"A decoded cover must render, rather than a black SceneKit surface.")
             let attachment=XCTAttachment(image:image); attachment.name="Cinematic-page-\(time)"; attachment.lifetime = .keepAlways; add(attachment)
         }

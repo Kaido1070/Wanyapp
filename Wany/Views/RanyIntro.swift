@@ -139,9 +139,9 @@ struct RanyExperience: View {
     var body: some View {
         ZStack {
             Theme.background.ignoresSafeArea()
-            // Keep image preparation out of the short native mark flight.
+            // Keep WebKit/image preparation out of the short native mark flight (as in 1.3.35).
             if !opening && !store.enteringAccount {
-                RanyBackdropHost(ambience:ambience,reading:store.readerActive,accountID:store.accountID,assembly:assembly,held:store.backdropHeld,phase:phase)
+                RanyBackdropHost(ambience:ambience,reading:store.readerActive,accountID:store.accountID,assembly:assembly,held:store.backdropHeld,cinematicOpening:true,skipOpeningSequence:true,phase:phase)
                     .frame(maxWidth:.infinity,maxHeight:.infinity).ignoresSafeArea()
             }
             RootView().id(store.accountID).environment(\.ranyGlassProgress,glassProgress).environment(\.ranyMeasureMarkFrames,opening || store.enteringAccount).environment(\.ranyMarkCovered,opening || store.enteringAccount)
@@ -150,11 +150,11 @@ struct RanyExperience: View {
                 .allowsHitTesting(!opening && !store.enteringAccount)
                 .accessibilityHidden(opening || store.enteringAccount)
             if opening {
-                RanyLogoIntro(destination:markFrames[store.accountID == nil ? "login" : "header"],roundTarget:store.accountID != nil,onStart:onOpeningStart,onReveal:{
+                RanyLogoIntro(destination:markFrames[store.accountID == nil ? "login" : "header"],onStart:onOpeningStart,onReveal:{
                     assembly=1; revealContent()
                 },onFinish:{ opening=false; if store.firstArrival { store.completeAccountArrival() } })
             } else if store.enteringAccount {
-                RanyLogoIntro(destination:markFrames["header"],source:markFrames["login"],roundTarget:true,onReveal:{
+                RanyLogoIntro(destination:markFrames["header"],source:markFrames["login"],onReveal:{
                     assembly=1; revealContent()
                 },onFinish:{ store.completeAccountArrival() })
             }
