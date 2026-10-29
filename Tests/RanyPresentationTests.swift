@@ -245,7 +245,12 @@ import WebKit
         snapshot(window,name:"Rany-cinematic-R")
         try await waitUntil(3.85)
         snapshot(window,name:"Rany-cinematic-official-mark")
-        try await waitUntil(5.4)
+        // The intro ends at 4.8s with a fallback at 5.2s; the full-window snapshots above
+        // block the main thread on slow runners, so wait for the release with a bounded deadline.
+        try await waitUntil(5.2)
+        while descendants(window).contains(where:{ $0 is PageStage }) && Date().timeIntervalSince(started) < 7 {
+            try await Task.sleep(for:.milliseconds(100))
+        }
         XCTAssertFalse(descendants(window).contains { $0 is PageStage },"The optional renderer must release after the handoff.")
         snapshot(window,name:"Rany-cinematic-signed-in-handoff")
     }
