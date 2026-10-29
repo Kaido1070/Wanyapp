@@ -186,6 +186,23 @@ import WebKit
         XCTAssertFalse(tabBar.isHidden)
         snapshot(window,name:"Rany-main-tabs")
     }
+    func testChapterOpenedFromNewFeedHidesTheTabBar() async throws {
+        let store = fixtureStore()
+        let story = store.stories["preview-0"]!
+        let route = RanyRoute.sourceChapter(key:story.key,chapter:Chapter(number:1,title:"1"),fallback:story)
+        let root = TabView {
+            NavigationStack(path:.constant([route])) { Text("جديد").ranyDestinations() }
+                .tabItem { Label("جديد",systemImage:"sparkle") }
+            Text("حسابي").tabItem { Label("حسابي",systemImage:"person") }
+        }.environment(store).environment(store.downloads).environment(\.layoutDirection,.rightToLeft)
+        let (window,previous) = show(root)
+        defer { window.isHidden = true; previous?.makeKeyAndVisible() }
+        try await Task.sleep(nanoseconds:1_200_000_000)
+        let tabBar = try XCTUnwrap(descendants(window).compactMap { $0 as? UITabBar }.first)
+        let onScreen = !tabBar.isHidden && tabBar.alpha > 0.01 && window.bounds.intersects(tabBar.convert(tabBar.bounds,to:window))
+        XCTAssertFalse(onScreen,"A chapter opened from the New feed must not keep the tab bar over its last pages.")
+        snapshot(window,name:"Rany-new-feed-chapter")
+    }
     func testFirstAccountIntroCompletesItsAssemblyAndHandoff() async throws {
         var arranged = false, revealed = false, finished = false
         let root = RanyIntro(accountTransition:true,loginDestination:false,firstAccount:true,

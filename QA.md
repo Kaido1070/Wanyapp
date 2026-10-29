@@ -135,3 +135,7 @@ Automated checks cover download accounting, persistent account separation, progr
 
 - Sign in, read a chapter, mark a chapter read, add to favourites: each saves and survives an app restart (all requests go directly to the current service origin).
 - Previously downloaded chapters and cached covers still open, including ones saved before this update.
+
+## 1.4.13
+
+- جديد: open a chapter from the feed; the bottom tab bar is gone for the whole chapter and the last pages and end-of-chapter card are fully visible. Going back shows the tab bar again.

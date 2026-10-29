@@ -206,14 +206,23 @@ struct FeedView: View {
 struct SourceChapterDestination: View {
     @Environment(AppStore.self) private var store
     let key: String; let chapter: Chapter; let fallback: Story
-    @State private var story: Story?
+    @State private var fetched: Story?
     @State private var message: String?
+    // Resolved synchronously so the reader appears on the first frame and keeps one identity.
+    private var resolved: Story? { fetched ?? store.stories[key] ?? (key == fallback.key ? fallback : nil) }
     var body: some View {
-        Group { if let story { ReaderView(story:story,chapter:chapter) } else if let cached = store.stories[key] { ReaderView(story:cached,chapter:chapter) } else if let message { EmptyState(icon:"wifi.slash",title:"تعذر فتح الفصل",detail:message) } else { ProgressView() } }
-            .task {
-                if key == fallback.key { story = fallback; return }
-                do { story = try await API.shared.get("/api/source/series",query:["key":key],as:SeriesResponse.self).item } catch { message = error.localizedDescription }
-            }
+        Group {
+            if let story = resolved { ReaderView(story:story,chapter:chapter) }
+            else if let message { EmptyState(icon:"wifi.slash",title:"تعذر فتح الفصل",detail:message) }
+            else { ProgressView() }
+        }
+        // Hidden from the moment this page is pushed: a reader that appears later inside
+        // it cannot hide a tab bar already shown, which left it covering the last pages.
+        .toolbar(.hidden,for:.tabBar)
+        .task {
+            guard resolved == nil else { return }
+            do { fetched = try await API.shared.get("/api/source/series",query:["key":key],as:SeriesResponse.self).item } catch { message = error.localizedDescription }
+        }
     }
 }
 struct ProfileView: View {
