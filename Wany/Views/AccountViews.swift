@@ -44,30 +44,9 @@ struct SettingsView: View {
     @State private var editingName = false
     @State private var name = ""
     @State private var logout = false
-    @State private var alertsOn = false
-    @State private var alertsDenied = false
     var body: some View {
         WanyScroll {
             RanyAppearanceControls()
-            VStack(alignment:.leading,spacing:16) {
-                Text("التنبيهات").font(RanyTypography.font(.headline))
-                Toggle("تنبيه بالفصول الجديدة",isOn:Binding(get:{ alertsOn },set:{ value in
-                    alertsOn = value
-                    Task { let allowed = await NewChapterAlerts.shared.setEnabled(value); if !allowed { alertsOn = false; alertsDenied = true } else { alertsDenied = false } }
-                })).accessibilityIdentifier("settings.newChapterAlerts")
-                Text("يصلك تنبيه عند نزول فصل جديد لقصة تتابعها فقط (قائمة «أتابعها» في صفحة جديد). يفحص التطبيق في الخلفية في الأوقات التي يسمح بها iOS، لذلك قد يصل التنبيه بعد نزول الفصل بقليل. اترك «تحديث التطبيقات في الخلفية» مفعّلًا ولا تُغلق التطبيق من قائمة التطبيقات المفتوحة.")
-                    .font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
-                if alertsDenied {
-                    Button { if let url = URL(string:UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } } label: {
-                        settingsRow("التنبيهات مرفوضة في إعدادات iPhone · افتح الإعدادات للسماح",icon:"bell.slash")
-                    }
-                }
-            }.card()
-            .task {
-                alertsOn = NewChapterAlerts.shared.enabled
-                alertsDenied = await NewChapterAlerts.shared.permissionDenied()
-                if alertsDenied { alertsOn = false }
-            }
             VStack(alignment:.leading,spacing:16) {
                 Text("الحساب").font(RanyTypography.font(.headline))
                 Button { name = store.state?.user.name ?? ""; editingName = true } label: { settingsRow("الاسم الظاهر",value:store.state?.user.name ?? "",icon:"pencil") }.disabled(!store.online)

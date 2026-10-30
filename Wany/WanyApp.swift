@@ -1,12 +1,7 @@
 import SwiftUI
 import UIKit
-import UserNotifications
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
-    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-        UNUserNotificationCenter.current().delegate = NewChapterAlerts.shared
-        return true
-    }
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
         Task { @MainActor in Downloads.shared.backgroundCompletion = completionHandler }
     }
@@ -17,9 +12,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     @Environment(\.scenePhase) private var phase
     init() {
         RanyTypography.registerFont()
-        let store=Self.makeStore()
-        _store=State(initialValue:store)
-        NewChapterAlerts.shared.store=store
+        _store=State(initialValue:Self.makeStore())
     }
     private static func makeStore() -> AppStore {
         let preview=ProcessInfo.processInfo.arguments.contains("--rany-cinematic-preview")
@@ -46,7 +39,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             applicationContent
             #endif
         }
-        .backgroundTask(.appRefresh(NewChapterAlerts.taskIdentifier)) { await NewChapterAlerts.shared.runBackgroundCheck() }
     }
     private var applicationContent: some View {
             Group {
@@ -56,7 +48,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 .task { if !ProcessInfo.processInfo.arguments.contains("--rany-opening-fixture") { await store.refresh() } }
                 .onChange(of:phase) { _,phase in
                     if phase == .active && !ProcessInfo.processInfo.arguments.contains("--rany-opening-fixture") { Task { await store.refresh() }; store.downloads.updateNetwork() }
-                    else { store.persistNow(); store.downloads.persist(); if phase == .background { NewChapterAlerts.shared.schedule() } }
+                    else { store.persistNow(); store.downloads.persist() }
                 }
                 }
             }

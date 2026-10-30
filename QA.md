@@ -139,9 +139,3 @@ Automated checks cover download accounting, persistent account separation, progr
 ## 1.4.13
 
 - جديد: open a chapter from the feed; the bottom tab bar is gone for the whole chapter and the last pages and end-of-chapter card are fully visible. Going back shows the tab bar again.
-
-## 1.4.14
-
-- Settings › التنبيهات: switching «تنبيه بالفصول الجديدة» on asks for iOS permission; refusing shows the shortcut to iPhone Settings and leaves the switch off.
-- With alerts on, leave the app in the background (not force-quit) with Background App Refresh enabled; when a followed story («أتابعها» in جديد) gets a new chapter, a notification arrives with the story title and chapter number. Tapping it opens the story on the جديد tab.
-- No alert for chapters already waiting when alerts were switched on, for chapters already read, or for a chapter already seen on the جديد page; the same chapter never alerts twice.

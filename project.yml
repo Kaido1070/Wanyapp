@@ -9,8 +9,8 @@ settings:
     TARGETED_DEVICE_FAMILY: '1,2'
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     CODE_SIGNING_ALLOWED: NO
-    MARKETING_VERSION: '1.4.14'
-    CURRENT_PROJECT_VERSION: '73'
+    MARKETING_VERSION: '1.4.13'
+    CURRENT_PROJECT_VERSION: '72'
     # Xcode 16.4's iOS 18.5 simulator cannot resolve the WebKit Swift
     # overlay below 18.4 (WebKit bug 293831). Device support stays iOS 17.
     "IPHONEOS_DEPLOYMENT_TARGET[sdk=iphonesimulator*]": '18.4'
@@ -20,8 +20,6 @@ targets:
       path: Wany/Info.plist
       properties:
         UIAppFonts: [RanyScript.otf]
-        UIBackgroundModes: [fetch]
-        BGTaskSchedulerPermittedIdentifiers: [site.wany.reader.new-chapters]
         UILaunchScreen:
           UIColorName: RanyLaunchBackground
     type: application
