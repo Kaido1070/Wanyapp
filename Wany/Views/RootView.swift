@@ -29,9 +29,18 @@ struct RootView: View {
         }
         .onChange(of:store.accountID) { _,_ in tabs.reset() }
         .onChange(of:tabs.paths) { _,_ in store.holdBackdropForNavigation() }
+        .onChange(of:store.alertDestination) { _,_ in openAlertDestination() }
+        .onAppear { openAlertDestination() }
         .sheet(isPresented:Binding(get:{ store.showingNameStory },set:{ store.showingNameStory = $0 })) { RanyNameStory { store.showingNameStory = false } }
         .sheet(isPresented:$loginSheet) { LoginView().onChange(of:store.loginRequired) { _,needed in if !needed { loginSheet = false } } }
         .alert(RanyIdentity.name,isPresented:Binding(get:{store.error != nil || downloads.notice != nil},set:{if !$0 { store.error = nil; downloads.notice = nil }})) { Button("حسنًا") { store.error = nil; downloads.notice = nil } } message: { Text(store.error ?? downloads.notice ?? "") }
+    }
+    // A tapped new-chapter alert opens its story on the New tab.
+    private func openAlertDestination() {
+        guard let key = store.alertDestination, store.accountID != nil else { return }
+        store.alertDestination = nil
+        tabs.selection = .new
+        if let story = store.stories[key] { tabs.paths[.new] = [.story(story)] }
     }
     @ViewBuilder private func page(_ tab: RanyTab) -> some View {
         switch tab {

@@ -27,6 +27,8 @@ import Observation
     var readingMutation = false
     var chromeHidden = false
     var showingNameStory = false
+    // Set when a new-chapter alert is tapped: a story key, or "" for the New tab.
+    var alertDestination: String?
     var readerActive = false
     // The wallpaper pauses while content scrolls or a page transition runs.
     var backdropHeld = false
@@ -413,7 +415,7 @@ import Observation
                 guard state?.user.id == current.user.id else { return }
                 guard incoming.page == page else { throw APIError(message:"أُعيدت صفحة غير متوقعة؛ أعد المحاولة",status:0) }
                 if page>1,let previous=state?.newFeed { state?.newFeed=previous.appending(incoming) }
-                else { state?.newFeed=incoming }
+                else { state?.newFeed=incoming; NewChapterAlerts.shared.feedShown(incoming,owner:current.user.id) }
                 for r in incoming.all { remember(r.item) }
             }
             persist()
@@ -422,6 +424,16 @@ import Observation
 }
 
 extension AppStore {
+    // Background check for followed chapters; same engine and page as the New tab.
+    func fetchNewFeedForAlerts() async throws -> NewFeed {
+        guard let current = state else { throw CancellationError() }
+        if engine == nil { engine = FeedEngine() }
+        let result = try await engine!.run("new",data:current.data,user:current.user.id,page:1) { _ in }
+        let feed = try await Task.detached(priority:.utility) { try JSONDecoder().decode(NewFeed.self,from:result) }.value
+        guard state?.user.id == current.user.id else { throw CancellationError() }
+        state?.newFeed = feed; for group in feed.all { remember(group.item) }; persist()
+        return feed
+    }
     func resolveMetadata(_ keys: [String]) async {
         guard online,let owner=state?.user.id else { return }
         let missing=Array(Set(keys.filter { !$0.isEmpty && (stories[$0] == nil || stories[$0]?.title == $0) })).sorted()
