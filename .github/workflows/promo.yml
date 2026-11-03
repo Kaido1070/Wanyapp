@@ -1,10 +1,6 @@
 name: Record Rany promo
 on:
   workflow_dispatch:
-    inputs:
-      session:
-        description: Short-lived demo session (revoked after the recording)
-        required: true
 permissions:
   contents: read
 jobs:
@@ -13,12 +9,22 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      # Read the session from the event payload so it never appears in a printed command or env block.
-      - name: Load demo session
+      # The demo account lives in encrypted repository secrets; GitHub masks them in every log.
+      - name: Open a demo session
+        env:
+          RANY_DEMO_USERNAME: ${{ secrets.RANY_DEMO_USERNAME }}
+          RANY_DEMO_PASSWORD: ${{ secrets.RANY_DEMO_PASSWORD }}
         run: |
-          TOKEN=$(python3 -c 'import json,os; print(json.load(open(os.environ["GITHUB_EVENT_PATH"]))["inputs"]["session"])')
-          echo "::add-mask::$TOKEN"
-          echo "$TOKEN" > "$RUNNER_TEMP/promo-session"
+          python3 - <<'PY' > "$RUNNER_TEMP/promo-session"
+          import json,os,urllib.request
+          body=json.dumps({"username":os.environ["RANY_DEMO_USERNAME"].strip().lower(),"password":os.environ["RANY_DEMO_PASSWORD"]}).encode()
+          req=urllib.request.Request("https://rany.lat/api/login",data=body,method="POST",headers={"Content-Type":"application/json","Origin":"https://rany.lat","User-Agent":"curl/8.5.0"})
+          with urllib.request.urlopen(req,timeout=60) as r:
+              cookie=[v for k,v in r.getheaders() if k.lower()=="set-cookie" and v.startswith("anytime_session=")][0]
+          print(cookie.split(";")[0].split("=",1)[1])
+          PY
+          echo "::add-mask::$(cat "$RUNNER_TEMP/promo-session")"
+          test -s "$RUNNER_TEMP/promo-session"
       - name: Generate Xcode project
         run: |
           brew install xcodegen
@@ -48,6 +54,8 @@ jobs:
           kill -INT $RECORDER; wait $RECORDER || true
           grep -o 'PROMO-MARK [a-z-]* [0-9.]*' promo/test.log | sort -u -k3 >> promo/marks.txt || true
           grep -E 'error:|failed|passed|skipped' promo/test.log | tail -20
+          # Close the demo session right away so it cannot be reused.
+          curl -sS -m 30 -o /dev/null -X POST -H "Origin: https://rany.lat" -H "User-Agent: curl/8.5.0" -H "Cookie: anytime_session=$(cat "$RUNNER_TEMP/promo-session")" https://rany.lat/api/logout || true
           rm -f "$RUNNER_TEMP/promo-session"
           ls -la promo
           exit $STATUS
