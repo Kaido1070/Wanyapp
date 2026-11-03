@@ -11,7 +11,11 @@ final class PromoRecordingTests: XCTestCase {
     // Labels can carry an icon name before the text, so match on the text itself.
     private func button(_ text: String) -> XCUIElement { app.buttons.matching(NSPredicate(format:"label CONTAINS %@",text)).firstMatch }
     private func dumpButtons() { for label in app.buttons.allElementsBoundByIndex.prefix(60).map(\.label) where !label.isEmpty { print("PROMO-DEBUG button \(label)") } }
-    private func tab(_ name: String) { app.tabBars.buttons[name].tap() }
+    // The tab bar hides while scrolling down; a short scroll up brings it back.
+    private func tab(_ name: String) {
+        for _ in 0..<4 where !(app.tabBars.firstMatch.exists && app.tabBars.buttons[name].isHittable) { app.swipeDown(velocity:.slow); pause(1.2) }
+        app.tabBars.buttons[name].tap()
+    }
     private func scroll(_ times: Int,gap: Double = 1.6) { for _ in 0..<times { app.swipeUp(velocity:.slow); pause(gap) } }
     // Lazy grids create cards only near the viewport: drag gently until the element sits clear of the bars.
     private func reveal(_ element: XCUIElement,attempts: Int = 10) -> Bool {
@@ -29,8 +33,13 @@ final class PromoRecordingTests: XCTestCase {
         if !reveal(solo) { dumpButtons(); XCTFail("The Solo Leveling card must come into view.") }
         mark("resume-tap"); solo.tap()
         // The catch-up question for earlier chapters is answered "later" so the pages stay clear.
-        let later = button("لاحقًا")
-        if later.waitForExistence(timeout:30) { later.tap() }
+        // On iOS 26 it is a popover without its cancel button, so tap outside it.
+        let question = app.staticTexts.matching(NSPredicate(format:"label CONTAINS %@","هل قرأت الفصول السابقة")).firstMatch
+        if question.waitForExistence(timeout:30) {
+            let later = button("لاحقًا")
+            if later.exists && later.isHittable { later.tap() } else { app.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.12)).tap() }
+            pause(1)
+        }
     }
     private func leaveReader() {
         app.swipeDown(velocity:.slow); pause(1.2)
