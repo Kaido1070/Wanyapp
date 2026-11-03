@@ -189,6 +189,8 @@ import Observation
     func adoptRecordingSession(_ token: String) async {
         API.shared.adoptRecordingSession(token)
         guard let user = try? await API.shared.get("/api/session",as:SessionResponse.self).user else { error = "تعذر فتح جلسة التسجيل"; return }
+        // A relaunch of the same demo account opens like a returning reader.
+        if state?.user.id == user.id { state?.user = user; loginRequired = false; await refresh(); return }
         enteringAccount = true
         state = Disk.read(AccountState.self,owner:user.id,name:"account.json") ?? AccountState(user:user)
         state?.user = user; loginRequired = false

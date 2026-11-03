@@ -18,23 +18,31 @@ final class PromoRecordingTests: XCTestCase {
         continueAfterFailure = true
         app.launchEnvironment["RANY_PROMO_SESSION"] = session
         app.launchEnvironment["RANY_PROMO_HIDE_SOURCES"] = "1"
+        // Warm-up launch (not used): sign in, let covers, the New feed and For You load, then quit.
         app.launch()
-        mark("launch")
-
-        // Arrival: the app's own opening, then «حسابي» with «أقرأ حاليًا».
         let resume = button("وصلت للفصل")
         XCTAssertTrue(resume.waitForExistence(timeout:120))
-        pause(6); mark("profile")
+        pause(30)
+        tab("جديد"); pause(25); tab("FYP"); pause(30); tab("حسابي"); pause(10)
+        app.terminate(); pause(3)
+
+        // Recorded launch: the app's own opening for a returning reader, then «حسابي».
+        app.launch(); mark("launch")
+        let solo = app.buttons["وصلت للفصل 148"]
+        XCTAssertTrue(solo.waitForExistence(timeout:60))
+        pause(5); mark("profile")
         app.swipeUp(velocity:.slow); pause(3)
-        mark("resume-tap")
-        if !resume.isHittable { app.swipeUp(velocity:.slow); pause(1.5) }
-        resume.tap()
+        if !solo.isHittable { app.swipeUp(velocity:.slow); pause(1.5) }
+        mark("resume-tap"); solo.tap()
+        // The catch-up question for earlier chapters is answered "later" so the pages stay clear.
+        let later = app.buttons["لاحقًا"]
+        if later.waitForExistence(timeout:25) { later.tap() }
 
         // Reader: real pages of the chapter, read from where it stopped.
-        pause(7); mark("reader")
+        pause(4); mark("reader")
         scroll(5,gap:2.2)
         app.swipeDown(velocity:.slow); pause(1.2)
-        let back = app.buttons["العودة للفصول"]
+        let back = app.buttons["العودة للفصول"].firstMatch
         if back.waitForExistence(timeout:5) { back.tap() } else { app.swipeRight() }
         pause(2.5)
 
