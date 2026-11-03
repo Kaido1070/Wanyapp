@@ -11,6 +11,30 @@ final class PromoRecordingTests: XCTestCase {
     private func button(_ prefix: String) -> XCUIElement { app.buttons.matching(NSPredicate(format:"label BEGINSWITH %@",prefix)).firstMatch }
     private func tab(_ name: String) { app.tabBars.buttons[name].tap() }
     private func scroll(_ times: Int,gap: Double = 1.6) { for _ in 0..<times { app.swipeUp(velocity:.slow); pause(gap) } }
+    // Lazy grids create cards only near the viewport: drag gently until the element sits clear of the bars.
+    private func reveal(_ element: XCUIElement,attempts: Int = 10) -> Bool {
+        for _ in 0..<attempts {
+            if element.exists && element.isHittable && element.frame.minY > 140 && element.frame.maxY < app.frame.height*0.8 { return true }
+            let start = app.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.72))
+            start.press(forDuration:0.05,thenDragTo:app.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5)),withVelocity:.slow,thenHoldForDuration:0.4)
+            pause(1.4)
+        }
+        return element.exists && element.isHittable
+    }
+    private func openSoloChapter() {
+        let solo = app.buttons["وصلت للفصل 148"]
+        XCTAssertTrue(reveal(solo),"The Solo Leveling card must come into view.")
+        mark("resume-tap"); solo.tap()
+        // The catch-up question for earlier chapters is answered "later" so the pages stay clear.
+        let later = app.buttons["لاحقًا"]
+        if later.waitForExistence(timeout:30) { later.tap() }
+    }
+    private func leaveReader() {
+        app.swipeDown(velocity:.slow); pause(1.2)
+        let back = app.buttons["العودة للفصول"].firstMatch
+        if back.waitForExistence(timeout:5) { back.tap() } else { app.swipeRight() }
+        pause(2.5)
+    }
 
     func testRecordPromo() throws {
         let session = ProcessInfo.processInfo.environment["RANY_PROMO_SESSION"] ?? ""
@@ -18,33 +42,24 @@ final class PromoRecordingTests: XCTestCase {
         continueAfterFailure = true
         app.launchEnvironment["RANY_PROMO_SESSION"] = session
         app.launchEnvironment["RANY_PROMO_HIDE_SOURCES"] = "1"
-        // Warm-up launch (not used): sign in, let covers, the New feed and For You load, then quit.
+        // Warm-up launch (not used): sign in, load covers, the chapter, the New feed and For You, then quit.
         app.launch()
-        let resume = button("وصلت للفصل")
-        XCTAssertTrue(resume.waitForExistence(timeout:120))
+        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout:120))
         pause(30)
-        tab("جديد"); pause(25); tab("FYP"); pause(30); tab("حسابي"); pause(10)
+        openSoloChapter(); pause(25); leaveReader()
+        tab("جديد"); pause(25); tab("FYP"); pause(30); tab("حسابي"); pause(5)
         app.terminate(); pause(3)
 
         // Recorded launch: the app's own opening for a returning reader, then «حسابي».
         app.launch(); mark("launch")
-        let solo = app.buttons["وصلت للفصل 148"]
-        XCTAssertTrue(solo.waitForExistence(timeout:60))
-        pause(5); mark("profile")
-        app.swipeUp(velocity:.slow); pause(3)
-        if !solo.isHittable { app.swipeUp(velocity:.slow); pause(1.5) }
-        mark("resume-tap"); solo.tap()
-        // The catch-up question for earlier chapters is answered "later" so the pages stay clear.
-        let later = app.buttons["لاحقًا"]
-        if later.waitForExistence(timeout:25) { later.tap() }
+        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout:60))
+        pause(6); mark("profile")
+        openSoloChapter()
 
         // Reader: real pages of the chapter, read from where it stopped.
-        pause(4); mark("reader")
+        pause(3); mark("reader")
         scroll(5,gap:2.2)
-        app.swipeDown(velocity:.slow); pause(1.2)
-        let back = app.buttons["العودة للفصول"].firstMatch
-        if back.waitForExistence(timeout:5) { back.tap() } else { app.swipeRight() }
-        pause(2.5)
+        leaveReader()
 
         // New chapters: everything new, then only followed stories.
         tab("جديد"); mark("new")
