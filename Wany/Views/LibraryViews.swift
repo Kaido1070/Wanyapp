@@ -188,7 +188,7 @@ struct FeedView: View {
                     VStack(alignment:.leading,spacing:14) {
                         WanyLink(.story(group.item,sourceKeys:group.sourceKeys)) { HStack { CoverView(story:group.item).frame(width:55,height:78).clipShape(RoundedRectangle(cornerRadius:8)); Text(group.item.title).font(RanyTypography.font(.headline)).foregroundStyle(.primary) } }
                         ForEach(group.chapters) { chapter in
-                            WanyLink(.sourceChapter(key:chapter.sourceKey,chapter:Chapter(number:chapter.number,title:chapter.title),fallback:group.item)) { HStack { Text(chapter.title); Spacer(); Text(chapter.sourceLabel).foregroundStyle(Theme.accent); if chapter.read { Image(systemName:"checkmark") } }.font(RanyTypography.font(.caption)).foregroundStyle(.primary).padding(.vertical,4) }
+                            WanyLink(.sourceChapter(key:chapter.sourceKey,chapter:Chapter(number:chapter.number,title:chapter.title),fallback:group.item)) { HStack { Text(chapter.title); Spacer(); Text(RanyRecording.hidesSources ? "" : chapter.sourceLabel).foregroundStyle(Theme.accent); if chapter.read { Image(systemName:"checkmark") } }.font(RanyTypography.font(.caption)).foregroundStyle(.primary).padding(.vertical,4) }
                         }
                     }.card()
                 }

@@ -184,6 +184,19 @@ import Observation
             await refresh()
         } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
+    #if DEBUG
+    // Same arrival as a successful login, for a demo session supplied at launch.
+    func adoptRecordingSession(_ token: String) async {
+        API.shared.adoptRecordingSession(token)
+        guard let user = try? await API.shared.get("/api/session",as:SessionResponse.self).user else { error = "تعذر فتح جلسة التسجيل"; return }
+        enteringAccount = true
+        state = Disk.read(AccountState.self,owner:user.id,name:"account.json") ?? AccountState(user:user)
+        state?.user = user; loginRequired = false
+        UserDefaults.standard.set(user.id,forKey:"lastAccount")
+        loadStories(user.id); downloads.attach(user.id); persist()
+        await refresh()
+    }
+    #endif
     func register(username: String, password: String, confirmation: String, question: String, answer: String) async -> Bool {
         guard online else { error = "إنشاء الحساب يحتاج إنترنت"; return false }
         do {

@@ -27,6 +27,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 account.state=AccountState(user:Account(id:"cinematic-preview-fixture",name:"قارئ Rany",username:"preview"))
             }
         }
+        #if DEBUG
+        if let token=RanyRecording.session { Task { @MainActor in await account.adoptRecordingSession(token) } }
+        #endif
         return account
     }
     var body: some Scene {

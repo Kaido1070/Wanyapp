@@ -18,7 +18,7 @@ func chapterDisplayTitle(_ title: String, number: Double) -> String {
 }
 func milliseconds() -> Double { Date().timeIntervalSince1970 * 1000 }
 func byteLabel(_ n: Int64) -> String { ByteCountFormatter.string(fromByteCount: n, countStyle: .file) }
-func sourceLabel(_ source: String) -> String { ["teamx":"Team-X", "mangatime":"MangaTime", "3asq":"3asq", "starzmanga":"StarzManga", "xsano":"XSano", "mangalik":"MangaLik", "azora":"Azora"][source] ?? source }
+func sourceLabel(_ source: String) -> String { RanyRecording.hidesSources ? "" : ["teamx":"Team-X", "mangatime":"MangaTime", "3asq":"3asq", "starzmanga":"StarzManga", "xsano":"XSano", "mangalik":"MangaLik", "azora":"Azora"][source] ?? source }
 
 struct Story: Codable, Hashable, Identifiable {
     var key: String

@@ -22,6 +22,10 @@ struct APIError: LocalizedError {
         self.credential = credential ?? (persistCredentials ? Keychain.read("session").flatMap { String(data:$0, encoding:.utf8) } : nil)
     }
     func clear() { generation = UUID(); credential = nil; if persistCredentials { Keychain.delete("session") } }
+    #if DEBUG
+    // Recordings use a short-lived demo session; it is never written to the Keychain.
+    func adoptRecordingSession(_ value: String) { generation = UUID(); credential = value }
+    #endif
     func request(_ path: String, query: [String:String] = [:], method: String = "GET", body: Data? = nil,contentType: String = "application/json") throws -> URLRequest {
         guard path.hasPrefix("/api/"), !path.contains("://"), !path.contains("?"), !path.contains("#") else { throw APIError(message:"عنوان غير صالح",status:0) }
         guard let target=URL(string:path,relativeTo:website)?.absoluteURL, target.host == website.host,

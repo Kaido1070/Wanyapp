@@ -60,6 +60,16 @@ targets:
         TEST_TARGET_NAME: Wany
     dependencies:
       - target: Wany
+  RanyPromoRecording:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [PromoRecording]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Wany
+    dependencies:
+      - target: Wany
 schemes:
   Wany:
     build:
@@ -69,3 +79,10 @@ schemes:
         WanyInteractionTests: [test]
     test:
       targets: [WanyTests,WanyInteractionTests]
+  RanyPromo:
+    build:
+      targets:
+        Wany: all
+        RanyPromoRecording: [test]
+    test:
+      targets: [RanyPromoRecording]
