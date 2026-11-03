@@ -24,7 +24,8 @@ final class PromoRecordingTests: XCTestCase {
         return element.exists && element.isHittable
     }
     private func openSoloChapter() {
-        let solo = button("وصلت للفصل 148")
+        // SwiftUI wraps the number in direction isolates: «وصلت للفصل \u{2068}148\u{2069}».
+        let solo = app.buttons.matching(NSPredicate(format:"label CONTAINS %@ AND label CONTAINS %@","وصلت للفصل","148")).firstMatch
         if !reveal(solo) { dumpButtons(); XCTFail("The Solo Leveling card must come into view.") }
         mark("resume-tap"); solo.tap()
         // The catch-up question for earlier chapters is answered "later" so the pages stay clear.
