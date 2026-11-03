@@ -53,6 +53,7 @@ jobs:
           sleep 2
           kill -INT $RECORDER; wait $RECORDER || true
           grep -o 'PROMO-MARK [a-z-]* [0-9.]*' promo/test.log | sort -u -k3 >> promo/marks.txt || true
+          grep -o 'PROMO-DEBUG .*' promo/test.log | head -80 >> promo/marks.txt || true
           grep -E 'error:|failed|passed|skipped' promo/test.log | tail -20
           # Close the demo session right away so it cannot be reused.
           curl -sS -m 30 -o /dev/null -X POST -H "Origin: https://rany.lat" -H "User-Agent: curl/8.5.0" -H "Cookie: anytime_session=$(cat "$RUNNER_TEMP/promo-session")" https://rany.lat/api/logout || true

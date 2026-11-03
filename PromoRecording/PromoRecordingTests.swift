@@ -8,7 +8,9 @@ final class PromoRecordingTests: XCTestCase {
     private let app = XCUIApplication()
     private func mark(_ scene: String) { print("PROMO-MARK \(scene) \(String(format:"%.3f",Date().timeIntervalSince1970))") }
     private func pause(_ seconds: Double) { RunLoop.current.run(until:Date().addingTimeInterval(seconds)) }
-    private func button(_ prefix: String) -> XCUIElement { app.buttons.matching(NSPredicate(format:"label BEGINSWITH %@",prefix)).firstMatch }
+    // Labels can carry an icon name before the text, so match on the text itself.
+    private func button(_ text: String) -> XCUIElement { app.buttons.matching(NSPredicate(format:"label CONTAINS %@",text)).firstMatch }
+    private func dumpButtons() { for label in app.buttons.allElementsBoundByIndex.prefix(60).map(\.label) where !label.isEmpty { print("PROMO-DEBUG button \(label)") } }
     private func tab(_ name: String) { app.tabBars.buttons[name].tap() }
     private func scroll(_ times: Int,gap: Double = 1.6) { for _ in 0..<times { app.swipeUp(velocity:.slow); pause(gap) } }
     // Lazy grids create cards only near the viewport: drag gently until the element sits clear of the bars.
@@ -22,16 +24,16 @@ final class PromoRecordingTests: XCTestCase {
         return element.exists && element.isHittable
     }
     private func openSoloChapter() {
-        let solo = app.buttons["وصلت للفصل 148"]
-        XCTAssertTrue(reveal(solo),"The Solo Leveling card must come into view.")
+        let solo = button("وصلت للفصل 148")
+        if !reveal(solo) { dumpButtons(); XCTFail("The Solo Leveling card must come into view.") }
         mark("resume-tap"); solo.tap()
         // The catch-up question for earlier chapters is answered "later" so the pages stay clear.
-        let later = app.buttons["لاحقًا"]
+        let later = button("لاحقًا")
         if later.waitForExistence(timeout:30) { later.tap() }
     }
     private func leaveReader() {
         app.swipeDown(velocity:.slow); pause(1.2)
-        let back = app.buttons["العودة للفصول"].firstMatch
+        let back = button("العودة للفصول")
         if back.waitForExistence(timeout:5) { back.tap() } else { app.swipeRight() }
         pause(2.5)
     }
