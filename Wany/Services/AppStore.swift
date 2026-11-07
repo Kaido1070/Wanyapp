@@ -232,6 +232,12 @@ import Observation
         await task.value
         refreshTask = nil; syncing = false
     }
+    // Statistics are read only on the statistics page; each sync used to recompute
+    // them on the server for nothing.
+    func refreshStats() async {
+        guard online, !loginRequired, let owner = state?.user.id else { return }
+        if let stats = try? await API.shared.get("/api/reading/stats",as:JSONValue.self), state?.user.id == owner { state?.stats = stats["stats"].object; persist() }
+    }
     private func refreshAccount(owner: String) async {
         do {
             let session = try await API.shared.get("/api/session",as:SessionResponse.self)
@@ -243,7 +249,6 @@ import Observation
             let fresh = try await API.shared.get("/api/data",as:DataResponse.self).data
             guard state?.user.id == owner else { return }
             merge(fresh); state?.lastSynced = Date(); persist()
-            if let stats = try? await API.shared.get("/api/reading/stats",as:JSONValue.self), state?.user.id == owner { state?.stats = stats["stats"].object; persist() }
             if let profile = try? await API.shared.get("/api/profiles/"+owner,as:JSONValue.self), state?.user.id == owner { state?.profile = profile; incomingFriendRequests=Int(profile["profile"]["pendingFriendRequests"].number); persist() }
             cacheLibrary()
         } catch {
