@@ -14,11 +14,8 @@ struct StatsView: View {
                 ReadingCalendarView(recent:stats["recentDays"]?.array ?? [])
             }
             if let error=store.error { Text(error).font(.caption).foregroundStyle(.orange) }
-            Button("تحديث الإحصائيات",systemImage:"arrow.clockwise") { Task { await store.refresh(); await store.refreshStats() } }.disabled(!store.online || store.syncing)
-        }.navigationTitle("إحصائيات القراءة").navigationBarTitleDisplayMode(.inline)
-        // Sync local progress first so the server counts it, then read the statistics.
-        .task { await store.syncProgress(); await store.refreshStats() }
-        .refreshable { await store.refresh(); await store.refreshStats() }
+            Button("تحديث الإحصائيات",systemImage:"arrow.clockwise") { Task { await store.refresh() } }.disabled(!store.online || store.syncing)
+        }.navigationTitle("إحصائيات القراءة").navigationBarTitleDisplayMode(.inline).refreshable { await store.refresh() }
     }
     private func value(_ key: String) -> Double { stats[key]?.number ?? 0 }
     private func number(_ key: String) -> String { value(key).formatted(.number.precision(.fractionLength(0...1))) }
