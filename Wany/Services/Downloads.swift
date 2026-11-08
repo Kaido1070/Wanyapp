@@ -14,14 +14,29 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
         if let t = tag(downloadTask) { progress?(t,bytesWritten,totalBytesWritten,totalBytesExpectedToWrite) }
     }
+    // The saved ledger is decoded once per change, not once per finished image.
+    private let ledgerLock = NSLock()
+    private var ledgerCache: [String:(stamp: String, wanted: Set<String>)] = [:]
+    private func ledgerWants(_ t: TransferTag) -> Bool {
+        let url = Disk.file(t.owner,"downloads.json")
+        let values = try? url.resourceValues(forKeys:[.contentModificationDateKey,.fileSizeKey])
+        let stamp = "\(values?.contentModificationDate?.timeIntervalSince1970 ?? 0)-\(values?.fileSize ?? -1)"
+        ledgerLock.lock(); defer { ledgerLock.unlock() }
+        // Only a positive answer is taken from the cache; a miss always reads the file again.
+        if let cached = ledgerCache[t.owner], cached.stamp == stamp, cached.wanted.contains(t.job+"|"+t.chapter+"|"+t.image) { return true }
+        let ledger = Disk.read([DownloadJob].self,owner:t.owner,name:"downloads.json") ?? []
+        var wanted = Set<String>()
+        for job in ledger { for chapter in job.chapters { for image in chapter.images { wanted.insert(job.id+"|"+chapter.id+"|"+image.file) } } }
+        ledgerCache[t.owner] = (stamp,wanted)
+        return wanted.contains(t.job+"|"+t.chapter+"|"+t.image)
+    }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         guard let t = tag(downloadTask) else { return }
         do {
             guard let response = downloadTask.response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else { throw APIError(message:"تعذر تحميل الصورة (\((downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0))",status:0) }
             guard let source = CGImageSourceCreateWithURL(location as CFURL,nil), CGImageSourceGetCount(source) > 0,
                   CGImageSourceCreateImageAtIndex(source,0,nil) != nil else { throw APIError(message:"الصورة تالفة؛ أعد تحميل الناقص",status:0) }
-            let ledger = Disk.read([DownloadJob].self,owner:t.owner,name:"downloads.json") ?? []
-            guard ledger.contains(where: { $0.id == t.job && $0.chapters.contains(where: { $0.id == t.chapter && $0.images.contains(where: { $0.file == t.image }) }) }) else { finished?(t,0,nil,false); return }
+            guard ledgerWants(t) else { finished?(t,0,nil,false); return }
             let destination = Disk.file(t.owner,t.image)
             try FileManager.default.createDirectory(at:destination.deletingLastPathComponent(),withIntermediateDirectories:true)
             if FileManager.default.fileExists(atPath:destination.path) {
@@ -163,6 +178,18 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         guard let owner, ledgerToken == nil else { return }
         do { try Disk.save(jobs,owner:owner,name:"downloads.json") } catch { notice = "تعذر حفظ قائمة التنزيل: " + error.localizedDescription }
         lastSaved = Date()
+    }
+    // Per-image bookkeeping is saved at most every two seconds instead of on every page;
+    // leaving the app saves at once (WanyApp), and a lost update only re-downloads a page.
+    @ObservationIgnored private var pendingSave: Task<Void,Never>?
+    private func persistSoon() {
+        if Date().timeIntervalSince(lastSaved) > 2 { persist(); return }
+        guard pendingSave == nil else { return }
+        pendingSave = Task { @MainActor [weak self] in
+            try? await Task.sleep(for:.seconds(2))
+            guard let self else { return }
+            self.pendingSave = nil; self.persist()
+        }
     }
     func enqueue(_ story: Story, chapters: [Chapter]? = nil, unreadOnly: Bool = false, quality chosen: ImageQuality? = nil) async {
         guard let owner else { return }
@@ -469,6 +496,10 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     private func pump() {
         guard restored, online, let owner else { return }
         var count = active.values.filter { $0.state == .running && delegate.tag($0)?.owner == owner }.count
+        // The ledger must list a page before its download can finish, so it is saved once,
+        // then every task started in this pass resumes.
+        var started: [URLSessionTask] = []
+        defer { if !started.isEmpty { persist(); started.forEach { $0.resume() } } }
         let jobOrder = jobs.indices.sorted { (readerPriority?.hasPrefix(jobs[$0].id+":") == true ? 0 : 1) < (readerPriority?.hasPrefix(jobs[$1].id+":") == true ? 0 : 1) }
         for j in jobOrder {
             let chapterOrder = jobs[j].chapters.indices.sorted { (jobs[j].id+":"+jobs[j].chapters[$0].id == readerPriority ? 0 : 1) < (jobs[j].id+":"+jobs[j].chapters[$1].id == readerPriority ? 0 : 1) }
@@ -494,7 +525,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
                         jobs[j].chapters[c].images[i].attempts += 1
                         jobs[j].chapters[c].images[i].failure = nil
                         active[owner+":"+image.file] = task; count += 1
-                        persist(); task.resume()
+                        started.append(task)
                     } catch { jobs[j].error = error.localizedDescription }
                 }
             }
@@ -565,7 +596,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
             if let file=jobs[j].chapters[c].images[i].fallbackFile { try? FileManager.default.removeItem(at:Disk.file(tag.owner,file)) }
             jobs[j].chapters[c].images[i].fallbackFile=nil; jobs[j].chapters[c].images[i].fallbackBytes=nil
         }
-        persist(); revision += 1
+        persistSoon(); revision += 1
         // Every page is visible in the lighter quality: upgrade in the background.
         if error == nil, jobs[j].chapters[c].complete, let target = jobs[j].chapters[c].upgradeQuality,
            let upgrade = ImageQuality(rawValue:target), let payload = jobs[j].chapters[c].payload {

@@ -221,6 +221,15 @@ import Observation
         UserDefaults.standard.removeObject(forKey:"lastAccount"); loginRequired=false
     }
     func refresh() async {
+        // A refresh already running answers this request too.
+        if let running = refreshTask { await running.value; return }
+        // A tap during a background sync waits for it instead of being dropped silently.
+        var waited = 0
+        while online, syncing || readingMutation, refreshTask == nil, waited < 150 {
+            do { try await Task.sleep(for:.milliseconds(200)) } catch { return }
+            waited += 1
+        }
+        if let running = refreshTask { await running.value; return }
         guard online, let owner = state?.user.id, !syncing, !readingMutation else { return }
         syncing = true
         // SwiftUI can cancel its refresh task when its view changes. The account owns this sync.
@@ -244,11 +253,15 @@ import Observation
             guard state?.user.id == owner else { return }
             guard let user = session.user, user.id == owner else { loginRequired = true; return }
             state?.user = user; loginRequired = false
-            try await mergeAndPush(owner:owner)
-            await flushReadingOpens(owner:owner); scheduleSnapshots()
-            let fresh = try await API.shared.get("/api/data",as:DataResponse.self).data
-            guard state?.user.id == owner else { return }
-            merge(fresh); state?.lastSynced = Date(); persist()
+            let pushed = try await mergeAndPush(owner:owner)
+            let opened = await flushReadingOpens(owner:owner); scheduleSnapshots()
+            // mergeAndPush already read the account; read it again only when this sync changed it.
+            if pushed || opened {
+                let fresh = try await API.shared.get("/api/data",as:DataResponse.self).data
+                guard state?.user.id == owner else { return }
+                merge(fresh)
+            }
+            state?.lastSynced = Date(); persist()
             if let profile = try? await API.shared.get("/api/profiles/"+owner,as:JSONValue.self), state?.user.id == owner { state?.profile = profile; incomingFriendRequests=Int(profile["profile"]["pendingFriendRequests"].number); persist() }
             cacheLibrary()
         } catch {
@@ -262,7 +275,15 @@ import Observation
         current.mergeReadingData(remote); state = current
         libraryRevision += 1
     }
-    private func mergeAndPush(owner: String) async throws {
+    // The server refuses this record for good (its data is invalid); retrying can never succeed,
+    // so it must not hold back the records after it. Outages, rate limits and auth keep it queued.
+    private func isPermanentRejection(_ error: Error) -> Bool {
+        guard let status = (error as? APIError)?.status else { return false }
+        return [400,413,422].contains(status)
+    }
+    @discardableResult
+    private func mergeAndPush(owner: String) async throws -> Bool {
+        var changed = false
         let remote = try await API.shared.get("/api/data",as:DataResponse.self).data
         guard state?.user.id == owner else { throw CancellationError() }
         merge(remote)
@@ -276,13 +297,16 @@ import Observation
                 if state?.completedPending?[record.id] == record { state?.completedPending?.removeValue(forKey:record.id) }
                 continue
             }
-            try await API.shared.send("/api/progress",method:"PUT",value:record)
+            do { try await API.shared.send("/api/progress",method:"PUT",value:record) }
+            catch where isPermanentRejection(error) {}
             guard state?.user.id == owner else { throw CancellationError() }
+            changed = true
             // Do not remove a newer local edit made while this request was in flight.
             if state?.pending[record.id] == record { state?.pending.removeValue(forKey:record.id) }
             if state?.completedPending?[record.id] == record { state?.completedPending?.removeValue(forKey:record.id) }
             persist()
         }
+        return changed
     }
     func syncProgress() async {
         guard online, !loginRequired, !syncing, !readingMutation, let owner = state?.user.id, (state?.pending.isEmpty == false || state?.completedPending?.isEmpty == false || state?.pendingOpens?.isEmpty == false || state?.pendingSnapshots?.isEmpty == false) else { return }
@@ -468,16 +492,22 @@ extension AppStore {
         let currentChapter=chapter ?? state?.data.library.first(where:{$0.mangaId == story.key})?.lastReadChapter
         state?.pendingSnapshots?[story.key]=WorkSnapshotWrite(story:story,chapter:currentChapter); persist(); scheduleSnapshots()
     }
-    private func flushReadingOpens(owner: String) async {
+    @discardableResult
+    private func flushReadingOpens(owner: String) async -> Bool {
         let pending=(state?.pendingOpens?.values.map { $0 } ?? []).sorted { $0.openedAt < $1.openedAt }
+        var sent = false
         for event in pending.prefix(40) {
-            guard state?.user.id == owner,!Task.isCancelled else { return }
+            guard state?.user.id == owner,!Task.isCancelled else { return sent }
             do {
                 try await API.shared.send("/api/reading/open",value:event)
-                guard state?.user.id == owner else { return }
-                if state?.pendingOpens?[event.id] == event { state?.pendingOpens?.removeValue(forKey:event.id); persist() }
-            } catch { if (error as? APIError)?.status == 401 { loginRequired=true }; return }
+            } catch where isPermanentRejection(error) {
+                // Dropped like a sent event: one invalid event never blocks the queue behind it.
+            } catch { if (error as? APIError)?.status == 401 { loginRequired=true }; return sent }
+            guard state?.user.id == owner else { return sent }
+            sent = true
+            if state?.pendingOpens?[event.id] == event { state?.pendingOpens?.removeValue(forKey:event.id); persist() }
         }
+        return sent
     }
     private func scheduleSnapshots() {
         guard snapshotSyncTask == nil,online,!loginRequired,let owner=state?.user.id,state?.pendingSnapshots?.isEmpty == false else { return }

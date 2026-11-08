@@ -148,3 +148,11 @@ Automated checks cover download accounting, persistent account separation, progr
 ## 1.4.15
 
 - Settings: sections appear in this order, each in its own card with an icon heading: الحساب، الخصوصية والأمان، المظهر والخلفية، القراءة والتنزيل، التخزين، المزامنة، حول التطبيق، then تسجيل الخروج. Every option is its own row separated by a divider; descriptions sit under their own option. Every option behaves as before.
+
+## 1.4.16
+
+- Sync: a progress record or chapter-open event the server rejects as invalid (400/413/422) is dropped and the records after it still sync; outages, 401 and 429 keep it queued as before.
+- Pull to refresh or «مزامنة الآن» while the 30-second sync runs: the request waits for it and then refreshes; two refreshes at once run only one.
+- A refresh with nothing to push reads the account once instead of twice.
+- Download a large story: the download ledger is saved once per batch of started pages and at most every two seconds on completion; leaving the app saves at once. Pause, relaunch and resume still keep finished pages.
+- An invalid cover or page link fails that image instead of closing the app.

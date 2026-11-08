@@ -78,7 +78,7 @@ struct APIError: LocalizedError {
     func imageRequest(source: String, url rawURL: String, referer: String? = nil, quality: ImageQuality? = nil) throws -> URLRequest {
         let url = API.ownPath(rawURL)
         if url.hasPrefix("/api/work-snapshots/cover") || url.hasPrefix("/api/source/image") {
-            let components = URLComponents(string:url)!
+            guard let components = URLComponents(string:url) else { throw APIError(message:"رابط الصورة غير صالح",status:0) }
             var q: [String:String] = [:]; components.queryItems?.forEach { q[$0.name] = $0.value }
             if components.path == "/api/source/image", let quality { q["quality"]=quality.rawValue }
             var r = try request(components.path,query:q); r.setValue("image/*",forHTTPHeaderField:"Accept"); return r
