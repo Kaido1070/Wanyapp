@@ -356,7 +356,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         for c in jobs[j].chapters.indices {
             jobs[j].chapters[c].error = nil
             for i in jobs[j].chapters[c].images.indices where !jobs[j].chapters[c].images[i].done {
-                jobs[j].chapters[c].images[i].failure = nil; jobs[j].chapters[c].images[i].attempts = 0
+                jobs[j].chapters[c].images[i].failure = nil; jobs[j].chapters[c].images[i].attempts = 0; jobs[j].chapters[c].images[i].decodeFailures = nil
             }
         }
         persist(); revision += 1; updateNetwork()
@@ -364,7 +364,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     func retryChapter(_ payload: ChapterPayload) {
         usePayload(payload)
         guard let j = jobs.firstIndex(where:{$0.id == payload.item.key}), let c = jobs[j].chapters.firstIndex(where:{$0.id == chapterNumber(payload.number)}) else { return }
-        for i in jobs[j].chapters[c].images.indices where !jobs[j].chapters[c].images[i].done { jobs[j].chapters[c].images[i].attempts = 0; jobs[j].chapters[c].images[i].failure = nil }
+        for i in jobs[j].chapters[c].images.indices where !jobs[j].chapters[c].images[i].done { jobs[j].chapters[c].images[i].attempts = 0; jobs[j].chapters[c].images[i].failure = nil; jobs[j].chapters[c].images[i].decodeFailures = nil }
         if jobs[j].chapters[c].saved { jobs[j].paused = false }; persist(); revision += 1; pump()
     }
     func remove(_ key: String) {
@@ -382,21 +382,24 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         guard let owner, let j = jobs.firstIndex(where: { $0.id == payload.item.key }),
               let c = jobs[j].chapters.firstIndex(where: { $0.id == chapterNumber(payload.number) }),
               jobs[j].chapters[c].images.indices.contains(index) else { return }
-        // The damaged page may be the main file or the lighter fallback; remove both so the
-        // reader never decodes the bad file again.
-        do {
-            for path in jobs[j].chapters[c].images[index].storedFiles where FileManager.default.fileExists(atPath:Disk.file(owner,path).path) {
-                try FileManager.default.removeItem(at:Disk.file(owner,path))
-            }
-        } catch { notice = error.localizedDescription; return }
-        jobs[j].chapters[c].images[index].fallbackFile = nil
-        jobs[j].chapters[c].images[index].fallbackBytes = nil
-        jobs[j].chapters[c].images[index].done = false
-        jobs[j].chapters[c].images[index].bytes = 0
-        jobs[j].chapters[c].images[index].expected = nil
-        jobs[j].chapters[c].images[index].attempts = 0
-        jobs[j].chapters[c].images[index].failure = "الصورة المحلية تالفة؛ أعد تحميل الناقص"
-        // Download it again right away; it used to wait for an unrelated transfer.
+        // Remove only the file the reader actually decoded (the same one pageURL returns).
+        let image = jobs[j].chapters[c].images[index]
+        guard let path = image.storedFiles.first(where: { FileManager.default.fileExists(atPath:Disk.file(owner,$0).path) }) else { return }
+        do { try FileManager.default.removeItem(at:Disk.file(owner,path)) } catch { notice = error.localizedDescription; return }
+        if path == image.fallbackFile {
+            jobs[j].chapters[c].images[index].fallbackFile = nil
+            jobs[j].chapters[c].images[index].fallbackBytes = nil
+        } else {
+            jobs[j].chapters[c].images[index].done = false
+            jobs[j].chapters[c].images[index].bytes = 0
+            jobs[j].chapters[c].images[index].expected = nil
+            // One automatic re-download; a page that fails to open twice waits for the
+            // retry button instead of downloading again and again.
+            let failures = (image.decodeFailures ?? 0) + 1
+            jobs[j].chapters[c].images[index].decodeFailures = failures
+            jobs[j].chapters[c].images[index].attempts = failures >= 2 ? 3 : 0
+            jobs[j].chapters[c].images[index].failure = "الصورة المحلية تالفة؛ أعد تحميل الناقص"
+        }
         persist(); revision += 1; pump()
     }
     func leaveChapter(_ id: String) {

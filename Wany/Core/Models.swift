@@ -205,6 +205,8 @@ struct ImageRecord: Codable, Identifiable {
     var quality: String?
     var fallbackFile: String?
     var fallbackBytes: Int64?
+    // Times this page downloaded but could not be opened by the reader.
+    var decodeFailures: Int?
     var storedFiles: [String] { [file] + (fallbackFile.map { [$0] } ?? []) }
     var storageBytes: Int64 { bytes + (fallbackBytes ?? 0) }
     var attempts = 0

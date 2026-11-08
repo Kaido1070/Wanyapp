@@ -106,7 +106,6 @@ struct ReaderView: View {
             // The story page usually fetched this list moments ago; reuse it.
             if store.online { _ = try? await store.series(story.key) }
         }
-        .onChange(of:payload?.id) { _,_ in refreshPageFiles() }
         .onChange(of:downloads.revision) { _,_ in refreshPageFiles() }
         .onChange(of:store.online) { _,_ in refreshPageFiles() }
         .onAppear { store.readerActive = true; store.chromeHidden = true }
@@ -241,7 +240,7 @@ extension ReaderView {
         guard target.id != readingChapter.id else { return }
         saveTask?.cancel(); savePosition()
         if let payload { downloads.leaveChapter(payload.id) }
-        payload = nil; error = nil; currentPage = nil; interacted = false
+        payload = nil; pageFiles = []; failedSet = []; error = nil; currentPage = nil; interacted = false
         percent = 0; pageRatios = [:]; scrollDirection = ReaderScrollDirection(revealDistance:288); controls = true
         registeredOpen=nil; enteredFromReader=true
         activeChapter = target

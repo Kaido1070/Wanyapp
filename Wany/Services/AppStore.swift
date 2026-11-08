@@ -48,6 +48,7 @@ import Observation
     @ObservationIgnored private var favoriteBusy: Set<String> = []
     @ObservationIgnored private var friendTick = 0
     @ObservationIgnored private var seriesInFlight: [String:Task<Story,Error>] = [:]
+    @ObservationIgnored private var seriesSave: Task<Void,Never>?
     @ObservationIgnored private var seriesFetched: [String:Double] = (UserDefaults.standard.dictionary(forKey:"rany.seriesFetched") as? [String:Double]) ?? [:]
     @ObservationIgnored private var storiesSave: Task<Void,Never>?
     @ObservationIgnored private var accountSave: Task<Void,Never>?
@@ -239,7 +240,11 @@ import Observation
         // over from a previous account (cancelled at logout) never does.
         func joinRunning() async -> Bool {
             guard let running = refreshTask, !running.isCancelled, refreshOwner != nil, refreshOwner == state?.user.id else { return false }
-            await running.value; return true
+            await running.value
+            // Someone asked for this refresh: a failure of the automatic one it joined is
+            // shown as a message, as for any refresh they start.
+            if !quiet, let problem = syncProblem { syncProblem = nil; error = problem }
+            return true
         }
         if await joinRunning() { return }
         // A tap during a background sync waits for it instead of being dropped silently.
@@ -598,12 +603,17 @@ extension AppStore {
         await readingCommand(story,chapter:chapter,chapters:[],clearWork:chapter == nil)
     }
     private func readingCommand(_ story: Story,chapter: Double?,chapters: [Double],clearWork: Bool,singleRead: Double? = nil) async {
-        guard online,!loginRequired,!readingMutation,let owner=state?.user.id else { error="تأكد من الاتصال والجلسة ثم أعد المحاولة."; return }
+        // A second tap while the first is still running is simply ignored.
+        guard !readingMutation else { return }
+        guard online,!loginRequired,let owner=state?.user.id else { error="تأكد من الاتصال والجلسة ثم أعد المحاولة."; return }
         readingMutation=true; defer { readingMutation=false }
         // A sync in progress finishes first; the tap is carried out after it instead of refused.
         var waited=0
         while syncing,waited<150 { do { try await Task.sleep(for:.milliseconds(200)) } catch { return }; waited+=1 }
-        guard !syncing,state?.user.id == owner else { error="المزامنة تأخرت؛ أعد المحاولة بعد لحظات."; return }
+        guard state?.user.id == owner else { return }
+        guard !syncing else { error="المزامنة تأخرت؛ أعد المحاولة بعد لحظات."; return }
+        // The sync it waited for may have ended the session or the connection may have dropped.
+        guard online,!loginRequired else { error="تأكد من الاتصال والجلسة ثم أعد المحاولة."; return }
         do {
             // Drain older local events first; an unread command must not be undone by our own queue.
             try await mergeAndPush(owner:owner); await flushReadingOpens(owner:owner)
@@ -655,9 +665,20 @@ extension AppStore {
         remember(value)
         let now = Date().timeIntervalSince1970
         seriesFetched[id] = now
-        // Old entries are dropped so the record stays small.
-        if seriesFetched.count > 1500 { seriesFetched = seriesFetched.filter { now - $0.value < 86400 } }
-        UserDefaults.standard.set(seriesFetched,forKey:"rany.seriesFetched")
+        scheduleSeriesSave()
         return stories[key] ?? value
+    }
+    // Saved once after a burst of fetches (the background library pass makes many), keeping
+    // only the 1000 most recent entries.
+    private func scheduleSeriesSave() {
+        seriesSave?.cancel()
+        seriesSave = Task { [weak self] in
+            do { try await Task.sleep(for:.seconds(2)) } catch { return }
+            guard let self else { return }
+            if self.seriesFetched.count > 1200 {
+                self.seriesFetched = Dictionary(uniqueKeysWithValues:self.seriesFetched.sorted { $0.value > $1.value }.prefix(1000).map { ($0.key,$0.value) })
+            }
+            UserDefaults.standard.set(self.seriesFetched,forKey:"rany.seriesFetched")
+        }
     }
 }

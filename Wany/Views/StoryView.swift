@@ -92,8 +92,9 @@ struct StoryView: View {
                 HStack { Button("تحديد الكل") { selected = Set(chapters.map(\.id)) }; Spacer(); Button("تحميل \(selected.count) فصل") { pendingDownload = .chapters(chapters.filter { selected.contains($0.id) }) }.disabled(selected.isEmpty || !store.online) }
             }
             LazyVStack(spacing:0) {
+                let downloaded = downloadedChapters
                 ForEach(page.chapters) { chapter in
-                    StoryChapterRow(story:story,chapter:chapter,loading:loading,selecting:selecting,downloaded:downloadedChapters.contains(chapter.id),selected:$selected)
+                    StoryChapterRow(story:story,chapter:chapter,loading:loading,selecting:selecting,downloaded:downloaded.contains(chapter.id),selected:$selected)
                 }
             }.padding(.horizontal,12).ranyInsetGlass(radius:14)
             if chapters.isEmpty && !loading {
@@ -144,14 +145,14 @@ struct StoryView: View {
             let value=try await store.series(key)
             guard !Task.isCancelled,owner == store.state?.user.id else { return }
             selectedSource=key; detail=value; selecting=false; selected=[]; error=nil
-        } catch { self.error=error.localizedDescription }
+        } catch { if !isRequestCancellation(error) { self.error=error.localizedDescription } }
     }
     // Opening the page reuses a list fetched in the last few minutes; pulling to refresh
     // or the retry button always asks the source again.
     func refresh(force: Bool = false) async {
         guard store.online, !loading else { return }; loading = true; defer { loading = false }
         do { detail = try await store.series(selectedSource ?? initial.key,force:force); error = nil }
-        catch { self.error = error.localizedDescription }
+        catch { if !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
 }
 

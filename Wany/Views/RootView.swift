@@ -31,9 +31,11 @@ struct RootView: View {
         .onChange(of:tabs.paths) { _,_ in store.holdBackdropForNavigation() }
         .sheet(isPresented:Binding(get:{ store.showingNameStory },set:{ store.showingNameStory = $0 })) { RanyNameStory { store.showingNameStory = false } }
         .sheet(isPresented:$loginSheet) { LoginView().onChange(of:store.loginRequired) { _,needed in if !needed { loginSheet = false } } }
-        .alert(RanyIdentity.name,isPresented:Binding(get:{store.error != nil || downloads.notice != nil},set:{if !$0 { dismissMessage() }})) { Button("حسنًا") { dismissMessage() } } message: { Text(store.error ?? downloads.notice ?? "") }
+        .alert(RanyIdentity.name,isPresented:Binding(get:{store.error != nil || downloads.notice != nil},set:{if !$0 { dismissMessage() }})) { Button("حسنًا") {} } message: { Text(store.error ?? downloads.notice ?? "") }
     }
     // Two messages at once are shown one after the other; closing one never hides the other.
+    // Only the presentation binding clears a message: the button runs too, and two clears
+    // for one tap would drop the second message.
     private func dismissMessage() {
         if store.error != nil { store.error = nil } else { downloads.notice = nil }
     }

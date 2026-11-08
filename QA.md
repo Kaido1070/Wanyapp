@@ -169,3 +169,12 @@ Automated checks cover download accounting, persistent account separation, progr
 - Opening a story, a chapter and going back reuses the chapter list fetched within five minutes; pull to refresh and «إعادة جلب قائمة الفصول» always fetch it. Library chapter lists refresh in the background at most every six hours, across launches.
 - Friend requests are checked every two minutes. Temporary-image cleanup saves only when it removed something.
 - Story descriptions show plain text (no &amp; or &#39;). The avatar does not blink when the connection changes.
+
+## 1.4.18
+
+- An error and a download notice at the same time: tap «حسنًا» on the first; the second appears next.
+- Pull to refresh right after returning to the app while the automatic refresh fails: the failure appears as a message, not only in the banner.
+- A page that downloads but cannot be opened is downloaded again once; if it fails again it shows «إعادة المحاولة» instead of downloading repeatedly. The retry buttons reset it. Only the file that failed is removed (a lighter fallback stays when the main file failed).
+- Tap «مقروء» during a sync whose result is an expired session or lost connection: the tap is refused with the connection message. A second quick tap while the first runs shows nothing.
+- Switching story source or leaving the page while the chapter list loads never shows a cancellation error.
+- Background library pass saves its timestamps once per burst.
