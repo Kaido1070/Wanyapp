@@ -144,3 +144,7 @@ Automated checks cover download accounting, persistent account separation, progr
 
 - Statistics page: opening it syncs local progress, then loads fresh statistics; pull to refresh and «تحديث الإحصائيات» do the same. Other syncs no longer request statistics.
 - Profile › مكتبتي: scroll down inside «أقرأ حاليًا», switch to «المفضلة» and back; the page stays at the same height and does not jump to the top.
+
+## 1.4.15
+
+- Settings: sections appear in this order, each in its own card with an icon heading: الحساب، الخصوصية والأمان، المظهر والخلفية، القراءة والتنزيل، التخزين، المزامنة، حول التطبيق، then تسجيل الخروج. Every option is its own row separated by a divider; descriptions sit under their own option. Every option behaves as before.

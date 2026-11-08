@@ -46,43 +46,57 @@ struct SettingsView: View {
     @State private var logout = false
     var body: some View {
         WanyScroll {
-            RanyAppearanceControls()
-            VStack(alignment:.leading,spacing:16) {
-                Text("الحساب").font(RanyTypography.font(.headline))
+            // Sections in order of how often they are needed; each option is its own row.
+            settingsSection("الحساب",icon:"person.crop.circle") {
                 Button { name = store.state?.user.name ?? ""; editingName = true } label: { settingsRow("الاسم الظاهر",value:store.state?.user.name ?? "",icon:"pencil") }.disabled(!store.online)
                 Divider()
-                WanyLink(.avatarPicker) { settingsRow("الصورة الشخصية",icon:"person.crop.circle") }
+                WanyLink(.avatarPicker) { settingsRow("الصورة الشخصية",icon:"chevron.forward") }
+            }
+            settingsSection("الخصوصية والأمان",icon:"lock.shield") {
+                Toggle("حساب خاص",isOn:Binding(get:{store.state?.user.profileVisibility == "private"},set:{ value in Task { do { try await API.shared.send("/api/profile/visibility",method:"PUT",value:["visibility":value ? "private" : "public"]); await store.refresh() } catch { if !isRequestCancellation(error) { store.error = error.localizedDescription } } } })).disabled(!store.online).frame(minHeight:44)
                 Divider()
-                Toggle("حساب خاص",isOn:Binding(get:{store.state?.user.profileVisibility == "private"},set:{ value in Task { do { try await API.shared.send("/api/profile/visibility",method:"PUT",value:["visibility":value ? "private" : "public"]); await store.refresh() } catch { if !isRequestCancellation(error) { store.error = error.localizedDescription } } } })).disabled(!store.online)
-            }.card()
-            VStack(alignment:.leading,spacing:16) {
-                Text("التنزيلات والمساحة").font(RanyTypography.font(.headline))
-                Toggle("التنزيل عبر Wi-Fi فقط",isOn:Binding(get:{downloads.wifiOnly},set:{downloads.wifiOnly = $0}))
+                WanyLink(.accountSecurity) { settingsRow("الأمان وكلمة المرور",icon:"chevron.forward") }
+            }
+            RanyAppearanceControls()
+            settingsSection("القراءة والتنزيل",icon:"arrow.down.circle") {
+                VStack(alignment:.leading,spacing:6) {
+                    Menu {
+                        ForEach(ImageQuality.allCases) { quality in Button(quality.label) { downloads.quality=quality } }
+                    } label: {
+                        HStack { Text("جودة الصور"); Spacer(); Text(downloads.quality.label).foregroundStyle(Theme.accent) }
+                            .frame(minHeight:44).contentShape(Rectangle())
+                    }.menuActionDismissBehavior(.enabled).buttonStyle(.plain)
+                    Text("اختر الأصلية لحفظ ملف المصدر دون ضغط إضافي، أو العالية لوضوح أعلى بحجم أقل. تغيير الجودة لا يستعيد تفاصيل الملفات القديمة؛ أعد تنزيلها من القارئ أو التنزيلات.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
+                }
                 Divider()
-                Menu {
-                    ForEach(ImageQuality.allCases) { quality in Button(quality.label) { downloads.quality=quality } }
-                } label: {
-                    HStack { Text("جودة الصور"); Spacer(); Text(downloads.quality.label).foregroundStyle(Theme.accent) }
-                        .frame(minHeight:44).contentShape(Rectangle())
-                }.menuActionDismissBehavior(.enabled).buttonStyle(.plain)
-                Text("اختر الأصلية لحفظ ملف المصدر دون ضغط إضافي، أو العالية لوضوح أعلى بحجم أقل. تغيير الجودة لا يستعيد تفاصيل الملفات القديمة؛ أعد تنزيلها من القارئ أو التنزيلات.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
+                Toggle("التنزيل عبر Wi-Fi فقط",isOn:Binding(get:{downloads.wifiOnly},set:{downloads.wifiOnly = $0})).frame(minHeight:44)
+            }
+            settingsSection("التخزين",icon:"internaldrive") {
                 settingsRow("التنزيلات المحفوظة",value:byteLabel(downloads.savedJobs.reduce(0){$0+$1.bytes}))
-                settingsRow("صور القراءة المؤقتة",value:byteLabel(downloads.temporaryBytes))
-                Text("صور القراءة العادية تُحذف بعد 3 دقائق من مغادرة الفصل، أو عند فتح التطبيق مجددًا إذا كان مغلقًا. تقدمك يبقى محفوظًا.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
+                Divider()
+                VStack(alignment:.leading,spacing:6) {
+                    settingsRow("صور القراءة المؤقتة",value:byteLabel(downloads.temporaryBytes))
+                    Text("صور القراءة العادية تُحذف بعد 3 دقائق من مغادرة الفصل، أو عند فتح التطبيق مجددًا إذا كان مغلقًا. تقدمك يبقى محفوظًا.").font(RanyTypography.font(.caption)).foregroundStyle(.secondary)
+                }
+                Divider()
                 Button { downloads.cleanTemporary(all:true) } label: { settingsRow("مسح الصور المؤقتة الآن",icon:"trash") }.disabled(downloads.temporaryBytes == 0)
-            }.card()
-            VStack(alignment:.leading,spacing:16) {
-                Text("المزامنة").font(RanyTypography.font(.headline))
+            }
+            settingsSection("المزامنة",icon:"arrow.triangle.2.circlepath") {
                 settingsRow("التحديثات المعلقة",value:String(store.state?.pending.count ?? 0))
-                if let date = store.state?.lastSynced { Text("آخر مزامنة: " + date.formatted(date:.abbreviated,time:.shortened)).font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }
+                if let date = store.state?.lastSynced {
+                    Divider()
+                    settingsRow("آخر مزامنة",value:date.formatted(date:.abbreviated,time:.shortened))
+                }
+                Divider()
                 Button { Task { await store.refresh() } } label: { settingsRow(store.syncing ? "جاري المزامنة…" : "مزامنة الآن",icon:"arrow.clockwise") }.disabled(!store.online || store.syncing)
-            }.card()
-            VStack(alignment:.leading,spacing:16) {
-                WanyLink(.accountSecurity) { settingsRow("الأمان وكلمة المرور",icon:"lock.shield") }
-                Text(AppVersion.display).font(RanyTypography.font(.subheadline))
-                WanyLink(.updates) { settingsRow("سجل التحديثات",icon:"clock.arrow.circlepath") }
-            }.card()
+            }
+            settingsSection("حول التطبيق",icon:"info.circle") {
+                settingsRow("الإصدار",value:"\(AppVersion.version) (\(AppVersion.build))")
+                Divider()
+                WanyLink(.updates) { settingsRow("سجل التحديثات",icon:"chevron.forward") }
+            }
             Button(role:.destructive) { logout = true } label: { Label("تسجيل الخروج",systemImage:"rectangle.portrait.and.arrow.right").font(RanyTypography.font(.headline)).foregroundStyle(.red).frame(maxWidth:.infinity,minHeight:52).contentShape(Rectangle()) }.padding(12).background(Color.red.opacity(0.12),in:RoundedRectangle(cornerRadius:20)).overlay(RoundedRectangle(cornerRadius:20).stroke(Color.red.opacity(0.4),lineWidth:1))
+                .padding(.top,8)
         }.buttonStyle(.plain).navigationTitle("الإعدادات")
         .alert("الاسم الظاهر",isPresented:$editingName) {
             TextField("اسمك",text:$name)
@@ -90,6 +104,13 @@ struct SettingsView: View {
             Button("إلغاء",role:.cancel) {}
         }
         .confirmationDialog("تسجيل الخروج؟ تبقى التنزيلات والتقدم محفوظة لحسابك.",isPresented:$logout) { Button("تسجيل الخروج",role:.destructive) { Task { await store.logout() } } }
+    }
+    // One card per section, titled like the appearance card; rows inside are separated by dividers.
+    func settingsSection<Content: View>(_ title: String,icon: String,@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment:.leading,spacing:12) {
+            Label(title,systemImage:icon).font(.headline)
+            content()
+        }.frame(maxWidth:.infinity,alignment:.leading).card()
     }
     func settingsRow(_ title: String, value: String = "", icon: String? = nil) -> some View {
         HStack(spacing:12) { Text(title).foregroundStyle(.primary); Spacer(minLength:10); if !value.isEmpty { Text(value).font(RanyTypography.font(.subheadline)).foregroundStyle(.secondary) }; if let icon { Image(systemName:icon).foregroundStyle(Theme.accent) } }.frame(minHeight:44).contentShape(Rectangle())
