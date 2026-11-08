@@ -156,3 +156,16 @@ Automated checks cover download accounting, persistent account separation, progr
 - A refresh with nothing to push reads the account once instead of twice.
 - Download a large story: the download ledger is saved once per batch of started pages and at most every two seconds on completion; leaving the app saves at once. Pause, relaunch and resume still keep finished pages.
 - An invalid cover or page link fails that image instead of closing the app.
+
+## 1.4.17
+
+- Automatic syncs (launch, return, reconnect) that fail show «تعذرت المزامنة · اضغط لإعادة المحاولة» in the top banner, never an alert; tapping it or pulling to refresh shows errors as before. A later successful sync hides it.
+- Two messages at once (an error and a download notice) appear one after the other.
+- Chapter read/unread buttons and «تحديد الكل كمقروء» stay enabled while syncing; a tap waits for the sync and then applies.
+- Double-tap «أضف للمفضلة»: the story is added once.
+- Sign out and straight into another account while a sync runs: the new account refreshes.
+- Reader: a damaged local page (main or fallback file) downloads again at once; scrolling a 100+ page chapter stays smooth; retry buttons update right after a retry.
+- Story page with 1000+ chapters: scrolling the list is smooth; download checkmarks still match.
+- Opening a story, a chapter and going back reuses the chapter list fetched within five minutes; pull to refresh and «إعادة جلب قائمة الفصول» always fetch it. Library chapter lists refresh in the background at most every six hours, across launches.
+- Friend requests are checked every two minutes. Temporary-image cleanup saves only when it removed something.
+- Story descriptions show plain text (no &amp; or &#39;). The avatar does not blink when the connection changes.

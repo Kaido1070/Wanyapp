@@ -31,7 +31,11 @@ struct RootView: View {
         .onChange(of:tabs.paths) { _,_ in store.holdBackdropForNavigation() }
         .sheet(isPresented:Binding(get:{ store.showingNameStory },set:{ store.showingNameStory = $0 })) { RanyNameStory { store.showingNameStory = false } }
         .sheet(isPresented:$loginSheet) { LoginView().onChange(of:store.loginRequired) { _,needed in if !needed { loginSheet = false } } }
-        .alert(RanyIdentity.name,isPresented:Binding(get:{store.error != nil || downloads.notice != nil},set:{if !$0 { store.error = nil; downloads.notice = nil }})) { Button("حسنًا") { store.error = nil; downloads.notice = nil } } message: { Text(store.error ?? downloads.notice ?? "") }
+        .alert(RanyIdentity.name,isPresented:Binding(get:{store.error != nil || downloads.notice != nil},set:{if !$0 { dismissMessage() }})) { Button("حسنًا") { dismissMessage() } } message: { Text(store.error ?? downloads.notice ?? "") }
+    }
+    // Two messages at once are shown one after the other; closing one never hides the other.
+    private func dismissMessage() {
+        if store.error != nil { store.error = nil } else { downloads.notice = nil }
     }
     @ViewBuilder private func page(_ tab: RanyTab) -> some View {
         switch tab {
@@ -45,6 +49,11 @@ struct RootView: View {
     @ViewBuilder private var banner: some View {
         if !store.online { Label("أوفلاين · تقدمك محفوظ على الجهاز",systemImage:"wifi.slash").font(RanyTypography.font(.caption)).frame(maxWidth:.infinity).padding(7).background(Theme.surface) }
         else if store.loginRequired { Button("انتهت الجلسة · سجل الدخول لمزامنة تقدمك") { loginSheet = true }.font(RanyTypography.font(.caption)).frame(minHeight:44).padding(.horizontal,8) }
+        else if store.syncProblem != nil {
+            Button { Task { await store.refresh() } } label: {
+                Label(store.syncing ? "جاري المزامنة…" : "تعذرت المزامنة · اضغط لإعادة المحاولة",systemImage:"exclamationmark.arrow.triangle.2.circlepath")
+            }.font(RanyTypography.font(.caption)).frame(maxWidth:.infinity,minHeight:44).padding(.horizontal,8).background(Theme.surface).disabled(store.syncing)
+        }
     }
 }
 struct LoginView: View { var body: some View { RanyLoginView() } }

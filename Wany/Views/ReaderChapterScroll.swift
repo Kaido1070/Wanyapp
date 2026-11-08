@@ -227,10 +227,14 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
         let nearby = visible.insetBy(dx:0,dy:-bounds.height/max(1,zoomScale))
         for index in tiles.indices {
             let wanted = tiles[index].frame.intersects(nearby)
-            updatePlaceholder(index)
+            // Pages far from the screen are released once; they are not touched on every frame.
             if !wanted {
-                tiles[index].image = nil; tasks[index]?.cancel(); tasks[index] = nil
-            } else if tiles[index].image == nil, tasks[index] == nil, urls.indices.contains(index), let url = urls[index] {
+                if tiles[index].image != nil { tiles[index].image = nil }
+                if let task = tasks[index] { task.cancel(); tasks[index] = nil }
+                continue
+            }
+            updatePlaceholder(index)
+            if tiles[index].image == nil, tasks[index] == nil, urls.indices.contains(index), let url = urls[index] {
                 let token = generation
                 let quality=self.quality
                 tasks[index] = Task { @MainActor [weak self] in

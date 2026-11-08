@@ -45,9 +45,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 if ProcessInfo.processInfo.arguments.contains("--rany-cinematic-preview") { CinematicPreview().environment(store) }
                 else { RanyExperience().environment(store).environment(store.downloads)
                 .environment(\.layoutDirection,.rightToLeft).preferredColorScheme(.dark).tint(Theme.accent)
-                .task { if !ProcessInfo.processInfo.arguments.contains("--rany-opening-fixture") { await store.refresh() } }
+                .task { if !ProcessInfo.processInfo.arguments.contains("--rany-opening-fixture") { await store.refresh(quiet:true) } }
                 .onChange(of:phase) { _,phase in
-                    if phase == .active && !ProcessInfo.processInfo.arguments.contains("--rany-opening-fixture") { Task { await store.refresh() }; store.downloads.updateNetwork() }
+                    if phase == .active && !ProcessInfo.processInfo.arguments.contains("--rany-opening-fixture") { Task { await store.refresh(quiet:true) }; store.downloads.updateNetwork() }
                     else { store.persistNow(); store.downloads.persist() }
                 }
                 }

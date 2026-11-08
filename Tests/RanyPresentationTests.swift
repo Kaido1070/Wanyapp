@@ -17,7 +17,7 @@ import WebKit
                 StoryChapterPagination(page:1,pages:28,onPage:{_ in})
                 VStack(spacing:0) {
                     ForEach(examples) { chapter in
-                        StoryChapterRow(story:story,chapter:chapter,loading:false,selecting:false,selected:.constant([]))
+                        StoryChapterRow(story:story,chapter:chapter,loading:false,selecting:false,downloaded:false,selected:.constant([]))
                     }
                 }.padding(.horizontal,12).ranyInsetGlass(radius:14)
                 StoryChapterPagination(page:28,pages:28,onPage:{_ in})

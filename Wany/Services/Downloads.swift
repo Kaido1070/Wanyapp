@@ -161,6 +161,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         for j in jobs.indices { for c in jobs[j].chapters.indices where !jobs[j].chapters[c].saved && jobs[j].chapters[c].expiresAt == nil {
             jobs[j].chapters[c].expiresAt = Date().addingTimeInterval(180)
         } }
+        revision += 1
         cleanTemporary(); persist(); resumePreparations(); pump()
     }
     nonisolated private static func loadLedger(_ userID: String) -> [DownloadJob] {
@@ -257,7 +258,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
             for i in jobs[j].chapters[c].images.indices where !jobs[j].chapters[c].images[i].done { jobs[j].chapters[c].images[i].attempts = 0 }
         }
         if jobs[j].chapters[c].payload == nil { install(payload,job:j,chapter:c,owner:owner) }
-        persist(); updateNetwork()
+        persist(); revision += 1; updateNetwork()
         if !jobs[j].chapters[c].saved && !jobs[j].chapters[c].complete { scheduleFastFallback(payload) }
     }
     // Show a chapter quickly: if the chosen quality has not delivered every page within
@@ -358,13 +359,13 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
                 jobs[j].chapters[c].images[i].failure = nil; jobs[j].chapters[c].images[i].attempts = 0
             }
         }
-        persist(); updateNetwork()
+        persist(); revision += 1; updateNetwork()
     }
     func retryChapter(_ payload: ChapterPayload) {
         usePayload(payload)
         guard let j = jobs.firstIndex(where:{$0.id == payload.item.key}), let c = jobs[j].chapters.firstIndex(where:{$0.id == chapterNumber(payload.number)}) else { return }
         for i in jobs[j].chapters[c].images.indices where !jobs[j].chapters[c].images[i].done { jobs[j].chapters[c].images[i].attempts = 0; jobs[j].chapters[c].images[i].failure = nil }
-        if jobs[j].chapters[c].saved { jobs[j].paused = false }; persist(); pump()
+        if jobs[j].chapters[c].saved { jobs[j].paused = false }; persist(); revision += 1; pump()
     }
     func remove(_ key: String) {
         guard let owner, let job = jobs.first(where:{$0.id == key}) else { return }
@@ -381,15 +382,22 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         guard let owner, let j = jobs.firstIndex(where: { $0.id == payload.item.key }),
               let c = jobs[j].chapters.firstIndex(where: { $0.id == chapterNumber(payload.number) }),
               jobs[j].chapters[c].images.indices.contains(index) else { return }
-        let path = jobs[j].chapters[c].images[index].file
-        do { if FileManager.default.fileExists(atPath:Disk.file(owner,path).path) { try FileManager.default.removeItem(at:Disk.file(owner,path)) } }
-        catch { notice = error.localizedDescription; return }
+        // The damaged page may be the main file or the lighter fallback; remove both so the
+        // reader never decodes the bad file again.
+        do {
+            for path in jobs[j].chapters[c].images[index].storedFiles where FileManager.default.fileExists(atPath:Disk.file(owner,path).path) {
+                try FileManager.default.removeItem(at:Disk.file(owner,path))
+            }
+        } catch { notice = error.localizedDescription; return }
+        jobs[j].chapters[c].images[index].fallbackFile = nil
+        jobs[j].chapters[c].images[index].fallbackBytes = nil
         jobs[j].chapters[c].images[index].done = false
         jobs[j].chapters[c].images[index].bytes = 0
         jobs[j].chapters[c].images[index].expected = nil
         jobs[j].chapters[c].images[index].attempts = 0
         jobs[j].chapters[c].images[index].failure = "الصورة المحلية تالفة؛ أعد تحميل الناقص"
-        persist(); revision += 1
+        // Download it again right away; it used to wait for an unrelated transfer.
+        persist(); revision += 1; pump()
     }
     func leaveChapter(_ id: String) {
         fastFallback[id]?.cancel(); fastFallback[id] = nil
@@ -402,6 +410,8 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     }
     func cleanTemporary(now: Date = Date(), all: Bool = false) {
         guard let owner else { return }
+        // Runs every 30 seconds: save and redraw only when something was actually removed.
+        var changed = false
         for j in jobs.indices.reversed() {
             for c in jobs[j].chapters.indices.reversed() {
                 let chapter = jobs[j].chapters[c]; let id = jobs[j].id+":"+chapter.id
@@ -411,12 +421,12 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
                     for file in chapter.images.flatMap(\.storedFiles) where FileManager.default.fileExists(atPath:Disk.file(owner,file).path) { try FileManager.default.removeItem(at:Disk.file(owner,file)) }
                     let metadata = Disk.file(owner,Disk.chapterName(id))
                     if FileManager.default.fileExists(atPath:metadata.path) { try FileManager.default.removeItem(at:metadata) }
-                    jobs[j].chapters.remove(at:c)
+                    jobs[j].chapters.remove(at:c); changed = true
                 } catch { notice = "تعذر تنظيف الصور المؤقتة: " + error.localizedDescription }
             }
-            if jobs[j].chapters.isEmpty { jobs.remove(at:j) }
+            if jobs[j].chapters.isEmpty { jobs.remove(at:j); changed = true }
         }
-        persist(); revision += 1
+        if changed { persist(); revision += 1 }
     }
     func compactSaved() async {
         guard !compacting, let account = owner else { return }

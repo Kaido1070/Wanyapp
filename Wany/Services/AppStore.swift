@@ -20,6 +20,8 @@ import Observation
     var syncing = false
     var loginRequired = false
     var error: String?
+    // A failed automatic sync is shown quietly in the top banner instead of an alert.
+    var syncProblem: String?
     var loadingFeed = false
     var feedProgress = ""
     var feedError: String?
@@ -42,7 +44,11 @@ import Observation
     @ObservationIgnored private var refreshTask: Task<Void,Never>?
     @ObservationIgnored private var engine: FeedEngine?
     @ObservationIgnored private var coverRequests: Set<String> = []
-    @ObservationIgnored private var metadataRefreshed: [String: Date] = [:]
+    @ObservationIgnored private var refreshOwner: String?
+    @ObservationIgnored private var favoriteBusy: Set<String> = []
+    @ObservationIgnored private var friendTick = 0
+    @ObservationIgnored private var seriesInFlight: [String:Task<Story,Error>] = [:]
+    @ObservationIgnored private var seriesFetched: [String:Double] = (UserDefaults.standard.dictionary(forKey:"rany.seriesFetched") as? [String:Double]) ?? [:]
     @ObservationIgnored private var storiesSave: Task<Void,Never>?
     @ObservationIgnored private var accountSave: Task<Void,Never>?
     @ObservationIgnored private var storiesOwner: String?
@@ -65,11 +71,17 @@ import Observation
                 self.online = path.status == .satisfied
                 self.downloads.online = self.online; self.downloads.onWiFi = path.usesInterfaceType(.wifi)
                 self.downloads.updateNetwork()
-                if self.online && (wasOffline || self.state?.lastSynced == nil) { await self.refresh() }
+                if self.online && (wasOffline || self.state?.lastSynced == nil) { await self.refresh(quiet:true) }
             }
         }
         monitor.start(queue:DispatchQueue(label:"Wany.network"))
-        Timer.scheduledTimer(withTimeInterval:30,repeats:true) { [weak self] _ in Task { @MainActor in await self?.syncProgress(); await self?.refreshFriendRequests() } }
+        Timer.scheduledTimer(withTimeInterval:30,repeats:true) { [weak self] _ in Task { @MainActor in
+            guard let self else { return }
+            await self.syncProgress()
+            // Friend requests are checked every two minutes, not on every sync tick.
+            self.friendTick += 1
+            if self.friendTick % 4 == 0 { await self.refreshFriendRequests() }
+        } }
     }
     // Reading progress saves often; encode and write it off the main thread, coalesced.
     func persist() {
@@ -181,7 +193,7 @@ import Observation
             state?.user = user; loginRequired = false
             UserDefaults.standard.set(user.id,forKey:"lastAccount")
             loadStories(user.id); downloads.attach(user.id); persist()
-            await refresh()
+            await refresh(quiet:true)
         } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
     func register(username: String, password: String, confirmation: String, question: String, answer: String) async -> Bool {
@@ -203,7 +215,7 @@ import Observation
     func logout() async {
         persistNow(); refreshTask?.cancel(); metadataTask?.cancel(); metadataTask = nil; metadataToken = nil; syncTask?.cancel(); snapshotSyncTask?.cancel(); snapshotSyncTask=nil; snapshotSyncID=nil; snapshotRetryAfter=[:]
         if online { _ = try? await API.shared.raw("/api/logout",method:"POST") }
-        incomingFriendRequests=0; API.shared.clear(); downloads.attach(nil); enteringAccount = false; state = nil; stories = [:]; storiesOwner = nil; storiesSave?.cancel(); engine = nil
+        incomingFriendRequests=0; syncProblem=nil; API.shared.clear(); downloads.attach(nil); enteringAccount = false; state = nil; stories = [:]; storiesOwner = nil; storiesSave?.cancel(); engine = nil
         UserDefaults.standard.removeObject(forKey:"lastAccount"); loginRequired = false
     }
     func sessionRenewed() { engine=nil; metadataTask?.cancel(); metadataTask=nil; metadataToken=nil }
@@ -217,29 +229,37 @@ import Observation
         try await API.shared.send("/api/logout-all",value:[String:String]())
         guard state?.user.id == owner else { return }
         persistNow(); refreshTask?.cancel(); metadataTask?.cancel(); metadataTask=nil; metadataToken=nil; syncTask?.cancel(); snapshotSyncTask?.cancel(); snapshotSyncTask=nil; snapshotSyncID=nil; snapshotRetryAfter=[:]
-        incomingFriendRequests=0; API.shared.clear(); downloads.attach(nil); enteringAccount=false; state=nil; stories=[:]; storiesOwner=nil; storiesSave?.cancel(); engine=nil
+        incomingFriendRequests=0; syncProblem=nil; API.shared.clear(); downloads.attach(nil); enteringAccount=false; state=nil; stories=[:]; storiesOwner=nil; storiesSave?.cancel(); engine=nil
         UserDefaults.standard.removeObject(forKey:"lastAccount"); loginRequired=false
     }
-    func refresh() async {
-        // A refresh already running answers this request too.
-        if let running = refreshTask { await running.value; return }
+    // quiet: started by the app itself (launch, return, reconnect); a failure goes to the
+    // banner instead of interrupting with an alert.
+    func refresh(quiet: Bool = false) async {
+        // A refresh already running for this account answers this request too; one left
+        // over from a previous account (cancelled at logout) never does.
+        func joinRunning() async -> Bool {
+            guard let running = refreshTask, !running.isCancelled, refreshOwner != nil, refreshOwner == state?.user.id else { return false }
+            await running.value; return true
+        }
+        if await joinRunning() { return }
         // A tap during a background sync waits for it instead of being dropped silently.
         var waited = 0
-        while online, syncing || readingMutation, refreshTask == nil, waited < 150 {
+        while online, syncing || readingMutation, waited < 150 {
             do { try await Task.sleep(for:.milliseconds(200)) } catch { return }
             waited += 1
+            if await joinRunning() { return }
         }
-        if let running = refreshTask { await running.value; return }
         guard online, let owner = state?.user.id, !syncing, !readingMutation else { return }
         syncing = true
         // SwiftUI can cancel its refresh task when its view changes. The account owns this sync.
         let task = Task { [weak self] in
             guard let self else { return }
-            await self.refreshAccount(owner:owner)
+            await self.refreshAccount(owner:owner,quiet:quiet)
         }
-        refreshTask = task
+        refreshTask = task; refreshOwner = owner
         await task.value
-        refreshTask = nil; syncing = false
+        if refreshTask == task { refreshTask = nil; refreshOwner = nil }
+        syncing = false
     }
     // Statistics are read only on the statistics page; each sync used to recompute
     // them on the server for nothing.
@@ -247,7 +267,7 @@ import Observation
         guard online, !loginRequired, let owner = state?.user.id else { return }
         if let stats = try? await API.shared.get("/api/reading/stats",as:JSONValue.self), state?.user.id == owner { state?.stats = stats["stats"].object; persist() }
     }
-    private func refreshAccount(owner: String) async {
+    private func refreshAccount(owner: String, quiet: Bool) async {
         do {
             let session = try await API.shared.get("/api/session",as:SessionResponse.self)
             guard state?.user.id == owner else { return }
@@ -263,11 +283,13 @@ import Observation
             }
             state?.lastSynced = Date(); persist()
             if let profile = try? await API.shared.get("/api/profiles/"+owner,as:JSONValue.self), state?.user.id == owner { state?.profile = profile; incomingFriendRequests=Int(profile["profile"]["pendingFriendRequests"].number); persist() }
+            syncProblem = nil
             cacheLibrary()
         } catch {
             guard !Task.isCancelled, !isRequestCancellation(error), state?.user.id == owner else { return }
             if (error as? APIError)?.status == 401 { loginRequired = true }
-            else { self.error = error.localizedDescription }
+            else if quiet { syncProblem = error.localizedDescription }
+            else { syncProblem = nil; self.error = error.localizedDescription }
         }
     }
     private func merge(_ remote: AccountData) {
@@ -311,7 +333,7 @@ import Observation
     func syncProgress() async {
         guard online, !loginRequired, !syncing, !readingMutation, let owner = state?.user.id, (state?.pending.isEmpty == false || state?.completedPending?.isEmpty == false || state?.pendingOpens?.isEmpty == false || state?.pendingSnapshots?.isEmpty == false) else { return }
         syncing = true; defer { syncing = false }
-        do { try await mergeAndPush(owner:owner); await flushReadingOpens(owner:owner); scheduleSnapshots(); state?.lastSynced = Date(); persist() }
+        do { try await mergeAndPush(owner:owner); await flushReadingOpens(owner:owner); scheduleSnapshots(); state?.lastSynced = Date(); syncProblem = nil; persist() }
         catch { if (error as? APIError)?.status == 401 { loginRequired = true } }
     }
     func record(_ payload: ChapterPayload, page: Int, percent: Double) {
@@ -338,7 +360,7 @@ import Observation
             error = "تحميل الفصول يحتاج اتصالًا وجلسة دخول صالحة"; return
         }
         do {
-            let full = try await API.shared.fullSeries(story.key)
+            let full = try await series(story.key,maxAge:60)
             // Refresh website completions, retaining unsynced local completions and partial progress.
             let remote = try await API.shared.get("/api/data",as:DataResponse.self).data
             guard state?.user.id == owner else { return }
@@ -353,13 +375,17 @@ import Observation
         guard let state else { return }
         guard online else { error = "تعديل المفضلة يحتاج اتصالًا؛ تقدم القراءة محفوظ أوفلاين"; return }
         let owner = state.user.id
+        // A second tap while the first request runs would add the story twice.
+        guard favoriteBusy.insert(owner+story.key).inserted else { return }
+        defer { favoriteBusy.remove(owner+story.key) }
         do {
             if state.data.favorites.contains(story.key) {
                 _ = try await API.shared.raw("/api/favorites/" + story.key.addingPercentEncoding(withAllowedCharacters:.urlPathAllowed)!,method:"DELETE")
                 guard self.state?.user.id == owner else { return }; self.state?.data.favorites.removeAll { $0 == story.key }
             } else {
                 try await API.shared.send("/api/favorites",value:["mangaId":story.key])
-                guard self.state?.user.id == owner else { return }; self.state?.data.favorites.append(story.key)
+                guard self.state?.user.id == owner else { return }
+                if self.state?.data.favorites.contains(story.key) == false { self.state?.data.favorites.append(story.key) }
             }
             persist(); remember(story); libraryRevision += 1; queueSnapshot(story); cacheLibrary()
         } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.error = error.localizedDescription } }
@@ -390,8 +416,9 @@ import Observation
             for key in keys {
                 if Task.isCancelled || self.state?.user.id != owner || !self.online { return }
                 if let story = self.stories[key] { await self.cacheCover(story) }
-                if let updated = self.metadataRefreshed[owner+key], Date().timeIntervalSince(updated) < 1800 { continue }
-                if let story = try? await API.shared.fullSeries(key) { guard self.state?.user.id == owner else { return }; self.remember(story); self.metadataRefreshed[owner+key] = Date(); await self.cacheCover(story) }
+                // Chapter lists refresh in the background at most every six hours, across launches.
+                if self.seriesFresh(key,owner:owner,maxAge:21600) { continue }
+                if let story = try? await self.series(key,maxAge:21600) { guard self.state?.user.id == owner else { return }; await self.cacheCover(story) }
             }
         }
     }
@@ -571,8 +598,12 @@ extension AppStore {
         await readingCommand(story,chapter:chapter,chapters:[],clearWork:chapter == nil)
     }
     private func readingCommand(_ story: Story,chapter: Double?,chapters: [Double],clearWork: Bool,singleRead: Double? = nil) async {
-        guard online,!loginRequired,!readingMutation,!syncing,let owner=state?.user.id else { error="انتظر اكتمال المزامنة وتأكد من الاتصال والجلسة ثم أعد المحاولة."; return }
+        guard online,!loginRequired,!readingMutation,let owner=state?.user.id else { error="تأكد من الاتصال والجلسة ثم أعد المحاولة."; return }
         readingMutation=true; defer { readingMutation=false }
+        // A sync in progress finishes first; the tap is carried out after it instead of refused.
+        var waited=0
+        while syncing,waited<150 { do { try await Task.sleep(for:.milliseconds(200)) } catch { return }; waited+=1 }
+        guard !syncing,state?.user.id == owner else { error="المزامنة تأخرت؛ أعد المحاولة بعد لحظات."; return }
         do {
             // Drain older local events first; an unread command must not be undone by our own queue.
             try await mergeAndPush(owner:owner); await flushReadingOpens(owner:owner)
@@ -602,4 +633,31 @@ extension AppStore {
 }
 private extension ReadingBulkInput {
     func unread(_ chapter: Double) -> [String:JSONValue] { ["mangaId":.string(mangaId),"chapter":.number(chapter)] }
+}
+
+// Chapter lists are reused for a few minutes instead of being fetched again on every
+// screen (story page, reader, back again); identical requests in flight are shared.
+extension AppStore {
+    func seriesFresh(_ key: String, owner: String, maxAge: TimeInterval) -> Bool {
+        guard let at = seriesFetched[owner+"|"+key], stories[key]?.chapters?.isEmpty == false else { return false }
+        return Date().timeIntervalSince1970 - at < maxAge
+    }
+    func series(_ key: String, maxAge: TimeInterval = 300, force: Bool = false) async throws -> Story {
+        guard let owner = state?.user.id else { return try await API.shared.fullSeries(key) }
+        if !force, seriesFresh(key,owner:owner,maxAge:maxAge), let saved = stories[key] { return saved }
+        let id = owner+"|"+key
+        if let running = seriesInFlight[id] { return try await running.value }
+        let task = Task { try await API.shared.fullSeries(key) }
+        seriesInFlight[id] = task
+        defer { if seriesInFlight[id] == task { seriesInFlight[id] = nil } }
+        let value = try await task.value
+        guard state?.user.id == owner else { throw CancellationError() }
+        remember(value)
+        let now = Date().timeIntervalSince1970
+        seriesFetched[id] = now
+        // Old entries are dropped so the record stays small.
+        if seriesFetched.count > 1500 { seriesFetched = seriesFetched.filter { now - $0.value < 86400 } }
+        UserDefaults.standard.set(seriesFetched,forKey:"rany.seriesFetched")
+        return stories[key] ?? value
+    }
 }

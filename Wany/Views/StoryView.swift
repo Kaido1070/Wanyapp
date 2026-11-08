@@ -26,6 +26,8 @@ struct StoryView: View {
         return ascending ? result : result.reversed()
     }
     var page: StoryChapterPage { StoryChapterPage(chapters:chapters,requested:chapterPage) }
+    // Looked up once per page render instead of once per chapter row.
+    var downloadedChapters: Set<String> { Set(downloads.jobs.first(where:{$0.id == story.key})?.chapters.filter { $0.saved && $0.complete }.map(\.id) ?? []) }
     var body: some View {
         ScrollViewReader { proxy in
         WanyScroll {
@@ -45,7 +47,7 @@ struct StoryView: View {
             }
             if (story.description?.isEmpty == false) || !story.genres.isEmpty {
                 VStack(alignment:.leading,spacing:10) {
-                    if let description = story.description, !description.isEmpty { Text(description.replacingOccurrences(of:"<[^>]+>",with:"",options:.regularExpression)).font(RanyTypography.font(.subheadline)).foregroundStyle(.primary.opacity(0.88)).lineSpacing(3).frame(maxWidth:.infinity,alignment:.leading) }
+                    if let description = story.description, !description.isEmpty { Text(StoryDescription.plain(description)).font(RanyTypography.font(.subheadline)).foregroundStyle(.primary.opacity(0.88)).lineSpacing(3).frame(maxWidth:.infinity,alignment:.leading) }
                     if !story.genres.isEmpty { Text(story.genres.joined(separator:" · ")).font(RanyTypography.font(.caption)).foregroundStyle(Theme.accent).frame(maxWidth:.infinity,alignment:.leading) }
                 }.ranyReadableSurface()
             }
@@ -77,7 +79,7 @@ struct StoryView: View {
                 Label(ascending ? "من الأقدم للأحدث" : "من الأحدث للأقدم",systemImage:"arrow.up.arrow.down")
                     .frame(maxWidth:.infinity,minHeight:44)
             }.buttonStyle(RanySurfaceButtonStyle())
-            if let error { Text(error).font(RanyTypography.font(.caption)).foregroundStyle(.orange); Button("إعادة جلب قائمة الفصول") { Task { await refresh() } } }
+            if let error { Text(error).font(RanyTypography.font(.caption)).foregroundStyle(.orange); Button("إعادة جلب قائمة الفصول") { Task { await refresh(force:true) } } }
             if story.chapterListComplete == false, let declared = story.declaredChapterCount, declared > (story.chapters?.count ?? 0) {
                 Text("المصدر يعلن \(declared) فصل، وظهر منها \(story.chapters?.count ?? 0) حتى الآن. الفصول الظاهرة تعمل، واسحب للتحديث لجلب البقية.")
                     .font(RanyTypography.font(.caption)).foregroundStyle(.secondary).frame(maxWidth:.infinity,alignment:.leading)
@@ -91,7 +93,7 @@ struct StoryView: View {
             }
             LazyVStack(spacing:0) {
                 ForEach(page.chapters) { chapter in
-                    StoryChapterRow(story:story,chapter:chapter,loading:loading,selecting:selecting,selected:$selected)
+                    StoryChapterRow(story:story,chapter:chapter,loading:loading,selecting:selecting,downloaded:downloadedChapters.contains(chapter.id),selected:$selected)
                 }
             }.padding(.horizontal,12).ranyInsetGlass(radius:14)
             if chapters.isEmpty && !loading {
@@ -104,7 +106,7 @@ struct StoryView: View {
                 ToolbarItem(placement:.topBarTrailing) {
                     StoryReadingTools(
                         canReadAll:story.chapterListComplete == true && !story.orderedChapters.isEmpty,
-                        disabled:!store.online || loading || store.loginRequired || store.readingMutation || store.syncing,
+                        disabled:!store.online || loading || store.loginRequired || store.readingMutation,
                         markAll:{ confirmReadAll=true },clear:{ confirmClear=true }
                     )
                 }
@@ -113,7 +115,7 @@ struct StoryView: View {
             .confirmationDialog("مسح تقدم هذه القصة؟",isPresented:$confirmClear,titleVisibility:.visible) { Button("مسح التقدم",role:.destructive) { Task { await store.manualUnreadGroup(story,keys:sourceKeys) } }; Button("إلغاء",role:.cancel) {} } message: { Text("يُحذف سجل وتقدم القراءة لكل المصادر المرتبطة بهذه القصة في حسابك. تبقى الملفات المحملة والمفضلة والقوائم.") }
             .sheet(isPresented:$listPicker) { StoryListPicker(story:story) }
             .downloadQualityChoice(request:$pendingDownload) { request,quality in startDownload(request,quality:quality) }
-            .task { await refresh() }.refreshable { await refresh() }
+            .task { await refresh() }.refreshable { await refresh(force:true) }
             .onChange(of:query) { _,_ in chapterPage=1 }
             .onChange(of:ascending) { _,_ in chapterPage=1 }
             .onChange(of:story.key) { _,_ in chapterPage=1; selected.removeAll(); selecting=false }
@@ -139,14 +141,16 @@ struct StoryView: View {
         guard key != story.key,store.online,!loading else { return }
         loading=true; let owner=store.state?.user.id; defer { loading=false }
         do {
-            let value=try await API.shared.fullSeries(key)
+            let value=try await store.series(key)
             guard !Task.isCancelled,owner == store.state?.user.id else { return }
-            store.remember(value); selectedSource=key; detail=value; selecting=false; selected=[]; error=nil
+            selectedSource=key; detail=value; selecting=false; selected=[]; error=nil
         } catch { self.error=error.localizedDescription }
     }
-    func refresh() async {
+    // Opening the page reuses a list fetched in the last few minutes; pulling to refresh
+    // or the retry button always asks the source again.
+    func refresh(force: Bool = false) async {
         guard store.online, !loading else { return }; loading = true; defer { loading = false }
-        do { let value = try await API.shared.fullSeries(selectedSource ?? initial.key); detail = value; store.remember(value); error = nil }
+        do { detail = try await store.series(selectedSource ?? initial.key,force:force); error = nil }
         catch { self.error = error.localizedDescription }
     }
 }
@@ -256,23 +260,52 @@ struct StoryChapterPagination: View {
     }
 }
 
+// Formatters are built once; creating them for every chapter row made long lists stutter.
 enum StoryChapterDate {
+    private static let fractional: ISO8601DateFormatter = { let f=ISO8601DateFormatter(); f.formatOptions=[.withInternetDateTime,.withFractionalSeconds]; return f }()
+    private static let whole: ISO8601DateFormatter = { let f=ISO8601DateFormatter(); f.formatOptions=[.withInternetDateTime]; return f }()
+    private static let plain: DateFormatter = {
+        let f=DateFormatter(); f.locale=Locale(identifier:"en_US_POSIX")
+        f.calendar=Calendar(identifier:.gregorian); f.timeZone=TimeZone(secondsFromGMT:0)
+        f.dateFormat="yyyy-MM-dd"; f.isLenient=false; return f
+    }()
+    private static let output: DateFormatter = {
+        let f=DateFormatter(); f.locale=Locale(identifier:"en_GB")
+        f.calendar=Calendar(identifier:.gregorian); f.timeZone=TimeZone(secondsFromGMT:0)
+        f.dateFormat="dd/MM/yyyy"; return f
+    }()
+    private static let lock = NSLock()
+    private static var memo: [String:String] = [:]
     static func display(_ value: String) -> String? {
-        let parser=ISO8601DateFormatter()
-        parser.formatOptions=[.withInternetDateTime,.withFractionalSeconds]
-        var date=parser.date(from:value)
-        if date == nil { parser.formatOptions=[.withInternetDateTime]; date=parser.date(from:value) }
-        if date == nil {
-            let plain=DateFormatter(); plain.locale=Locale(identifier:"en_US_POSIX")
-            plain.calendar=Calendar(identifier:.gregorian); plain.timeZone=TimeZone(secondsFromGMT:0)
-            plain.dateFormat="yyyy-MM-dd"; plain.isLenient=false
-            if value.count == 10 { date=plain.date(from:value) }
+        lock.lock(); defer { lock.unlock() }
+        if let known = memo[value] { return known.isEmpty ? nil : known }
+        var date=fractional.date(from:value) ?? whole.date(from:value)
+        if date == nil, value.count == 10 { date=plain.date(from:value) }
+        let text = date.map { output.string(from:$0) } ?? ""
+        if memo.count > 5000 { memo.removeAll() }
+        memo[value] = text
+        return text.isEmpty ? nil : text
+    }
+}
+
+// Source descriptions arrive as HTML: tags become plain text and entities such as
+// &amp; or &#39; become their characters.
+enum StoryDescription {
+    static func plain(_ html: String) -> String {
+        var text = html.replacingOccurrences(of:"<br\\s*/?>|</p>",with:"\n",options:[.regularExpression,.caseInsensitive])
+        text = text.replacingOccurrences(of:"<[^>]+>",with:"",options:.regularExpression)
+        let named = ["&nbsp;":" ","&quot;":"\"","&#39;":"'","&apos;":"'","&lt;":"<","&gt;":">","&hellip;":"…","&rsquo;":"’","&lsquo;":"‘","&rdquo;":"”","&ldquo;":"“","&ndash;":"–","&mdash;":"—"]
+        for (entity,value) in named { text = text.replacingOccurrences(of:entity,with:value) }
+        if let regex = try? NSRegularExpression(pattern:"&#(x?)([0-9a-fA-F]{1,6});") {
+            for match in regex.matches(in:text,range:NSRange(text.startIndex...,in:text)).reversed() {
+                guard let whole = Range(match.range,in:text), let digits = Range(match.range(at:2),in:text) else { continue }
+                let hex = match.range(at:1).length > 0
+                guard let code = UInt32(text[digits],radix:hex ? 16 : 10), let scalar = Unicode.Scalar(code) else { continue }
+                text.replaceSubrange(whole,with:String(Character(scalar)))
+            }
         }
-        guard let date else { return nil }
-        let output=DateFormatter(); output.locale=Locale(identifier:"en_GB")
-        output.calendar=Calendar(identifier:.gregorian); output.timeZone=TimeZone(secondsFromGMT:0)
-        output.dateFormat="dd/MM/yyyy"
-        return output.string(from:date)
+        text = text.replacingOccurrences(of:"&amp;",with:"&")
+        return text.replacingOccurrences(of:"\n{3,}",with:"\n\n",options:.regularExpression).trimmingCharacters(in:.whitespacesAndNewlines)
     }
 }
 
@@ -283,6 +316,7 @@ struct StoryChapterRow: View {
     let chapter: Chapter
     let loading: Bool
     let selecting: Bool
+    let downloaded: Bool
     @Binding var selected: Set<String>
     @State private var pendingDownload: StoryDownloadRequest?
     var body: some View {
@@ -302,12 +336,12 @@ struct StoryChapterRow: View {
                 if !selecting {
                     ChapterReadingTools(
                         completed:store.state?.data.completed.contains(story.key+":"+chapter.id) == true,
-                        disabled:!store.online || loading || store.loginRequired || store.syncing || store.readingMutation,
+                        disabled:!store.online || loading || store.loginRequired || store.readingMutation,
                         markRead:{ Task { await store.manualReadChapter(story,chapter:chapter.number) } },
                         markUnread:{ Task { await store.manualUnread(story,chapter:chapter.number) } }
                     )
                 }
-                if downloads.savedJobs.first(where:{$0.id == story.key})?.chapters.first(where:{$0.id == chapter.id})?.complete == true {
+                if downloaded {
                     Image(systemName:"checkmark.circle.fill").foregroundStyle(.green).frame(width:44,height:44)
                 } else {
                     Button { pendingDownload = .chapters([chapter]) } label: {

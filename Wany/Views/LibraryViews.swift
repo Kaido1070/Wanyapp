@@ -396,19 +396,22 @@ struct ProfileAvatar: View {
     @Environment(AppStore.self) private var store
     let user: Account
     @State private var image: UIImage?
+    @State private var shown: String?
     var body: some View {
         GeometryReader { geometry in
             Group { if let image { Image(uiImage:image).resizable().scaledToFill() } else { Image(systemName:"person.crop.circle.fill").resizable().foregroundStyle(Theme.accent) } }
                 .frame(width:geometry.size.width,height:geometry.size.height).clipShape(Circle())
         }
             .task(id:[store.state?.user.id ?? "",user.avatarId ?? "",store.online ? "online" : "offline"]) {
-                image = nil
-                guard let id = user.avatarId, !id.isEmpty, let owner = store.state?.user.id else { return }
+                guard let id = user.avatarId, !id.isEmpty, let owner = store.state?.user.id else { image = nil; shown = nil; return }
+                // A change of network state alone keeps the picture already on screen.
+                if shown == owner+"|"+id, image != nil { return }
+                image = nil; shown = nil
                 let path = Disk.file(owner,"avatars/"+Disk.hash(id)+".image")
-                if let cached = UIImage(contentsOfFile:path.path) { image = cached; return }
+                if let cached = UIImage(contentsOfFile:path.path) { image = cached; shown = owner+"|"+id; return }
                 guard store.online else { return }
                 if let request = try? API.shared.request("/api/avatars/"+id+"/image"), let (data,response) = try? await URLSession.shared.data(for:request), (response as? HTTPURLResponse)?.statusCode == 200, let value = UIImage(data:data), !Task.isCancelled, store.state?.user.id == owner {
-                    image = value; try? FileManager.default.createDirectory(at:path.deletingLastPathComponent(),withIntermediateDirectories:true); try? data.write(to:path,options:.atomic)
+                    image = value; shown = owner+"|"+id; try? FileManager.default.createDirectory(at:path.deletingLastPathComponent(),withIntermediateDirectories:true); try? data.write(to:path,options:.atomic)
                 }
             }
     }

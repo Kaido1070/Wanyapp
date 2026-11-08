@@ -30,6 +30,15 @@ import XCTest
         XCTAssertEqual(StoryChapterDate.display("2020-02-22"),"22/02/2020")
         XCTAssertNil(StoryChapterDate.display(""))
         XCTAssertNil(StoryChapterDate.display("not a date"))
+        // Repeated lookups come from the memo and stay identical.
+        XCTAssertEqual(StoryChapterDate.display("2020-02-22"),"22/02/2020")
+        XCTAssertNil(StoryChapterDate.display("not a date"))
+    }
+    func testStoryDescriptionsShowPlainText() {
+        XCTAssertEqual(StoryDescription.plain("<p>Tom &amp; Jerry&#39;s <b>story</b></p>"),"Tom & Jerry's story")
+        XCTAssertEqual(StoryDescription.plain("a<br>b &quot;c&quot; &#x627;"),"a\nb \"c\" ا")
+        XCTAssertEqual(StoryDescription.plain("&amp;lt;"),"&lt;")
+        XCTAssertEqual(StoryDescription.plain("نص عادي"),"نص عادي")
     }
 
     func testOpeningIsPersistedWithoutMarkingCompletion() throws {

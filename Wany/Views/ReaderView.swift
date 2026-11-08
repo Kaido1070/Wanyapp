@@ -26,6 +26,10 @@ struct ReaderView: View {
     @State private var saveTask: Task<Void,Never>?
     @State private var pageRatios: [Int:CGFloat] = [:]
     @State private var percent: CGFloat = 0
+    // Page files and failures are worked out when downloads change, not on every scroll
+    // report: each lookup touches the disk, and scrolling re-renders this view often.
+    @State private var pageFiles: [URL?] = []
+    @State private var failedSet: Set<Int> = []
     private func leaveReader() { dismiss() }
     var readingChapter: Chapter { activeChapter ?? chapter }
     var chapters: [Chapter] { (store.stories[story.key] ?? story).orderedChapters }
@@ -37,9 +41,9 @@ struct ReaderView: View {
                 Color.black.ignoresSafeArea()
                 if let payload {
                     ReaderChapterScroll(id:payload.id,endTitle:"نهاية الفصل \(chapterNumber(payload.number))",
-                        urls:payload.pages.indices.map { downloads.pageURL(payload,index:$0) },
+                        urls:pageFiles.count == payload.pages.count ? pageFiles : payload.pages.map { _ in nil },
                         ratios:pageRatios,initialPage:restoredPage(payload),
-                        nextTitle:nextChapter.map { "الفصل التالي \($0.id)" },online:store.online,quality:downloads.quality,failed:failedPages(payload),
+                        nextTitle:nextChapter.map { "الفصل التالي \($0.id)" },online:store.online,quality:downloads.quality,failed:failedSet,
                         onNext:{ if let next = nextChapter { open(next) } },onBack:{ leaveReader() },
                         onRetry:{ downloads.retryChapter(payload) },
                         onInvalid:{ downloads.invalidatePage(payload,index:$0) },
@@ -94,13 +98,17 @@ struct ReaderView: View {
         .sheet(isPresented:$choosingChapter) { chapterPicker }
         .sheet(isPresented:$choosingQuality) { qualitySettings }
         .confirmationDialog("هل قرأت الفصول السابقة؟",isPresented:$catchupPrompt,titleVisibility:.visible) {
-            Button("تعليم الفصول السابقة كمقروءة") { Task { await store.manualRead(story,chapters:previousUnread) } }.disabled(!store.online || store.syncing || store.readingMutation)
+            Button("تعليم الفصول السابقة كمقروءة") { Task { await store.manualRead(story,chapters:previousUnread) } }.disabled(!store.online || store.readingMutation)
             Button("لاحقًا",role:.cancel) {}
         } message: { Text("يوجد \(previousUnread.count) فصل سابق غير مكتمل. هذه عملية قراءة مستقلة عن التنزيل.") }
         .task(id:readingChapter.id) { await load() }
         .task {
-            if store.online, let full = try? await API.shared.fullSeries(story.key), !Task.isCancelled { store.remember(full) }
+            // The story page usually fetched this list moments ago; reuse it.
+            if store.online { _ = try? await store.series(story.key) }
         }
+        .onChange(of:payload?.id) { _,_ in refreshPageFiles() }
+        .onChange(of:downloads.revision) { _,_ in refreshPageFiles() }
+        .onChange(of:store.online) { _,_ in refreshPageFiles() }
         .onAppear { store.readerActive = true; store.chromeHidden = true }
         .onDisappear {
             saveTask?.cancel()
@@ -140,13 +148,14 @@ struct ReaderView: View {
         NavigationStack {
             List {
                 if chapters.isEmpty { Text("قائمة الفصول غير متاحة حاليًا. اتصل بالإنترنت لتحديثها.").foregroundStyle(.secondary) }
+                let saved = Set(downloads.jobs.first(where:{$0.id == story.key})?.chapters.filter { $0.saved && $0.complete }.map(\.id) ?? [])
                 ForEach(chapters.filter { chapterQuery.isEmpty || $0.title.localizedCaseInsensitiveContains(chapterQuery) || $0.id.contains(chapterQuery) }) { item in
                     Button { choosingChapter = false; open(item) } label: {
                         HStack {
                             Text(item.title).foregroundStyle(.primary)
                             Spacer()
                             if item.id == readingChapter.id { Image(systemName:"book.fill").foregroundStyle(Theme.accent) }
-                            if downloads.savedJobs.first(where:{$0.id == story.key})?.chapters.first(where:{$0.id == item.id})?.complete == true { Image(systemName:"checkmark.circle.fill").foregroundStyle(.green) }
+                            if saved.contains(item.id) { Image(systemName:"checkmark.circle.fill").foregroundStyle(.green) }
                         }
                     }
                 }
@@ -165,6 +174,13 @@ struct ReaderView: View {
             guard let images = part?.images, images.indices.contains(index) else { return false }
             return images[index].failure != nil && images[index].attempts >= 3
         })
+    }
+    private func refreshPageFiles() {
+        guard let payload else { if !pageFiles.isEmpty { pageFiles = [] }; if !failedSet.isEmpty { failedSet = [] }; return }
+        let files = payload.pages.indices.map { downloads.pageURL(payload,index:$0) }
+        let failures = failedPages(payload)
+        if files != pageFiles { pageFiles = files }
+        if failures != failedSet { failedSet = failures }
     }
     private var previousUnread: [Double] {
         guard let state=store.state else { return [] }
@@ -252,7 +268,7 @@ extension ReaderView {
             guard !Task.isCancelled, readingChapter.id == requested.id else { return }
             pageRatios = ratios
             payload = saved; currentPage = restoredPage(saved)
-            downloads.usePayload(saved); recordOpen(saved)
+            downloads.usePayload(saved); refreshPageFiles(); recordOpen(saved)
             return
         }
         guard store.online else { error = "هذا الفصل غير محمل. اتصل بالإنترنت لتنزيله؛ بقية الفصول المحملة متاحة من التنزيلات."; return }
@@ -262,7 +278,7 @@ extension ReaderView {
             let ratios = await ReaderPageRatios.read(value,files:pageFiles(value,owner:owner))
             guard !Task.isCancelled, readingChapter.id == requested.id else { return }
             pageRatios = ratios
-            payload = value; currentPage = restoredPage(value); downloads.usePayload(value); store.remember(value.item); recordOpen(value)
+            payload = value; currentPage = restoredPage(value); downloads.usePayload(value); refreshPageFiles(); store.remember(value.item); recordOpen(value)
         } catch { if !Task.isCancelled, readingChapter.id == requested.id { self.error = error.localizedDescription } }
     }
 }
