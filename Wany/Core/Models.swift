@@ -107,8 +107,25 @@ struct AccountData: Codable {
     var favorites: [String] = []
     var library: [LibraryEntry] = []
     var progress: [String: ProgressRecord] = [:]
-    var completed: [String] = []
+    // Grows with every chapter ever finished (hundreds a day for heavy readers), so
+    // lookups go through `completedSet` instead of scanning the array.
+    var completed: [String] = [] { didSet { completedSet = Set(completed) } }
     var lastOpened: LastOpened?
+    // Index of `completed`; rebuilt on change, never saved or sent.
+    private(set) var completedSet: Set<String> = []
+    enum CodingKeys: String, CodingKey { case version, favorites, library, progress, completed, lastOpened }
+    init() {}
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy:CodingKeys.self)
+        version = try c.decode(Int.self,forKey:.version)
+        favorites = try c.decode([String].self,forKey:.favorites)
+        library = try c.decode([LibraryEntry].self,forKey:.library)
+        progress = try c.decode([String:ProgressRecord].self,forKey:.progress)
+        completed = try c.decode([String].self,forKey:.completed)
+        lastOpened = try c.decodeIfPresent(LastOpened.self,forKey:.lastOpened)
+        completedSet = Set(completed)
+    }
+    func isCompleted(_ key: String) -> Bool { completedSet.contains(key) }
 }
 struct AccountState: Codable {
     var user: Account
@@ -262,7 +279,7 @@ struct TransferTag: Codable { var owner: String; var job: String; var chapter: S
 // Merge uses event timestamps; page indices from an older device position are discarded.
 extension AccountState {
     mutating func mergeReadingData(_ remote: AccountData) {
-        let previouslyCompleted = Set(data.completed)
+        let previouslyCompleted = data.completedSet
         for (key, progress) in remote.progress {
             if progress.updatedAt > (data.progress[key]?.updatedAt ?? 0),
                progress.updatedAt > (pending[key]?.updatedAt ?? 0) { positions.removeValue(forKey:key) }
@@ -272,7 +289,7 @@ extension AccountState {
             let server = data.progress[record.id]
             guard server == nil || record.updatedAt >= server!.updatedAt else { continue }
             data.progress[record.id] = record
-            if (record.percent >= 98 || previouslyCompleted.contains(record.id)) && !data.completed.contains(record.id) { data.completed.append(record.id) }
+            if (record.percent >= 98 || previouslyCompleted.contains(record.id)) && !data.isCompleted(record.id) { data.completed.append(record.id) }
             if let i = data.library.firstIndex(where: { $0.mangaId == record.mangaId }) {
                 if record.updatedAt >= (data.library[i].lastReadAt ?? 0) {
                     data.library[i].lastReadAt = record.updatedAt; data.library[i].lastReadChapter = record.chapter
@@ -283,7 +300,7 @@ extension AccountState {
             }
         }
         for record in completedPending?.values.map({ $0 }) ?? [] {
-            if !data.completed.contains(record.id) { data.completed.append(record.id) }
+            if !data.isCompleted(record.id) { data.completed.append(record.id) }
         }
         for event in (pendingOpens?.values.map { $0 } ?? []).sorted(by:{$0.openedAt < $1.openedAt}) {
             if let index=data.library.firstIndex(where:{$0.mangaId == event.mangaId}) {
@@ -300,7 +317,7 @@ extension AccountState {
 
 extension AccountState {
     func unreadChapters(in story: Story) -> [Chapter] {
-        let completed = Set(data.completed)
+        let completed = data.completedSet
         return story.orderedChapters.filter { chapter in
             let key = story.key+":"+chapter.id
             return !completed.contains(key)

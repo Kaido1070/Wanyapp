@@ -14,6 +14,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
         if let t = tag(downloadTask) { progress?(t,bytesWritten,totalBytesWritten,totalBytesExpectedToWrite) }
     }
+    static let rateLimited = "طلبات كثيرة خلال وقت قصير؛ يستكمل التنزيل تلقائيًا بعد دقائق"
     // The saved ledger is decoded once per change, not once per finished image.
     private let ledgerLock = NSLock()
     private var ledgerCache: [String:(stamp: String, wanted: Set<String>)] = [:]
@@ -33,6 +34,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         guard let t = tag(downloadTask) else { return }
         do {
+            if (downloadTask.response as? HTTPURLResponse)?.statusCode == 429 { throw APIError(message:TransferDelegate.rateLimited,status:429) }
             guard let response = downloadTask.response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else { throw APIError(message:"تعذر تحميل الصورة (\((downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0))",status:0) }
             guard let source = CGImageSourceCreateWithURL(location as CFURL,nil), CGImageSourceGetCount(source) > 0,
                   CGImageSourceCreateImageAtIndex(source,0,nil) != nil else { throw APIError(message:"الصورة تالفة؛ أعد تحميل الناقص",status:0) }
@@ -183,6 +185,23 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     // Per-image bookkeeping is saved at most every two seconds instead of on every page;
     // leaving the app saves at once (WanyApp), and a lost update only re-downloads a page.
     @ObservationIgnored private var pendingSave: Task<Void,Never>?
+    // The server allows each account about 1500 images per 5 minutes, shared by reading
+    // and downloading. Saved downloads keep under 1000 of them so the reader always has
+    // room, and a refusal (429) pauses them, not reading, until the window passes.
+    @ObservationIgnored private var savedStarts: [Date] = []
+    @ObservationIgnored private var budgetPausedUntil = Date.distantPast
+    @ObservationIgnored private var budgetResume: Task<Void,Never>?
+    private static let savedImageBudget = 1000
+    private func scheduleBudgetResume() {
+        guard budgetResume == nil else { return }
+        let windowEnd = (savedStarts.first ?? Date()).addingTimeInterval(300)
+        let wait = max(1,max(budgetPausedUntil,windowEnd).timeIntervalSinceNow)
+        budgetResume = Task { @MainActor [weak self] in
+            try? await Task.sleep(for:.seconds(wait))
+            guard let self else { return }
+            self.budgetResume = nil; self.pump()
+        }
+    }
     private func persistSoon() {
         if Date().timeIntervalSince(lastSaved) > 2 { persist(); return }
         guard pendingSave == nil else { return }
@@ -513,13 +532,17 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         // then every task started in this pass resumes.
         var started: [URLSessionTask] = []
         defer { if !started.isEmpty { persist(); started.forEach { $0.resume() } } }
+        let now = Date()
+        savedStarts.removeAll { now.timeIntervalSince($0) >= 300 }
+        var savedAllowed = now >= budgetPausedUntil && savedStarts.count < Self.savedImageBudget
+        if !savedAllowed { scheduleBudgetResume() }
         let jobOrder = jobs.indices.sorted { (readerPriority?.hasPrefix(jobs[$0].id+":") == true ? 0 : 1) < (readerPriority?.hasPrefix(jobs[$1].id+":") == true ? 0 : 1) }
         for j in jobOrder {
             let chapterOrder = jobs[j].chapters.indices.sorted { (jobs[j].id+":"+jobs[j].chapters[$0].id == readerPriority ? 0 : 1) < (jobs[j].id+":"+jobs[j].chapters[$1].id == readerPriority ? 0 : 1) }
             for c in chapterOrder {
                 let part = jobs[j].chapters[c]
                 if part.saved {
-                    guard !jobs[j].paused, jobs[j].includes(part.id), !wifiOnly || onWiFi else { continue }
+                    guard savedAllowed, !jobs[j].paused, jobs[j].includes(part.id), !wifiOnly || onWiFi else { continue }
                 } else { guard readerPriority == jobs[j].id+":"+part.id else { continue } }
                 guard let payload = jobs[j].chapters[c].payload else { continue }
                 for i in jobs[j].chapters[c].images.indices {
@@ -539,6 +562,10 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
                         jobs[j].chapters[c].images[i].failure = nil
                         active[owner+":"+image.file] = task; count += 1
                         started.append(task)
+                        if part.saved {
+                            savedStarts.append(now)
+                            if savedStarts.count >= Self.savedImageBudget { savedAllowed = false; scheduleBudgetResume() }
+                        }
                     } catch { jobs[j].error = error.localizedDescription }
                 }
             }
@@ -597,6 +624,15 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
             if !jobs.flatMap(\.chapters).flatMap(\.images).contains(where:{$0.fallbackFile == tag.image}) {
                 try? FileManager.default.removeItem(at:Disk.file(tag.owner,tag.image))
             }
+            return
+        }
+        if error == TransferDelegate.rateLimited, jobs[j].chapters[c].saved {
+            // Refused for the account's budget: not the page's fault, so the attempt is
+            // not counted; saved downloads wait for the window to pass.
+            budgetPausedUntil = Date().addingTimeInterval(300)
+            jobs[j].chapters[c].images[i].attempts = max(0,jobs[j].chapters[c].images[i].attempts-1)
+            jobs[j].chapters[c].images[i].failure = error
+            persistSoon(); revision += 1; scheduleBudgetResume()
             return
         }
         jobs[j].chapters[c].images[i].done = error == nil

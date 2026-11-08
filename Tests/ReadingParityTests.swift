@@ -34,6 +34,18 @@ import XCTest
         XCTAssertEqual(StoryChapterDate.display("2020-02-22"),"22/02/2020")
         XCTAssertNil(StoryChapterDate.display("not a date"))
     }
+    func testCompletedIndexFollowsTheSavedList() throws {
+        var data = AccountData()
+        XCTAssertFalse(data.isCompleted("tx:a:1"))
+        data.completed.append("tx:a:1"); data.completed += ["tx:a:2"]
+        XCTAssertTrue(data.isCompleted("tx:a:1")); XCTAssertTrue(data.isCompleted("tx:a:2"))
+        data.completed.removeAll { $0 == "tx:a:1" }
+        XCTAssertFalse(data.isCompleted("tx:a:1"))
+        let encoded = try JSONEncoder().encode(data)
+        XCTAssertFalse(String(decoding:encoded,as:UTF8.self).contains("completedSet"))
+        let decoded = try JSONDecoder().decode(AccountData.self,from:encoded)
+        XCTAssertEqual(decoded.completed,["tx:a:2"]); XCTAssertTrue(decoded.isCompleted("tx:a:2"))
+    }
     func testStoryDescriptionsShowPlainText() {
         XCTAssertEqual(StoryDescription.plain("<p>Tom &amp; Jerry&#39;s <b>story</b></p>"),"Tom & Jerry's story")
         XCTAssertEqual(StoryDescription.plain("a<br>b &quot;c&quot; &#x627;"),"a\nb \"c\" ا")

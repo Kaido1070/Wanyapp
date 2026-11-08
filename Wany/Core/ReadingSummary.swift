@@ -9,11 +9,30 @@ struct StoryReadingSummary {
 extension AccountState {
     func readingSummary(for story: Story) -> StoryReadingSummary {
         let prefix = story.key + ":"
-        var records = data.progress.filter { $0.value.mangaId == story.key }
-        for record in pending.values where record.mangaId == story.key {
-            if record.updatedAt >= (records[record.id]?.updatedAt ?? 0) { records[record.id] = record }
+        let chapters = story.orderedChapters
+        // With the full chapter list, only this story's chapters are looked up; scanning
+        // the whole history (thousands of chapters) for every card made lists lag.
+        let listKeys: [String]? = story.chapterListComplete == true && !chapters.isEmpty ? chapters.map { prefix + $0.id } : nil
+        var allRecords: [String:ProgressRecord]?
+        func storyRecords() -> [String:ProgressRecord] {
+            if let allRecords { return allRecords }
+            var found = data.progress.filter { $0.value.mangaId == story.key }
+            for record in pending.values where record.mangaId == story.key {
+                if record.updatedAt >= (found[record.id]?.updatedAt ?? 0) { found[record.id] = record }
+            }
+            allRecords = found
+            return found
         }
-        var completed = Set(data.completed.filter { $0.hasPrefix(prefix) })
+        var records: [String:ProgressRecord] = [:]
+        if let listKeys {
+            for key in listKeys { if let record = data.progress[key] { records[key] = record } }
+            for record in pending.values where record.mangaId == story.key {
+                if record.updatedAt >= (records[record.id]?.updatedAt ?? 0) { records[record.id] = record }
+            }
+        } else { records = storyRecords() }
+        var completed: Set<String>
+        if let listKeys { completed = Set(listKeys.filter { data.isCompleted($0) }) }
+        else { completed = Set(data.completed.filter { $0.hasPrefix(prefix) }) }
         for record in completedPending?.values.map({ $0 }) ?? [] where record.mangaId == story.key { completed.insert(record.id) }
         for record in records.values where record.percent >= 98 { completed.insert(record.id) }
         let entry = data.library.first { $0.mangaId == story.key }
@@ -28,12 +47,11 @@ extension AccountState {
         if let local = localReading, local.updatedAt > (entry?.lastReadAt ?? 0) { chapter = local.chapter }
         else if let saved = entry?.lastReadChapter, saved > 0 { chapter = saved }
         else if let highest = entry?.highestReachedChapter, highest > 0 { chapter = highest }
-        else { chapter = records.values.max { ($0.updatedAt,$0.chapter) < ($1.updatedAt,$1.chapter) }?.chapter }
-        let chapters = story.orderedChapters
+        else { chapter = storyRecords().values.max { ($0.updatedAt,$0.chapter) < ($1.updatedAt,$1.chapter) }?.chapter }
         let total: Int?
         let keys: Set<String>?
-        if story.chapterListComplete == true, !chapters.isEmpty {
-            let ids = Set(chapters.map { prefix + $0.id })
+        if let listKeys {
+            let ids = Set(listKeys)
             total = ids.count; keys = ids
         } else if let declared = story.declaredChapterCount, declared > 0 { total = declared; keys = nil }
         else { total = nil; keys = nil }

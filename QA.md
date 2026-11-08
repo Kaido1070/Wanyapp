@@ -178,3 +178,9 @@ Automated checks cover download accounting, persistent account separation, progr
 - Tap «مقروء» during a sync whose result is an expired session or lost connection: the tap is refused with the connection message. A second quick tap while the first runs shows nothing.
 - Switching story source or leaving the page while the chapter list loads never shows a cancellation error.
 - Background library pass saves its timestamps once per burst.
+
+## 1.4.19
+
+- Heavy history (thousands of completed chapters): opening a chapter of a long story, scrolling its chapter list and the profile cards stay smooth; «مقروء», percentages and «وصلت للفصل» match 1.4.18.
+- Download a whole long story while reading another: saved downloads start at most 1000 images per 5 minutes; reading pages keep loading. If the server answers 429 to a saved download, it pauses for five minutes and resumes by itself without counting the attempt.
+- While the reader is open, account saves are gathered every four seconds; leaving the reader or the app saves at once.

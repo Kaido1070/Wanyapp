@@ -183,7 +183,7 @@ struct ReaderView: View {
     }
     private var previousUnread: [Double] {
         guard let state=store.state else { return [] }
-        return (payload?.item ?? story).orderedChapters.filter { $0.number < readingChapter.number && !state.data.completed.contains(story.key+":"+$0.id) }.map(\.number)
+        return (payload?.item ?? story).orderedChapters.filter { $0.number < readingChapter.number && !state.data.isCompleted(story.key+":"+$0.id) }.map(\.number)
     }
     private func recordOpen(_ value: ChapterPayload) {
         guard registeredOpen != value.id else { return }; registeredOpen=value.id

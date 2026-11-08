@@ -88,8 +88,12 @@ import Observation
     func persist() {
         guard let owner = state?.user.id else { return }
         accountSave?.cancel()
+        // While reading, positions change every few seconds and the account file grows with
+        // every chapter read, so writes are gathered for a few seconds; leaving the app or
+        // the account still saves at once (persistNow).
+        let delay = readerActive ? 4000 : 250
         accountSave = Task { [weak self] in
-            do { try await Task.sleep(for:.milliseconds(250)) } catch { return }
+            do { try await Task.sleep(for:.milliseconds(delay)) } catch { return }
             guard let self, let snapshot = self.state, snapshot.user.id == owner else { return }
             let failure = await Task.detached(priority:.utility) { () -> String? in
                 do { try Disk.save(snapshot,owner:owner,name:"account.json"); return nil } catch { return error.localizedDescription }
@@ -352,7 +356,7 @@ import Observation
             current.data.library[i].highestReachedChapter = max(current.data.library[i].highestReachedChapter ?? 0,payload.number)
         } else { current.data.library.append(LibraryEntry(mangaId:payload.item.key,status:"reading",addedAt:record.updatedAt,updatedAt:record.updatedAt,lastReadAt:record.updatedAt,lastReadChapter:payload.number,highestReachedChapter:payload.number)) }
         if percent >= 98 {
-            if !current.data.completed.contains(record.id) { current.data.completed.append(record.id) }
+            if !current.data.isCompleted(record.id) { current.data.completed.append(record.id) }
             if current.completedPending?[record.id] == nil {
                 if current.completedPending == nil { current.completedPending = [:] }
                 current.completedPending?[record.id] = record

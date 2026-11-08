@@ -328,7 +328,7 @@ struct StoryChapterRow: View {
                     VStack(alignment:.leading,spacing:5) {
                         Text(chapterDisplayTitle(chapter.title,number:chapter.number)).font(RanyTypography.font(.subheadline)).lineLimit(2)
                         HStack(spacing:8) {
-                            if store.state?.data.completed.contains(story.key+":"+chapter.id) == true { Text("مقروء").foregroundStyle(Theme.accent) }
+                            if store.state?.data.isCompleted(story.key+":"+chapter.id) == true { Text("مقروء").foregroundStyle(Theme.accent) }
                             else if let percent=store.state?.data.progress[story.key+":"+chapter.id]?.percent,percent>0 { Text("\(Int(percent))٪").foregroundStyle(Theme.accent) }
                             if let date=chapter.publishedAt.flatMap(StoryChapterDate.display) { Text(date).foregroundStyle(.secondary) }
                         }.font(RanyTypography.font(.caption))
@@ -336,7 +336,7 @@ struct StoryChapterRow: View {
                 }
                 if !selecting {
                     ChapterReadingTools(
-                        completed:store.state?.data.completed.contains(story.key+":"+chapter.id) == true,
+                        completed:store.state?.data.isCompleted(story.key+":"+chapter.id) == true,
                         disabled:!store.online || loading || store.loginRequired || store.readingMutation,
                         markRead:{ Task { await store.manualReadChapter(story,chapter:chapter.number) } },
                         markUnread:{ Task { await store.manualUnread(story,chapter:chapter.number) } }
