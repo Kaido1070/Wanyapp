@@ -32,8 +32,15 @@ struct MergedStoryGrid: View {
     var showReadingProgress=false
     @State private var groups: [StorySourceGroup] = []
     var body: some View {
-        LazyVGrid(columns:[GridItem(.flexible(),alignment:.top),GridItem(.flexible(),alignment:.top)],alignment:.leading,spacing:20) {
-            ForEach(groups) { group in StoryCard(story:group.primary,showReadingProgress:showReadingProgress,sourceKeys:group.items.map(\.key)) }
+        Group {
+            // Until the merge finishes, the plain grid holds the page's height so the
+            // surrounding scroll position is kept instead of collapsing to the top.
+            if groups.isEmpty && !stories.isEmpty { StoryGrid(stories:stories,showReadingProgress:showReadingProgress) }
+            else {
+                LazyVGrid(columns:[GridItem(.flexible(),alignment:.top),GridItem(.flexible(),alignment:.top)],alignment:.leading,spacing:20) {
+                    ForEach(groups) { group in StoryCard(story:group.primary,showReadingProgress:showReadingProgress,sourceKeys:group.items.map(\.key)) }
+                }
+            }
         }.task(id:stories) { let value=await CatalogRules.groups(stories); if !Task.isCancelled { groups=value } }
     }
 }

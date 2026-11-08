@@ -139,3 +139,8 @@ Automated checks cover download accounting, persistent account separation, progr
 ## 1.4.13
 
 - جديد: open a chapter from the feed; the bottom tab bar is gone for the whole chapter and the last pages and end-of-chapter card are fully visible. Going back shows the tab bar again.
+
+## 1.4.14
+
+- Statistics page: opening it syncs local progress, then loads fresh statistics; pull to refresh and «تحديث الإحصائيات» do the same. Other syncs no longer request statistics.
+- Profile › مكتبتي: scroll down inside «أقرأ حاليًا», switch to «المفضلة» and back; the page stays at the same height and does not jump to the top.
