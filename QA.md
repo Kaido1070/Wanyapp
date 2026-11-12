@@ -193,3 +193,7 @@ Automated checks cover download accounting, persistent account separation, progr
 - The screen does not sleep while the reader is open and sleeps normally after leaving it.
 - When the server reports the reduced-image allowance used up, one notice appears per month; pages keep loading at full size.
 - An archived cover is uploaded only when the saved image came from the exact cover address being archived.
+
+## 1.4.21
+
+- Conversation: holding a message shows «نسخ» and copies its text; a message of up to three emoji shows large without a bubble; a shared story or chapter is a slim one-line card (36×50 cover, one-line title). The back button leaves the conversation and the messages page.
