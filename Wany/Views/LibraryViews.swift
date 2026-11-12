@@ -200,7 +200,7 @@ struct FeedView: View {
                     .disabled(!store.online || store.loadingFeed).accessibilityLabel("تحديث")
             }
         }
-        .task { if kind == "fyp" ? (store.state?.fyp.isEmpty ?? true) : store.state?.newFeed == nil { await store.loadFeed(kind) } }.refreshable { await store.loadFeed(kind) }
+        .task { if kind == "fyp" ? (store.state?.fyp.isEmpty ?? true) : store.newFeedNeedsReload() { await store.loadFeed(kind) } }.refreshable { await store.loadFeed(kind) }
     }
 }
 struct SourceChapterDestination: View {

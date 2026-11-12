@@ -12,7 +12,8 @@ function fireTimer(id) {const f=timers.get(id);timers.delete(id);if(f)f();}
 function query(path,values) {return '/api/source/'+path+'?'+Object.entries(values).filter(([,v])=>v!==undefined).map(([k,v])=>encodeURIComponent(k)+'='+encodeURIComponent(v)).join('&');}
 const sourceService={
  isSourceKey:key=>Boolean(key&&/^(mt|tx|aq|sz|xs|ml|az):/.test(key)),
- recent:(source,page=1)=>request(query('recent',{source,page})),
+ recent:(source,page=1,options={})=>request(query('recent',{source,page,refresh:options.refresh?1:undefined})),
+ summaries:async keys=>{const unique=[...new Set(keys)].filter(k=>sourceService.isSourceKey(k));const out=[];for(let i=0;i<unique.length;i+=60){try{out.push(...((await request(query('summaries',{keys:unique.slice(i,i+60).join(',')}))).items||[]));}catch(e){}}return out;},
  latest:(source,page=1)=>request(query('latest',{source,page})),
  popular:(source,page=1)=>request(query('popular',{source,page})),
  releaseHistory:chapters=>request(query('release-history',{chapters:[...new Set(chapters)].filter(Number.isFinite).slice(0,80).join(',')})),

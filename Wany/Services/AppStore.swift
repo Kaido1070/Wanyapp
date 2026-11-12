@@ -23,6 +23,8 @@ import Observation
     // A failed automatic sync is shown quietly in the top banner instead of an alert.
     var syncProblem: String?
     var loadingFeed = false
+    // When each feed was last fetched in this launch; a saved copy shows at once and is refreshed behind it.
+    var feedLoadedAt: [String:Date] = [:]
     var feedProgress = ""
     var feedError: String?
     var incomingFriendRequests = 0
@@ -482,12 +484,20 @@ import Observation
                 else { state?.newFeed=incoming }
                 for r in incoming.all { remember(r.item) }
             }
+            if page == 1 { feedLoadedAt[kind+":"+current.user.id] = Date() }
             persist()
         } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.feedError = error.localizedDescription } }
     }
 }
 
 extension AppStore {
+    // «جديد» covers the last 24 hours, so a saved copy goes stale quickly: reload it on the
+    // first visit of a launch, when it is empty, and after a quarter of an hour.
+    func newFeedNeedsReload(now: Date = Date()) -> Bool {
+        guard let state else { return false }
+        guard let feed=state.newFeed,!feed.all.isEmpty,let loaded=feedLoadedAt["new:"+state.user.id] else { return true }
+        return now.timeIntervalSince(loaded) > 15*60
+    }
     func resolveMetadata(_ keys: [String]) async {
         guard online,let owner=state?.user.id else { return }
         let missing=Array(Set(keys.filter { !$0.isEmpty && (stories[$0] == nil || stories[$0]?.title == $0) })).sorted()

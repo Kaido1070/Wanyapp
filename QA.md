@@ -209,3 +209,8 @@ Automated checks cover download accounting, persistent account separation, progr
 ## 1.4.24
 
 - Conversation: the send button sits on the right of the writing box (it leads the row, which is the right edge in Arabic); it keeps its 44 pt circle, dims while the box is empty, and the box still grows to five lines.
+
+## 1.4.25
+
+- «جديد» reloads on the first visit of a launch, whenever the saved copy is empty, and when it is older than 15 minutes; the saved copy shows at once while the fresh one loads. Pull-to-refresh and the toolbar button still reload on demand.
+- Feed engine regenerated from the current algorithms (stored story summaries for FYP and «جديد», `rany:` cache keys); the bridge gained `summaries` and passes `refresh` to `recent`.
