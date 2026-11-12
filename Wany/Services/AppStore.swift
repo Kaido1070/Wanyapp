@@ -566,6 +566,12 @@ extension AppStore {
                 guard self.state?.user.id == owner,API.shared.generation == generation,!Task.isCancelled else { return }
                 do {
                     let result=try await API.shared.getMutation("/api/work-snapshots",value:snapshot)
+                    // The server saved a fresh copy of the cover (missing, changed or
+                    // corrected): take its new address now so the phone's copy is replaced.
+                    if result["archived"].boolean {
+                        await self.restoreSnapshots([snapshot.mangaId])
+                        if let story=self.stories[snapshot.mangaId] { await self.cacheCover(story) }
+                    }
                     if result["needsCover"].boolean,!snapshot.coverUrl.isEmpty {
                         if let story=self.stories[snapshot.mangaId] { await self.cacheCover(story) }
                         guard self.state?.user.id == owner,API.shared.generation == generation,!Task.isCancelled else { return }

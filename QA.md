@@ -214,3 +214,7 @@ Automated checks cover download accounting, persistent account separation, progr
 
 - «جديد» reloads on the first visit of a launch, whenever the saved copy is empty, and when it is older than 15 minutes; the saved copy shows at once while the fresh one loads. Pull-to-refresh and the toolbar button still reload on demand.
 - Feed engine regenerated from the current algorithms (stored story summaries for FYP and «جديد», `rany:` cache keys); the bridge gained `summaries` and passes `refresh` to `recent`.
+
+## 1.4.26
+
+- After a snapshot save the server may answer `archived: true` (it saved a fresh copy of the cover). The app then reloads that story's snapshot and replaces the cover kept on the phone at once, instead of waiting for the next library refresh. Stories with a reviewed replacement cover also get a new saved-cover address from the server, so phones that kept the old picture fetch the new one.
