@@ -239,16 +239,17 @@ struct ConversationView: View {
                 }.frame(height:44).padding(.leading,8).background(Color.white.opacity(0.05),in:RoundedRectangle(cornerRadius:10))
             }
             HStack(alignment:.bottom,spacing:8) {
-                TextField("اكتب رسالة…",text:$draft,axis:.vertical)
-                    .lineLimit(1...5).focused($typing)
-                    .padding(.horizontal,14).padding(.vertical,11)
-                    .background(Color.white.opacity(0.07),in:RoundedRectangle(cornerRadius:22,style:.continuous))
-                    .onChange(of:draft) { _,value in if value.count > 500 { draft = String(value.prefix(500)) } }
+                // Send leads the row: in Arabic that is the right edge, where the line starts.
                 Button { Task { await send() } } label: {
                     Image(systemName:"paperplane.fill").font(.body.weight(.semibold)).foregroundStyle(.black).frame(width:44,height:44).background(Theme.accent,in:Circle())
                 }.disabled(sending || friend == nil || draft.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
                     .opacity(draft.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty ? 0.5 : 1)
                     .accessibilityLabel("إرسال")
+                TextField("اكتب رسالة…",text:$draft,axis:.vertical)
+                    .lineLimit(1...5).focused($typing)
+                    .padding(.horizontal,14).padding(.vertical,11)
+                    .background(Color.white.opacity(0.07),in:RoundedRectangle(cornerRadius:22,style:.continuous))
+                    .onChange(of:draft) { _,value in if value.count > 500 { draft = String(value.prefix(500)) } }
             }
         }
         .padding(.horizontal,14).padding(.top,8).padding(.bottom,8)

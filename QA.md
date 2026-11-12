@@ -205,3 +205,7 @@ Automated checks cover download accounting, persistent account separation, progr
 ## 1.4.23
 
 - Friend page in Rany's own layout (not the website's): glass identity card like «حسابي» (54 pt avatar, name + badge, @username in the accent) with one trailing action — «إضافة», «مرسل» (menu: إلغاء الطلب), «طلب» (menu: قبول / رفض) or «صديق» (menu: إزالة with confirmation); details card with «مراسلة» for friends and قصة · فصل مقروء · صديق; «مكتبته» card with أقرأ حاليًا / المفضلة / القوائم tabs (list chips + «عرض القائمة كاملة»); آخر النشاط and أصدقاؤه cards only when they have entries. A private account shows «حساب خاص» only. No visible text mentions the website.
+
+## 1.4.24
+
+- Conversation: the send button sits on the right of the writing box (it leads the row, which is the right edge in Arabic); it keeps its 44 pt circle, dims while the box is empty, and the box still grows to five lines.
