@@ -197,3 +197,7 @@ Automated checks cover download accounting, persistent account separation, progr
 ## 1.4.21
 
 - Conversation: holding a message shows «نسخ» and copies its text; a message of up to three emoji shows large without a bubble; a shared story or chapter is a slim one-line card (36×50 cover, one-line title). The back button leaves the conversation and the messages page.
+
+## 1.4.22
+
+- Conversation: holding a message shows «رد», «نسخ» and, on your own, «حذف». Reply shows «الرد على …» above the writing box (× cancels) and the sent message carries a quote; tapping it scrolls to the original. Delete asks to confirm and removes the message for both friends; a reply to it then shows «رسالة محذوفة». Tapping the messages closes the keyboard; links and buttons inside messages still work.
