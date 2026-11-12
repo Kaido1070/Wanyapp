@@ -102,9 +102,9 @@ struct FriendsView: View {
     }
 }
 
-// Mirrors the website's friend page: the account card with the friendship action,
-// the reading numbers, the lists as cover tiles, what they read now, their recent
-// activity and their friends.
+// A friend's page laid out like the reader's own account page in Rany: the glass
+// identity card with the friendship action, a tools row with the numbers, then
+// their library with the same three tabs, recent activity and friends.
 struct PublicProfileView: View {
     @Environment(AppStore.self) private var store
     let id: String
@@ -113,22 +113,30 @@ struct PublicProfileView: View {
     @State private var busy=false
     @State private var actionError: String?
     @State private var confirmRemove=false
+    @State private var tab="reading"
+    @State private var listID=""
     private var profile: JSONValue { page.value["profile"] }
     private var access: String { profile["access"].string }
     private var relation: FriendRelation { FriendRelation(rawValue:relationOverride ?? profile["relationship"].string) ?? .none }
-    private var readingEntries: [JSONValue] { profile["library"].array.filter { $0["status"].string == "reading" } }
+    private var lists: [JSONValue] { profile["lists"].array }
+    private var keys: [String] {
+        switch tab {
+        case "favorites": return profile["favorites"].array.map(\.string)
+        case "lists": return lists.first { $0["id"].string == listID }?["previewItems"].array.map(\.string) ?? []
+        default: return profile["library"].array.filter { $0["status"].string == "reading" }.map { $0["mangaId"].string }
+        }
+    }
     var body: some View {
         WanyScroll {
-            if profile["user"].publicAccount != nil { identityCard }
+            if let account=profile["user"].publicAccount { identity(account) }
             if let actionError { Text(actionError).font(.caption).foregroundStyle(.orange) }
             if access == "private" {
                 EmptyState(icon:"lock",title:"حساب خاص",detail:"صاحب الحساب أخفى تفاصيله. تظهر لك بعد ما تصيرون أصدقاء.")
             } else if ["public","owner","friends"].contains(access) {
-                statistics
-                listsSection
-                readingSection
-                activitySection
-                if !profile["friends"].array.isEmpty { friendsSection }
+                details
+                library
+                if !profile["activity"].array.isEmpty { activity }
+                if !profile["friends"].array.isEmpty { friends }
             }
             if page.loading && profile["user"].publicAccount == nil { ProgressView() }
             if let error=page.error { Text(error).foregroundStyle(.orange); Button("إعادة المحاولة") { Task { await load() } } }
@@ -141,117 +149,106 @@ struct PublicProfileView: View {
             }
     }
 
-    // Avatar with the gold ring, name and badge, then the friend count and the action.
-    private var identityCard: some View {
+    // Same card as the reader's own: avatar, name with badge, @username in the
+    // accent, and one action on the trailing edge.
+    private func identity(_ account: Account) -> some View {
         HStack(spacing:12) {
-            if let account=profile["user"].publicAccount {
-                ProfileAvatar(user:account).frame(width:64,height:64)
-                    .overlay(Circle().stroke(Theme.accent,lineWidth:2))
-                    .shadow(color:Theme.accent.opacity(0.18),radius:10)
-                VStack(alignment:.leading,spacing:4) {
-                    HStack(spacing:4) { Text(account.name).font(.title3.weight(.semibold)).lineLimit(2).layoutPriority(1); AccountBadge(kind:account.badgeType) }
-                    if !account.username.isEmpty { Text("@"+account.username).font(.subheadline).foregroundStyle(.secondary).lineLimit(1) }
-                }
+            ProfileAvatar(user:account).frame(width:54,height:54)
+            VStack(alignment:.leading,spacing:4) {
+                HStack(spacing:2) { Text(account.name).font(.title3.weight(.semibold)).lineLimit(2).layoutPriority(1); AccountBadge(kind:account.badgeType) }
+                if !account.username.isEmpty { Text("@"+account.username).font(.subheadline).foregroundStyle(Theme.accent.opacity(0.85)).lineLimit(1) }
             }
-            Spacer(minLength:6)
-            VStack(alignment:.trailing,spacing:8) {
-                if access != "private" {
-                    HStack(spacing:4) { Text("\(Int(profile["stats"]["friends"].number))").font(.subheadline.bold()); Text("الأصدقاء").font(.caption2).foregroundStyle(.secondary) }
-                        .padding(.horizontal,10).frame(minHeight:32).ranyInsetGlass(radius:10)
-                }
-                if access != "owner" { relationButton }
-            }
+            Spacer(minLength:8)
+            if access != "owner" { relationAction.disabled(busy || !store.online) }
         }.frame(maxWidth:.infinity,alignment:.leading).card()
     }
-    @ViewBuilder private var relationButton: some View {
+    @ViewBuilder private var relationAction: some View {
         switch relation {
-        case .friends: pill("إزالة من الأصدقاء") { confirmRemove=true }
-        case .pending_sent: pill("إلغاء الطلب") { Task { await change("cancel") } }
+        case .friends:
+            Menu { Button("إزالة من الأصدقاء",role:.destructive) { confirmRemove=true } } label: { actionLabel("صديق","person.crop.circle.badge.checkmark") }
+        case .pending_sent:
+            Menu { Button("إلغاء الطلب",role:.destructive) { Task { await change("cancel") } } } label: { actionLabel("مرسل","clock") }
         case .pending_received:
-            HStack(spacing:6) { pill("رفض") { Task { await change("reject") } }; pill("قبول",primary:true) { Task { await change("accept") } } }
-        case .none: pill("إضافة صديق",primary:true) { Task { await change("add") } }
+            Menu { Button("قبول الطلب") { Task { await change("accept") } }; Button("رفض",role:.destructive) { Task { await change("reject") } } } label: { actionLabel("طلب","person.badge.clock") }
+        case .none:
+            Button { Task { await change("add") } } label: { actionLabel("إضافة","person.badge.plus") }.buttonStyle(.plain)
         }
     }
-    private func pill(_ title: String,primary: Bool = false,action: @escaping () -> Void) -> some View {
-        Button(action:action) {
-            Text(title).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
-                .foregroundStyle(primary ? Color.black : Color.primary)
-                .padding(.horizontal,12).frame(minHeight:44)
-                .background(primary ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.white.opacity(0.06)),in:Capsule())
-                .overlay(Capsule().stroke(Color.white.opacity(primary ? 0 : 0.12),lineWidth:1))
-        }.buttonStyle(.plain).disabled(busy || !store.online)
+    private func actionLabel(_ title: String,_ icon: String) -> some View {
+        VStack(spacing:5) {
+            Image(systemName:icon).font(.system(size:14,weight:.semibold))
+            Text(title).font(.caption2).lineLimit(1)
+        }.foregroundStyle(Theme.accent).frame(width:52,height:48).contentShape(Rectangle())
     }
 
-    // The same three numbers as the website.
-    private var statistics: some View {
-        HStack(spacing:0) {
-            metric("فصول مقروءة",profile["stats"]["chaptersRead"].number)
-            Divider().frame(height:40)
-            metric("قصص",profile["stats"]["works"].number)
-            Divider().frame(height:40)
-            metric("أقرأ الآن",profile["stats"]["reading"].number)
-        }.padding(.vertical,12).card()
-    }
-    private func metric(_ title: String,_ value: Double) -> some View {
-        VStack(spacing:6) { Text("\(Int(value))").font(RanyTypography.font(.title2).bold()).foregroundStyle(Theme.accent); Text(title).font(RanyTypography.font(.caption)).foregroundStyle(.secondary).lineLimit(1) }.frame(maxWidth:.infinity)
-    }
-
-    // Favorites and each list as a tile with a 2×2 cover collage.
-    private var listsSection: some View {
-        VStack(alignment:.leading,spacing:10) {
-            Text("القوائم").font(.title3.weight(.semibold))
-            ScrollView(.horizontal,showsIndicators:false) {
-                HStack(spacing:10) {
-                    tile(title:"المفضلة",icon:"bookmark",count:Int(profile["favoriteCount"].number),keys:profile["favorites"].array.map(\.string))
-                    ForEach(Array(profile["lists"].array.enumerated()),id:\.offset) { _,list in
-                        WanyLink(.listDetail(id:list["id"].string,title:list["name"].string)) {
-                            tile(title:list["name"].string,icon:ListIcons.symbol(list["iconKey"].string),count:Int(list["itemCount"].number),keys:list["previewItems"].array.map(\.string))
-                        }.buttonStyle(.plain)
-                    }
-                }.padding(.vertical,2)
+    // Tools row in the glass group, then the numbers, as on the reader's own page.
+    private var details: some View {
+        VStack(spacing:12) {
+            if relation == .friends {
+                HStack(spacing:6) {
+                    WanyLink(.conversation(id)) { tool("مراسلة","bubble.left.and.bubble.right") }
+                }.buttonStyle(.plain).ranyGlassGroup()
             }
-        }
+            HStack {
+                stat("قصة",profile["stats"]["works"].number)
+                Divider().frame(height:32)
+                stat("فصل مقروء",profile["stats"]["chaptersRead"].number)
+                Divider().frame(height:32)
+                stat("صديق",profile["stats"]["friends"].number)
+            }
+        }.card()
     }
-    private func tile(title: String,icon: String,count: Int,keys: [String]) -> some View {
-        let stories=keys.prefix(4).compactMap { store.stories[$0] }
-        return VStack(alignment:.leading,spacing:8) {
-            LazyVGrid(columns:[GridItem(.flexible(),spacing:3),GridItem(.flexible(),spacing:3)],spacing:3) {
-                ForEach(0..<4,id:\.self) { index in
-                    Group {
-                        if index < stories.count { CoverView(story:stories[index]) }
-                        else { Theme.surface.overlay(index == 0 && stories.isEmpty ? Image(systemName:"plus").foregroundStyle(.secondary) : nil) }
-                    }.frame(height:56).clipShape(RoundedRectangle(cornerRadius:6))
-                }
-            }.clipShape(RoundedRectangle(cornerRadius:10))
-            Label(title,systemImage:icon).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.accent).lineLimit(1)
-            Text("\(count) قصص").font(.caption2).foregroundStyle(.secondary)
-        }.padding(8).frame(width:150).ranyGlass(radius:16)
+    private func tool(_ title: String,_ icon: String) -> some View {
+        VStack(spacing:4) {
+            Image(systemName:icon).font(.system(size:15,weight:.medium))
+            Text(title).font(.caption2).lineLimit(1)
+        }.foregroundStyle(Theme.accent).frame(maxWidth:.infinity,minHeight:52).ranyInsetGlass(radius:10).contentShape(Rectangle())
+    }
+    private func stat(_ title: String,_ value: Double) -> some View {
+        VStack(spacing:6) { Text("\(Int(value))").font(RanyTypography.font(.title2).bold()).foregroundStyle(Theme.accent); Text(title).font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }.frame(maxWidth:.infinity)
     }
 
-    private var readingSection: some View {
-        VStack(alignment:.leading,spacing:10) {
-            Text("أقرأ الآن").font(.title3.weight(.semibold))
-            let stories=readingEntries.compactMap { store.stories[$0["mangaId"].string] }
-            if stories.isEmpty { emptyNote("ما بدأ قراءة أي قصة حتى الآن.") }
-            else { StoryGrid(stories:stories) }
-        }
+    // Their library with the same three tabs as «مكتبتي».
+    private var library: some View {
+        VStack(alignment:.leading,spacing:14) {
+            HStack { Text("مكتبته").font(.headline); Spacer(); Text("\(Int(profile["stats"]["works"].number)) قصة").font(.caption).foregroundStyle(.secondary) }
+            HStack(spacing:8) {
+                ForEach([("reading","أقرأ حاليًا"),("favorites","المفضلة"),("lists","القوائم")],id:\.0) { pair in
+                    Button { tab=pair.0 } label: { Text(pair.1).font(RanyTypography.font(.caption)).frame(maxWidth:.infinity,minHeight:44).background(tab == pair.0 ? Theme.accent.opacity(0.25) : Theme.surface.opacity(0.22),in:RoundedRectangle(cornerRadius:12)).contentShape(Rectangle()) }.buttonStyle(.plain)
+                }
+            }
+            if tab == "lists" {
+                if lists.isEmpty { Text("ما عنده قوائم بعد.").font(RanyTypography.font(.subheadline)).foregroundStyle(.secondary) }
+                else {
+                    ScrollView(.horizontal,showsIndicators:false) {
+                        HStack(spacing:12) {
+                            ForEach(Array(lists.enumerated()),id:\.offset) { _,list in
+                                Button { listID=list["id"].string } label: { Label(list["name"].string,systemImage:ListIcons.symbol(list["iconKey"].string)).font(RanyTypography.font(.subheadline)).padding(.horizontal,16).frame(minHeight:48).background(listID == list["id"].string ? Theme.accent.opacity(0.25) : Theme.surface.opacity(0.22),in:Capsule()).contentShape(Capsule()) }.buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    if let list=lists.first(where:{ $0["id"].string == listID }) {
+                        WanyLink(.listDetail(id:listID,title:list["name"].string)) { Label("عرض القائمة كاملة",systemImage:"chevron.left").font(.caption).frame(minHeight:44) }
+                    }
+                }
+            }
+            if !keys.isEmpty { StoryGrid(stories:keys.compactMap { store.stories[$0] }) }
+            else if tab != "lists" || !lists.isEmpty {
+                EmptyState(icon:"books.vertical",title:"لا توجد قصص هنا",detail:tab == "reading" ? "ما بدأ قراءة قصة حتى الآن." : "القسم فاضي حاليًا.")
+            }
+        }.card()
     }
-    private var activitySection: some View {
+    private var activity: some View {
         VStack(alignment:.leading,spacing:10) {
-            Text("آخر النشاط").font(.title3.weight(.semibold))
-            if profile["activity"].array.isEmpty { emptyNote("لا يوجد نشاط حتى الآن.") }
+            Text("آخر النشاط").font(.headline)
             ForEach(Array(profile["activity"].array.enumerated()),id:\.offset) { _,event in ActivityEventRow(event:event) }
-        }
+        }.card()
     }
-    private var friendsSection: some View {
+    private var friends: some View {
         VStack(alignment:.leading,spacing:10) {
-            Text("الأصدقاء").font(.title3.weight(.semibold))
-            ForEach(Array(profile["friends"].array.enumerated()),id:\.offset) { _,user in WanyLink(.publicProfile(user["id"].string)) { PublicAccountIdentity(user:user).foregroundStyle(.primary).card() } }
-        }
-    }
-    private func emptyNote(_ text: String) -> some View {
-        Text(text).font(.subheadline).foregroundStyle(.secondary).frame(maxWidth:.infinity,alignment:.leading)
-            .padding(16).overlay(RoundedRectangle(cornerRadius:16).strokeBorder(style:StrokeStyle(lineWidth:1,dash:[5,4])).foregroundStyle(Color.white.opacity(0.14)))
+            Text("أصدقاؤه").font(.headline)
+            ForEach(Array(profile["friends"].array.enumerated()),id:\.offset) { _,user in WanyLink(.publicProfile(user["id"].string)) { PublicAccountIdentity(user:user).foregroundStyle(.primary).padding(.vertical,4) } }
+        }.card()
     }
 
     private func change(_ operation: String) async {
@@ -274,8 +271,9 @@ struct PublicProfileView: View {
     private func load() async {
         await page.load("/api/profiles/"+apiComponent(id),store:store)
         relationOverride=nil
+        if !lists.contains(where:{ $0["id"].string == listID }) { listID=lists.first?["id"].string ?? "" }
         guard ["public","owner","friends"].contains(access) else { return }
-        var keys=profile["favorites"].array.map(\.string)+profile["lists"].array.flatMap { $0["previewItems"].array.map(\.string) }
+        var keys=profile["favorites"].array.map(\.string)+lists.flatMap { $0["previewItems"].array.map(\.string) }
         keys += profile["library"].array.map { $0["mangaId"].string }; keys += profile["activity"].array.map { $0["mangaId"].string }
         await store.resolveMetadata(keys)
     }

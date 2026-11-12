@@ -204,4 +204,4 @@ Automated checks cover download accounting, persistent account separation, progr
 
 ## 1.4.23
 
-- Friend page matches the website: account card (64 pt avatar with a gold ring, name, badge, @username, friend count, friendship action: إضافة صديق / إلغاء الطلب / قبول and رفض / إزالة من الأصدقاء with confirmation), then فصول مقروءة · قصص · أقرأ الآن, القوائم as horizontal cover tiles (المفضلة first, each list opens), أقرأ الآن, آخر النشاط and الأصدقاء. A private account shows «حساب خاص» only. Empty sections show a dashed note instead of disappearing.
+- Friend page in Rany's own layout (not the website's): glass identity card like «حسابي» (54 pt avatar, name + badge, @username in the accent) with one trailing action — «إضافة», «مرسل» (menu: إلغاء الطلب), «طلب» (menu: قبول / رفض) or «صديق» (menu: إزالة with confirmation); details card with «مراسلة» for friends and قصة · فصل مقروء · صديق; «مكتبته» card with أقرأ حاليًا / المفضلة / القوائم tabs (list chips + «عرض القائمة كاملة»); آخر النشاط and أصدقاؤه cards only when they have entries. A private account shows «حساب خاص» only. No visible text mentions the website.
