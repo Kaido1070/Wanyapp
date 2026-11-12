@@ -102,70 +102,181 @@ struct FriendsView: View {
     }
 }
 
+// Mirrors the website's friend page: the account card with the friendship action,
+// the reading numbers, the lists as cover tiles, what they read now, their recent
+// activity and their friends.
 struct PublicProfileView: View {
     @Environment(AppStore.self) private var store
     let id: String
     @StateObject private var page=CachedPage()
+    @State private var relationOverride: String?
+    @State private var busy=false
+    @State private var actionError: String?
+    @State private var confirmRemove=false
     private var profile: JSONValue { page.value["profile"] }
-    private var publicAccess: Bool { ["public","owner"].contains(profile["access"].string) }
+    private var access: String { profile["access"].string }
+    private var relation: FriendRelation { FriendRelation(rawValue:relationOverride ?? profile["relationship"].string) ?? .none }
+    private var readingEntries: [JSONValue] { profile["library"].array.filter { $0["status"].string == "reading" } }
     var body: some View {
         WanyScroll {
-            PublicAccountIdentity(user:profile["user"],large:true)
-            if profile["access"].string == "private" { EmptyState(icon:"lock",title:"حساب خاص",detail:"صاحب الحساب أخفى تفاصيله. لا تسمح الصداقة وحدها بعرض سجل القراءة.") }
-            else if ["public","owner","friends"].contains(profile["access"].string) {
-                if publicAccess { statistics; reading; activity; friends }
-                ForEach(Array(profile["sections"].array.enumerated()),id:\.offset) { _,section in
-                    if section["type"].string == "favorites" { favorites }
-                    else if section["type"].string == "list",let list=profile["lists"].array.first(where:{$0["id"].string == section["referenceId"].string}) { listSection(list) }
-                }
-                if profile["sections"].array.isEmpty { favorites; ForEach(Array(profile["lists"].array.enumerated()),id:\.offset) { _,list in listSection(list) } }
-                if !publicAccess { Label("نشاط القراءة والإحصائيات والأصدقاء غير متاحة في هذا الملف",systemImage:"lock").font(.caption).foregroundStyle(.secondary) }
+            if profile["user"].publicAccount != nil { identityCard }
+            if let actionError { Text(actionError).font(.caption).foregroundStyle(.orange) }
+            if access == "private" {
+                EmptyState(icon:"lock",title:"حساب خاص",detail:"صاحب الحساب أخفى تفاصيله. تظهر لك بعد ما تصيرون أصدقاء.")
+            } else if ["public","owner","friends"].contains(access) {
+                statistics
+                listsSection
+                readingSection
+                activitySection
+                if !profile["friends"].array.isEmpty { friendsSection }
             }
-            if page.loading { ProgressView() }
+            if page.loading && profile["user"].publicAccount == nil { ProgressView() }
             if let error=page.error { Text(error).foregroundStyle(.orange); Button("إعادة المحاولة") { Task { await load() } } }
             if !store.online { Text("تحتاج الملفات العامة اتصالًا للتحقق من صلاحية عرضها.").font(.caption).foregroundStyle(.secondary) }
         }.task(id:store.state?.user.id) { await load() }.refreshable { await load() }
             .onReceive(NotificationCenter.default.publisher(for:.ranyRelationshipsChanged)) { _ in Task { await load() } }
+            .confirmationDialog("إزالة من الأصدقاء؟",isPresented:$confirmRemove,titleVisibility:.visible) {
+                Button("إزالة",role:.destructive) { Task { await change("remove") } }
+                Button("إلغاء",role:.cancel) {}
+            }
     }
-    private var favorites: some View { VStack(alignment:.leading,spacing:12) { Text("المفضلة").font(.headline); StoryGrid(stories:profile["favorites"].array.compactMap { store.stories[$0.string] }) } }
-    private var statistics: some View {
-        VStack(alignment:.leading,spacing:12) {
-            Text("الإحصائيات العامة").font(.headline)
-            LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible()),GridItem(.flexible())]) {
-                ForEach([("works","قصة"),("chaptersRead","فصل"),("reading","أقرأ الآن"),("lists","قائمة"),("friends","صديق")],id:\.0) { field in
-                    VStack { Text("\(Int(profile["stats"][field.0].number))").font(.title3.bold()).foregroundStyle(Theme.accent); Text(field.1).font(.caption) }
+
+    // Avatar with the gold ring, name and badge, then the friend count and the action.
+    private var identityCard: some View {
+        HStack(spacing:12) {
+            if let account=profile["user"].publicAccount {
+                ProfileAvatar(user:account).frame(width:64,height:64)
+                    .overlay(Circle().stroke(Theme.accent,lineWidth:2))
+                    .shadow(color:Theme.accent.opacity(0.18),radius:10)
+                VStack(alignment:.leading,spacing:4) {
+                    HStack(spacing:4) { Text(account.name).font(.title3.weight(.semibold)).lineLimit(2).layoutPriority(1); AccountBadge(kind:account.badgeType) }
+                    if !account.username.isEmpty { Text("@"+account.username).font(.subheadline).foregroundStyle(.secondary).lineLimit(1) }
                 }
             }
-        }.card()
+            Spacer(minLength:6)
+            VStack(alignment:.trailing,spacing:8) {
+                if access != "private" {
+                    HStack(spacing:4) { Text("\(Int(profile["stats"]["friends"].number))").font(.subheadline.bold()); Text("الأصدقاء").font(.caption2).foregroundStyle(.secondary) }
+                        .padding(.horizontal,10).frame(minHeight:32).ranyInsetGlass(radius:10)
+                }
+                if access != "owner" { relationButton }
+            }
+        }.frame(maxWidth:.infinity,alignment:.leading).card()
     }
-    private var reading: some View {
-        VStack(alignment:.leading,spacing:12) { Text("أقرأ الآن").font(.headline); StoryGrid(stories:profile["library"].array.compactMap { store.stories[$0["mangaId"].string] }) }
+    @ViewBuilder private var relationButton: some View {
+        switch relation {
+        case .friends: pill("إزالة من الأصدقاء") { confirmRemove=true }
+        case .pending_sent: pill("إلغاء الطلب") { Task { await change("cancel") } }
+        case .pending_received:
+            HStack(spacing:6) { pill("رفض") { Task { await change("reject") } }; pill("قبول",primary:true) { Task { await change("accept") } } }
+        case .none: pill("إضافة صديق",primary:true) { Task { await change("add") } }
+        }
     }
-    private var activity: some View {
-        VStack(alignment:.leading,spacing:12) {
-            Text("النشاط المسموح بمشاهدته").font(.headline)
+    private func pill(_ title: String,primary: Bool = false,action: @escaping () -> Void) -> some View {
+        Button(action:action) {
+            Text(title).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
+                .foregroundStyle(primary ? Color.black : Color.primary)
+                .padding(.horizontal,12).frame(minHeight:44)
+                .background(primary ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.white.opacity(0.06)),in:Capsule())
+                .overlay(Capsule().stroke(Color.white.opacity(primary ? 0 : 0.12),lineWidth:1))
+        }.buttonStyle(.plain).disabled(busy || !store.online)
+    }
+
+    // The same three numbers as the website.
+    private var statistics: some View {
+        HStack(spacing:0) {
+            metric("فصول مقروءة",profile["stats"]["chaptersRead"].number)
+            Divider().frame(height:40)
+            metric("قصص",profile["stats"]["works"].number)
+            Divider().frame(height:40)
+            metric("أقرأ الآن",profile["stats"]["reading"].number)
+        }.padding(.vertical,12).card()
+    }
+    private func metric(_ title: String,_ value: Double) -> some View {
+        VStack(spacing:6) { Text("\(Int(value))").font(RanyTypography.font(.title2).bold()).foregroundStyle(Theme.accent); Text(title).font(RanyTypography.font(.caption)).foregroundStyle(.secondary).lineLimit(1) }.frame(maxWidth:.infinity)
+    }
+
+    // Favorites and each list as a tile with a 2×2 cover collage.
+    private var listsSection: some View {
+        VStack(alignment:.leading,spacing:10) {
+            Text("القوائم").font(.title3.weight(.semibold))
+            ScrollView(.horizontal,showsIndicators:false) {
+                HStack(spacing:10) {
+                    tile(title:"المفضلة",icon:"bookmark",count:Int(profile["favoriteCount"].number),keys:profile["favorites"].array.map(\.string))
+                    ForEach(Array(profile["lists"].array.enumerated()),id:\.offset) { _,list in
+                        WanyLink(.listDetail(id:list["id"].string,title:list["name"].string)) {
+                            tile(title:list["name"].string,icon:ListIcons.symbol(list["iconKey"].string),count:Int(list["itemCount"].number),keys:list["previewItems"].array.map(\.string))
+                        }.buttonStyle(.plain)
+                    }
+                }.padding(.vertical,2)
+            }
+        }
+    }
+    private func tile(title: String,icon: String,count: Int,keys: [String]) -> some View {
+        let stories=keys.prefix(4).compactMap { store.stories[$0] }
+        return VStack(alignment:.leading,spacing:8) {
+            LazyVGrid(columns:[GridItem(.flexible(),spacing:3),GridItem(.flexible(),spacing:3)],spacing:3) {
+                ForEach(0..<4,id:\.self) { index in
+                    Group {
+                        if index < stories.count { CoverView(story:stories[index]) }
+                        else { Theme.surface.overlay(index == 0 && stories.isEmpty ? Image(systemName:"plus").foregroundStyle(.secondary) : nil) }
+                    }.frame(height:56).clipShape(RoundedRectangle(cornerRadius:6))
+                }
+            }.clipShape(RoundedRectangle(cornerRadius:10))
+            Label(title,systemImage:icon).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.accent).lineLimit(1)
+            Text("\(count) قصص").font(.caption2).foregroundStyle(.secondary)
+        }.padding(8).frame(width:150).ranyGlass(radius:16)
+    }
+
+    private var readingSection: some View {
+        VStack(alignment:.leading,spacing:10) {
+            Text("أقرأ الآن").font(.title3.weight(.semibold))
+            let stories=readingEntries.compactMap { store.stories[$0["mangaId"].string] }
+            if stories.isEmpty { emptyNote("ما بدأ قراءة أي قصة حتى الآن.") }
+            else { StoryGrid(stories:stories) }
+        }
+    }
+    private var activitySection: some View {
+        VStack(alignment:.leading,spacing:10) {
+            Text("آخر النشاط").font(.title3.weight(.semibold))
+            if profile["activity"].array.isEmpty { emptyNote("لا يوجد نشاط حتى الآن.") }
             ForEach(Array(profile["activity"].array.enumerated()),id:\.offset) { _,event in ActivityEventRow(event:event) }
         }
     }
-    private var friends: some View {
-        VStack(alignment:.leading,spacing:12) {
-            Text("الأصدقاء").font(.headline)
+    private var friendsSection: some View {
+        VStack(alignment:.leading,spacing:10) {
+            Text("الأصدقاء").font(.title3.weight(.semibold))
             ForEach(Array(profile["friends"].array.enumerated()),id:\.offset) { _,user in WanyLink(.publicProfile(user["id"].string)) { PublicAccountIdentity(user:user).foregroundStyle(.primary).card() } }
         }
     }
-    private func listSection(_ list: JSONValue) -> some View {
-        VStack(alignment:.leading,spacing:10) {
-            WanyLink(.listDetail(id:list["id"].string,title:list["name"].string)) { Label(list["name"].string,systemImage:ListIcons.symbol(list["iconKey"].string)).foregroundStyle(.primary) }
-            if !list["description"].string.isEmpty { Text(list["description"].string).font(.caption).foregroundStyle(.secondary) }
-            StoryGrid(stories:list["previewItems"].array.compactMap { store.stories[$0.string] })
-        }.card()
+    private func emptyNote(_ text: String) -> some View {
+        Text(text).font(.subheadline).foregroundStyle(.secondary).frame(maxWidth:.infinity,alignment:.leading)
+            .padding(16).overlay(RoundedRectangle(cornerRadius:16).strokeBorder(style:StrokeStyle(lineWidth:1,dash:[5,4])).foregroundStyle(Color.white.opacity(0.14)))
+    }
+
+    private func change(_ operation: String) async {
+        guard !busy,let owner=store.state?.user.id else { return }
+        busy=true; actionError=nil; defer { busy=false }
+        do {
+            let path: String,method: String
+            switch operation {
+            case "add":path="/api/friends"; method="POST"
+            case "accept","reject":path="/api/friends/requests/"+apiComponent(id)+"/"+operation; method="POST"
+            case "cancel":path="/api/friends/requests/"+apiComponent(id); method="DELETE"
+            default:path="/api/friends/"+apiComponent(id); method="DELETE"
+            }
+            let response=try await API.shared.getMutation(path,value:["userId":id],method:method)
+            guard store.state?.user.id == owner else { return }
+            relationOverride=response["relationship"].string.isEmpty ? (operation == "accept" ? "friends" : (operation == "add" ? "pending_sent" : "none")) : response["relationship"].string
+            NotificationCenter.default.post(name:.ranyRelationshipsChanged,object:owner)
+        } catch { store.report(error); actionError=error.localizedDescription }
     }
     private func load() async {
         await page.load("/api/profiles/"+apiComponent(id),store:store)
-        let accessible=profile["access"].string
-        guard ["public","owner","friends"].contains(accessible) else { return }
+        relationOverride=nil
+        guard ["public","owner","friends"].contains(access) else { return }
         var keys=profile["favorites"].array.map(\.string)+profile["lists"].array.flatMap { $0["previewItems"].array.map(\.string) }
-        if publicAccess { keys += profile["library"].array.map { $0["mangaId"].string }; keys += profile["activity"].array.map { $0["mangaId"].string } }
+        keys += profile["library"].array.map { $0["mangaId"].string }; keys += profile["activity"].array.map { $0["mangaId"].string }
         await store.resolveMetadata(keys)
     }
 }

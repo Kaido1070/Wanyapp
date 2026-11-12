@@ -201,3 +201,7 @@ Automated checks cover download accounting, persistent account separation, progr
 ## 1.4.22
 
 - Conversation: holding a message shows «رد», «نسخ» and, on your own, «حذف». Reply shows «الرد على …» above the writing box (× cancels) and the sent message carries a quote; tapping it scrolls to the original. Delete asks to confirm and removes the message for both friends; a reply to it then shows «رسالة محذوفة». Tapping the messages closes the keyboard; links and buttons inside messages still work.
+
+## 1.4.23
+
+- Friend page matches the website: account card (64 pt avatar with a gold ring, name, badge, @username, friend count, friendship action: إضافة صديق / إلغاء الطلب / قبول and رفض / إزالة من الأصدقاء with confirmation), then فصول مقروءة · قصص · أقرأ الآن, القوائم as horizontal cover tiles (المفضلة first, each list opens), أقرأ الآن, آخر النشاط and الأصدقاء. A private account shows «حساب خاص» only. Empty sections show a dashed note instead of disappearing.
