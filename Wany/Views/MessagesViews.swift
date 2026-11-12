@@ -4,6 +4,24 @@ import SwiftUI
 // the unread count arrives with the account refresh, and a conversation is read
 // when it is opened, pulled down, or the app comes back to the foreground.
 
+// The message a reply answers, as a short preview; a deleted original keeps
+// only its id.
+struct ChatReply: Equatable {
+    let id: Int
+    let deleted: Bool
+    let mine: Bool
+    let body: String
+    let mangaId: String?
+    init(_ value: JSONValue) {
+        id = Int(value["id"].number)
+        deleted = value["deleted"].boolean
+        mine = value["mine"].boolean
+        body = value["body"].string
+        mangaId = value["mangaId"].string.isEmpty ? nil : value["mangaId"].string
+    }
+    init(deletedID: Int) { id = deletedID; deleted = true; mine = false; body = ""; mangaId = nil }
+}
+
 struct ChatMessage: Identifiable, Equatable {
     let id: Int
     let mine: Bool
@@ -11,6 +29,7 @@ struct ChatMessage: Identifiable, Equatable {
     let mangaId: String?
     let chapter: Double?
     let createdAt: Double
+    var replyTo: ChatReply?
     init(_ value: JSONValue) {
         id = Int(value["id"].number)
         mine = value["mine"].boolean
@@ -18,6 +37,7 @@ struct ChatMessage: Identifiable, Equatable {
         mangaId = value["mangaId"].string.isEmpty ? nil : value["mangaId"].string
         if case .number(let number) = value["chapter"] { chapter = number } else { chapter = nil }
         createdAt = value["createdAt"].number
+        if case .object = value["replyTo"] { replyTo = ChatReply(value["replyTo"]) } else { replyTo = nil }
     }
 }
 
@@ -144,6 +164,8 @@ struct ConversationView: View {
     @State private var error: String?
     @State private var lastLoad = Date.distantPast
     @FocusState private var typing: Bool
+    @State private var replying: ChatMessage?
+    @State private var deleting: ChatMessage?
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -164,9 +186,16 @@ struct ConversationView: View {
                             Text(ChatTime.dayText(message.createdAt)).font(.caption2).foregroundStyle(.secondary)
                                 .padding(.horizontal,12).padding(.vertical,4).background(Theme.surface,in:Capsule()).padding(.top,14).padding(.bottom,6)
                         }
-                        ChatBubble(message:message).padding(.top,grouped ? 3 : 10).id(message.id)
+                        ChatBubble(message:message,friendName:friend?.name ?? "",
+                                   reply:{ replying = $0; typing = true },
+                                   delete:{ deleting = $0 },
+                                   jump:{ id in withAnimation { proxy.scrollTo(id,anchor:.center) } })
+                            .padding(.top,grouped ? 3 : 10).id(message.id)
                     }
                 }.padding(.horizontal,14).padding(.vertical,10)
+                // Tapping the messages puts the keyboard away; buttons and links still work.
+                .contentShape(Rectangle())
+                .onTapGesture { typing = false }
             }
             .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)
@@ -186,6 +215,10 @@ struct ConversationView: View {
                 } else { Text("المحادثة") }
             }
         }
+        .confirmationDialog("حذف الرسالة؟",isPresented:Binding(get:{ deleting != nil },set:{ if !$0 { deleting = nil } }),titleVisibility:.visible,presenting:deleting) { message in
+            Button("حذف عند الطرفين",role:.destructive) { Task { await remove(message) } }
+            Button("إلغاء",role:.cancel) {}
+        } message: { _ in Text("تنحذف الرسالة عندك وعند صديقك.") }
         .task(id:friendID) { await load() }
         .refreshable { await load() }
         .onChange(of:phase) { _,value in if value == .active, Date().timeIntervalSince(lastLoad) > 15 { Task { await load() } } }
@@ -193,6 +226,18 @@ struct ConversationView: View {
     private var composer: some View {
         VStack(spacing:6) {
             if let error { Text(error).font(.caption).foregroundStyle(.orange).frame(maxWidth:.infinity,alignment:.leading) }
+            if let replying {
+                HStack(spacing:8) {
+                    RoundedRectangle(cornerRadius:2).fill(Theme.accent).frame(width:3)
+                    VStack(alignment:.leading,spacing:1) {
+                        Text("الرد على \(replying.mine ? "رسالتك" : (friend?.name ?? ""))").font(.caption.weight(.semibold)).foregroundStyle(Theme.accent)
+                        Text(replySnippet(body:replying.body,mangaId:replying.mangaId)).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer(minLength:0)
+                    Button { self.replying = nil } label: { Image(systemName:"xmark").font(.footnote.weight(.semibold)).frame(width:44,height:44) }
+                        .accessibilityLabel("إلغاء الرد")
+                }.frame(height:44).padding(.leading,8).background(Color.white.opacity(0.05),in:RoundedRectangle(cornerRadius:10))
+            }
             HStack(alignment:.bottom,spacing:8) {
                 TextField("اكتب رسالة…",text:$draft,axis:.vertical)
                     .lineLimit(1...5).focused($typing)
@@ -244,9 +289,32 @@ struct ConversationView: View {
         guard !text.isEmpty, !sending else { return }
         sending = true; defer { sending = false }
         do {
-            let value = try await API.shared.getMutation("/api/messages",value:["to":friendID,"body":text])
+            var input: [String:JSONValue] = ["to":.string(friendID),"body":.string(text)]
+            if let replying { input["replyTo"] = .number(Double(replying.id)) }
+            let value = try await API.shared.getMutation("/api/messages",value:input)
             messages.append(ChatMessage(value["message"]))
-            draft = ""; error = nil
+            draft = ""; replying = nil; error = nil
+        } catch { if !isRequestCancellation(error) { self.error = error.localizedDescription } }
+    }
+}
+
+private func replySnippet(body: String, mangaId: String?) -> String {
+    body.isEmpty ? (mangaId == nil ? "رسالة" : "قصة مشاركة") : body
+}
+
+extension ConversationView {
+    // Senders delete their own messages for both friends; replies to it then
+    // show it as deleted.
+    fileprivate func remove(_ message: ChatMessage) async {
+        do {
+            _ = try await API.shared.raw("/api/messages/\(message.id)",method:"DELETE")
+            messages = messages.filter { $0.id != message.id }.map { item in
+                var item = item
+                if item.replyTo?.id == message.id { item.replyTo = ChatReply(deletedID:message.id) }
+                return item
+            }
+            if replying?.id == message.id { replying = nil }
+            error = nil
         } catch { if !isRequestCancellation(error) { self.error = error.localizedDescription } }
     }
 }
@@ -254,9 +322,14 @@ struct ConversationView: View {
 private struct ChatBubble: View {
     @Environment(AppStore.self) private var store
     let message: ChatMessage
+    var friendName = ""
+    var reply: (ChatMessage) -> Void = { _ in }
+    var delete: (ChatMessage) -> Void = { _ in }
+    var jump: (Int) -> Void = { _ in }
     var body: some View {
-        let big = message.mangaId == nil && isEmojiOnly(message.body)
+        let big = message.mangaId == nil && message.replyTo == nil && isEmojiOnly(message.body)
         VStack(alignment:.leading,spacing:5) {
+            if let quoted = message.replyTo { quote(quoted) }
             if let key = message.mangaId { sharedWork(key) }
             if !message.body.isEmpty { Text(message.body).font(big ? .system(size:40) : .body).fixedSize(horizontal:false,vertical:true) }
             Text(ChatTime.clockText(message.createdAt)).font(.caption2).foregroundStyle(.secondary).frame(maxWidth:.infinity,alignment:.trailing)
@@ -265,14 +338,34 @@ private struct ChatBubble: View {
         .frame(minWidth:big ? 0 : 76,alignment:.leading)
         .background(big ? Color.clear : (message.mine ? Theme.accent.opacity(0.16) : Theme.surface),in:RoundedRectangle(cornerRadius:18,style:.continuous))
         .overlay(RoundedRectangle(cornerRadius:18,style:.continuous).stroke(big ? Color.clear : (message.mine ? Theme.accent.opacity(0.28) : Color.white.opacity(0.08)),lineWidth:1))
-        // Holding a message offers «نسخ», like any chat app.
+        // Holding a message offers reply, copy and, for your own, delete: the
+        // standard iOS menu, so it looks and feels like the rest of the phone.
         .contextMenu {
+            Button("رد",systemImage:"arrowshape.turn.up.left") { reply(message) }
             if !message.body.isEmpty {
                 Button("نسخ",systemImage:"doc.on.doc") { UIPasteboard.general.string = message.body }
+            }
+            if message.mine {
+                Button("حذف",systemImage:"trash",role:.destructive) { delete(message) }
             }
         }
         .frame(maxWidth:320,alignment:message.mine ? .trailing : .leading)
         .frame(maxWidth:.infinity,alignment:message.mine ? .trailing : .leading)
+    }
+    private func quote(_ quoted: ChatReply) -> some View {
+        Button { if !quoted.deleted { jump(quoted.id) } } label: {
+            HStack(spacing:7) {
+                RoundedRectangle(cornerRadius:2).fill(Theme.accent).frame(width:3)
+                VStack(alignment:.leading,spacing:1) {
+                    if quoted.deleted { Text("رسالة محذوفة").font(.caption).foregroundStyle(.secondary) }
+                    else {
+                        Text(quoted.mine ? "أنت" : friendName).font(.caption.weight(.semibold)).foregroundStyle(Theme.accent)
+                        Text(replySnippet(body:quoted.body,mangaId:quoted.mangaId)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                Spacer(minLength:0)
+            }.padding(.vertical,5).padding(.trailing,8).frame(maxWidth:240).background(Color.black.opacity(0.22),in:RoundedRectangle(cornerRadius:8))
+        }.buttonStyle(.plain).disabled(quoted.deleted)
     }
     @ViewBuilder private func sharedWork(_ key: String) -> some View {
         let story = store.stories[key] ?? placeholderStory(key)

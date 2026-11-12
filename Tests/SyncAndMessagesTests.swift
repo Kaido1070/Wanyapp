@@ -49,6 +49,16 @@ import XCTest
         XCTAssertNil(plain.mangaId); XCTAssertNil(plain.chapter)
     }
 
+    func testRepliesParseWithTheirPreview() throws {
+        let reply = ChatMessage(try JSONDecoder().decode(JSONValue.self,from:Data(#"{"id":9,"mine":false,"body":"ايه","mangaId":null,"chapter":null,"createdAt":2,"replyTo":{"id":7,"mine":true,"body":"شفت الفصل؟","mangaId":"tx:a"}}"#.utf8)))
+        XCTAssertEqual(reply.replyTo?.id,7); XCTAssertEqual(reply.replyTo?.mine,true); XCTAssertEqual(reply.replyTo?.body,"شفت الفصل؟")
+        XCTAssertEqual(reply.replyTo?.mangaId,"tx:a"); XCTAssertEqual(reply.replyTo?.deleted,false)
+        let gone = ChatMessage(try JSONDecoder().decode(JSONValue.self,from:Data(#"{"id":10,"mine":true,"body":"x","createdAt":3,"replyTo":{"id":8,"deleted":true}}"#.utf8)))
+        XCTAssertEqual(gone.replyTo?.deleted,true); XCTAssertEqual(gone.replyTo?.body,"")
+        let plain = ChatMessage(try JSONDecoder().decode(JSONValue.self,from:Data(#"{"id":11,"mine":true,"body":"y","createdAt":4,"replyTo":null}"#.utf8)))
+        XCTAssertNil(plain.replyTo)
+    }
+
     func testEmojiOnlyMessagesShowLarge() {
         for text in ["🔥","🔥🔥"," 😂😂😂 ","👍🏽","❤️","👨‍👩‍👧"] { XCTAssertTrue(isEmojiOnly(text),text) }
         for text in ["","1","تمام 🔥","🔥🔥🔥🔥","hi","#"] { XCTAssertFalse(isEmojiOnly(text),text) }
