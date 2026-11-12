@@ -184,3 +184,12 @@ Automated checks cover download accounting, persistent account separation, progr
 - Heavy history (thousands of completed chapters): opening a chapter of a long story, scrolling its chapter list and the profile cards stay smooth; «مقروء», percentages and «وصلت للفصل» match 1.4.18.
 - Download a whole long story while reading another: saved downloads start at most 1000 images per 5 minutes; reading pages keep loading. If the server answers 429 to a saved download, it pauses for five minutes and resumes by itself without counting the attempt.
 - While the reader is open, account saves are gathered every four seconds; leaving the reader or the app saves at once.
+
+## 1.4.20
+
+- Changes-only sync: after the first refresh, /api/data is requested with `since` and returns only changed progress; progress, «مقروء» marks, favorites and the library match a fresh install of the same account. Marking a chapter unread forces one full read. Accounts saved by 1.4.19 load and do a full read first.
+- Messages: حسابي › الرسائل lists conversations (unread count, last message) and friends to start one; the account tab shows the unread count. A conversation opens at the newest message, the writing box stays at the bottom and above the keyboard, «عرض رسائل أقدم» keeps the place, day separators and grouped bubbles show, a shared story or chapter card opens it.
+- Sharing: «مشاركة» beside «الفصول» on a story page (actions wrap under the heading on narrow phones) and «مشاركة الفصل مع صديق» in the reader menu send to a chosen friend with an optional note.
+- The screen does not sleep while the reader is open and sleeps normally after leaving it.
+- When the server reports the reduced-image allowance used up, one notice appears per month; pages keep loading at full size.
+- An archived cover is uploaded only when the saved image came from the exact cover address being archived.

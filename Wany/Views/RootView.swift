@@ -22,6 +22,8 @@ struct RootView: View {
                         }
                         .environment(\.ranyInsideSettings,tabs.paths[tab]?.contains(.settings) == true)
                         .tabItem { Label(tab.label,systemImage:tab.icon) }
+                        // Unread messages show on the account tab, where they are opened.
+                        .badge(tab == .profile ? store.unreadMessages : 0)
                         .tag(tab)
                     }
                 }

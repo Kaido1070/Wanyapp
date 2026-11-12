@@ -11,6 +11,8 @@ enum RanyRoute: Hashable {
     case publicProfile(String)
     case settings, stats, friends, activity, updates, avatarPicker, lists, accountSecurity
     case securityPassword, securityQuestion, securityRecovery
+    case messages
+    case conversation(String)
 }
 struct RanyDestination: View {
     let route: RanyRoute
@@ -32,6 +34,8 @@ struct RanyDestination: View {
         case .securityPassword: SecurityPasswordView()
         case .securityQuestion: SecurityQuestionView()
         case .securityRecovery: SecurityRecoveryView()
+        case .messages: MessagesView()
+        case .conversation(let id): ConversationView(friendID:id)
         }
     }
 }

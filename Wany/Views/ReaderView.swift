@@ -20,6 +20,7 @@ struct ReaderView: View {
     @State private var activeChapter: Chapter?
     @State private var choosingChapter = false
     @State private var choosingQuality = false
+    @State private var sharing = false
     @State private var confirmQualityReload = false
     @State private var chapterQuery = ""
     @State private var headerHeight: CGFloat = 160
@@ -72,6 +73,7 @@ struct ReaderView: View {
                             Menu {
                                 Button("جودة الصور: \(downloads.quality.label)",systemImage:"photo.badge.checkmark") { choosingQuality=true }
                                 Button("إعادة تحميل الصور الناقصة",systemImage:"arrow.clockwise") { downloads.retryChapter(payload) }.disabled(!store.online)
+                                Button("مشاركة الفصل مع صديق",systemImage:"paperplane") { sharing = true }.disabled(!store.online)
                             } label: {
                                 Image(systemName:"slider.horizontal.3").frame(width:44,height:44).contentShape(Rectangle())
                             }.menuActionDismissBehavior(.enabled).accessibilityLabel("جودة الصور وإعادة التحميل")
@@ -97,6 +99,7 @@ struct ReaderView: View {
         .background(RanyInteractivePop())
         .sheet(isPresented:$choosingChapter) { chapterPicker }
         .sheet(isPresented:$choosingQuality) { qualitySettings }
+        .sheet(isPresented:$sharing) { ShareWithFriendSheet(story:payload?.item ?? story,chapter:readingChapter.number).environment(store) }
         .confirmationDialog("هل قرأت الفصول السابقة؟",isPresented:$catchupPrompt,titleVisibility:.visible) {
             Button("تعليم الفصول السابقة كمقروءة") { Task { await store.manualRead(story,chapters:previousUnread) } }.disabled(!store.online || store.readingMutation)
             Button("لاحقًا",role:.cancel) {}
@@ -108,10 +111,12 @@ struct ReaderView: View {
         }
         .onChange(of:downloads.revision) { _,_ in refreshPageFiles() }
         .onChange(of:store.online) { _,_ in refreshPageFiles() }
-        .onAppear { store.readerActive = true; store.chromeHidden = true }
+        .onAppear { store.readerActive = true; store.chromeHidden = true; UIApplication.shared.isIdleTimerDisabled = true }
         .onDisappear {
             saveTask?.cancel()
             store.readerActive = false; store.chromeHidden = false
+            // The screen sleeps normally again once the reader closes.
+            UIApplication.shared.isIdleTimerDisabled = false
             if let payload { downloads.leaveChapter(payload.id) }
             savePosition()
             Task { await store.syncProgress() }

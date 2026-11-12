@@ -301,6 +301,7 @@ struct ProfileView: View {
                     HStack(spacing:6) {
                         WanyLink(.stats) { accountTool("الإحصائيات","chart.xyaxis.line") }
                         WanyLink(.friends) { accountTool(store.incomingFriendRequests > 0 ? "الأصدقاء · \(store.incomingFriendRequests)" : "الأصدقاء","person.2") }
+                        WanyLink(.messages) { accountTool(store.unreadMessages > 0 ? "الرسائل · \(store.unreadMessages)" : "الرسائل","bubble.left.and.bubble.right") }
                         WanyLink(.activity) { accountTool("النشاط","clock") }
                     }.buttonStyle(.plain).ranyGlassGroup()
                     HStack {
@@ -390,7 +391,13 @@ struct ProfileView: View {
         } catch { if !isRequestCancellation(error) { store.error = error.localizedDescription } }
     }
     func stat(_ title: String,_ value: Int) -> some View { VStack(spacing:6) { Text("\(value)").font(RanyTypography.font(.title2).bold()).foregroundStyle(Theme.accent); Text(title).font(RanyTypography.font(.caption)).foregroundStyle(.secondary) }.frame(maxWidth:.infinity) }
-    private func accountTool(_ title: String,_ icon: String) -> some View { Label(title,systemImage:icon).font(.caption).foregroundStyle(Theme.accent).frame(maxWidth:.infinity,minHeight:44).ranyInsetGlass(radius:10).contentShape(Rectangle()) }
+    // Four tools share the row, so each stacks its icon over a one-line label.
+    private func accountTool(_ title: String,_ icon: String) -> some View {
+        VStack(spacing:4) {
+            Image(systemName:icon).font(.system(size:15,weight:.medium))
+            Text(title).font(.caption2).lineLimit(1).minimumScaleFactor(0.75)
+        }.foregroundStyle(Theme.accent).frame(maxWidth:.infinity,minHeight:52).padding(.horizontal,2).ranyInsetGlass(radius:10).contentShape(Rectangle())
+    }
 }
 struct ProfileAvatar: View {
     @Environment(AppStore.self) private var store

@@ -7,6 +7,8 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
     var progress: ((TransferTag, Int64, Int64, Int64) -> Void)?
     var finished: ((TransferTag, Int64, String?, Bool) -> Void)?
     var backgroundFinished: (() -> Void)?
+    // The server's monthly allowance for reduced images is used up.
+    var imageLimitReached: (() -> Void)?
     func tag(_ task: URLSessionTask) -> TransferTag? {
         guard let text = task.taskDescription, let data = text.data(using:.utf8) else { return nil }
         return try? JSONDecoder().decode(TransferTag.self,from:data)
@@ -46,6 +48,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
             } else { try FileManager.default.moveItem(at:location,to:destination) }
             try FileManager.default.setAttributes([.protectionKey:FileProtectionType.completeUntilFirstUserAuthentication],ofItemAtPath:destination.path)
             let originalBytes = Int64((try destination.resourceValues(forKeys:[.fileSizeKey])).fileSize ?? 0)
+            if response.value(forHTTPHeaderField:"X-Rany-Image-Limit") == "reached" { imageLimitReached?() }
             let optimized = response.value(forHTTPHeaderField:"X-Wany-Image-Mode") == "edge"
             let bytes = optimized ? originalBytes : ((try? ImageStorage.compact(destination,quality:ImageQuality(rawValue:t.quality ?? "original") ?? .original)) ?? originalBytes)
             finished?(t,bytes,nil,optimized)
@@ -118,6 +121,7 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         delegate.progress = { tag,delta,total,expected in Task { @MainActor in self.didProgress(tag,delta:delta,total:total,expected:expected) } }
         delegate.finished = { tag,bytes,error,optimized in Task { @MainActor in self.didFinish(tag,bytes:bytes,error:error,optimized:optimized) } }
         delegate.backgroundFinished = { Task { @MainActor in self.backgroundCompletion?(); self.backgroundCompletion = nil } }
+        delegate.imageLimitReached = { Task { @MainActor in self.noteImageLimit() } }
         Task { await restoreTasks() }
         Timer.scheduledTimer(withTimeInterval:30,repeats:true) { _ in Task { @MainActor in self.cleanTemporary() } }
         Timer.scheduledTimer(withTimeInterval:1,repeats:true) { _ in Task { @MainActor in self.updateSpeed() } }
@@ -181,6 +185,14 @@ final class TransferDelegate: NSObject, URLSessionDownloadDelegate {
         guard let owner, ledgerToken == nil else { return }
         do { try Disk.save(jobs,owner:owner,name:"downloads.json") } catch { notice = "تعذر حفظ قائمة التنزيل: " + error.localizedDescription }
         lastSaved = Date()
+    }
+    // Said once a month: pages keep loading, only at their full size.
+    func noteImageLimit(now: Date = Date()) {
+        let month = Calendar(identifier:.gregorian).dateComponents([.year,.month],from:now)
+        let key = "\(month.year ?? 0)-\(month.month ?? 0)"
+        guard UserDefaults.standard.string(forKey:"rany.imageLimitNotice") != key else { return }
+        UserDefaults.standard.set(key,forKey:"rany.imageLimitNotice")
+        notice = "وصل ضغط الصور لحده الشهري، فالصور تنزل الحين بحجمها الأصلي وتاخذ إنترنت أكثر. القراءة والتنزيل يكملون عادي."
     }
     // Per-image bookkeeping is saved at most every two seconds instead of on every page;
     // leaving the app saves at once (WanyApp), and a lost update only re-downloads a page.

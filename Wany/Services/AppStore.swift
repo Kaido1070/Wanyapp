@@ -26,6 +26,7 @@ import Observation
     var feedProgress = ""
     var feedError: String?
     var incomingFriendRequests = 0
+    var unreadMessages = 0
     var readingMutation = false
     var chromeHidden = false
     var showingNameStory = false
@@ -220,7 +221,7 @@ import Observation
     func logout() async {
         persistNow(); refreshTask?.cancel(); metadataTask?.cancel(); metadataTask = nil; metadataToken = nil; syncTask?.cancel(); snapshotSyncTask?.cancel(); snapshotSyncTask=nil; snapshotSyncID=nil; snapshotRetryAfter=[:]
         if online { _ = try? await API.shared.raw("/api/logout",method:"POST") }
-        incomingFriendRequests=0; syncProblem=nil; API.shared.clear(); downloads.attach(nil); enteringAccount = false; state = nil; stories = [:]; storiesOwner = nil; storiesSave?.cancel(); engine = nil
+        incomingFriendRequests=0; unreadMessages=0; syncProblem=nil; API.shared.clear(); downloads.attach(nil); enteringAccount = false; state = nil; stories = [:]; storiesOwner = nil; storiesSave?.cancel(); engine = nil
         UserDefaults.standard.removeObject(forKey:"lastAccount"); loginRequired = false
     }
     func sessionRenewed() { engine=nil; metadataTask?.cancel(); metadataTask=nil; metadataToken=nil }
@@ -234,7 +235,7 @@ import Observation
         try await API.shared.send("/api/logout-all",value:[String:String]())
         guard state?.user.id == owner else { return }
         persistNow(); refreshTask?.cancel(); metadataTask?.cancel(); metadataTask=nil; metadataToken=nil; syncTask?.cancel(); snapshotSyncTask?.cancel(); snapshotSyncTask=nil; snapshotSyncID=nil; snapshotRetryAfter=[:]
-        incomingFriendRequests=0; syncProblem=nil; API.shared.clear(); downloads.attach(nil); enteringAccount=false; state=nil; stories=[:]; storiesOwner=nil; storiesSave?.cancel(); engine=nil
+        incomingFriendRequests=0; unreadMessages=0; syncProblem=nil; API.shared.clear(); downloads.attach(nil); enteringAccount=false; state=nil; stories=[:]; storiesOwner=nil; storiesSave?.cancel(); engine=nil
         UserDefaults.standard.removeObject(forKey:"lastAccount"); loginRequired=false
     }
     // quiet: started by the app itself (launch, return, reconnect); a failure goes to the
@@ -286,7 +287,7 @@ import Observation
             let opened = await flushReadingOpens(owner:owner); scheduleSnapshots()
             // mergeAndPush already read the account; read it again only when this sync changed it.
             if pushed || opened {
-                let fresh = try await API.shared.get("/api/data",as:DataResponse.self).data
+                let fresh = try await accountData(owner:owner)
                 guard state?.user.id == owner else { return }
                 merge(fresh)
             }
@@ -315,7 +316,7 @@ import Observation
     @discardableResult
     private func mergeAndPush(owner: String) async throws -> Bool {
         var changed = false
-        let remote = try await API.shared.get("/api/data",as:DataResponse.self).data
+        let remote = try await accountData(owner:owner)
         guard state?.user.id == owner else { throw CancellationError() }
         merge(remote)
         let completions = state?.completedPending?.values.map { $0 } ?? []
@@ -371,7 +372,7 @@ import Observation
         do {
             let full = try await series(story.key,maxAge:60)
             // Refresh website completions, retaining unsynced local completions and partial progress.
-            let remote = try await API.shared.get("/api/data",as:DataResponse.self).data
+            let remote = try await accountData(owner:owner)
             guard state?.user.id == owner else { return }
             merge(remote); persist(); remember(full)
             guard let current = state else { return }
@@ -558,6 +559,12 @@ extension AppStore {
                     if result["needsCover"].boolean,!snapshot.coverUrl.isEmpty {
                         if let story=self.stories[snapshot.mangaId] { await self.cacheCover(story) }
                         guard self.state?.user.id == owner,API.shared.generation == generation,!Task.isCancelled else { return }
+                        // The server archives covers itself; it asks only when it could not.
+                        // Send the saved image only if it came from this exact address: an
+                        // older image (a source page once showed another story's poster)
+                        // must never be archived under the new address.
+                        let savedFrom=Disk.read(String.self,owner:owner,name:"covers/"+Disk.hash(snapshot.mangaId)+".json")
+                        guard savedFrom == snapshot.coverUrl else { if self.state?.pendingSnapshots?[snapshot.mangaId] == snapshot { self.state?.pendingSnapshots?.removeValue(forKey:snapshot.mangaId); self.persist() }; continue }
                         let file=Disk.file(owner,Disk.coverName(snapshot.mangaId))
                         guard let image=UIImage(contentsOfFile:file.path) else { continue }
                         let scale=min(1,640/max(image.size.width,image.size.height)), format=UIGraphicsImageRendererFormat(); format.scale=1
@@ -636,12 +643,12 @@ extension AppStore {
                 current.discardPendingReading(mangaId:story.key,chapters:clearWork ? nil : numbers)
                 state=current
             }
-            let remote=try await API.shared.get("/api/data",as:DataResponse.self).data
+            let remote=try await accountData(owner:owner)
             guard state?.user.id == owner else { return }; merge(remote); state?.newFeed=nil; persist()
             if !clearWork { queueSnapshot(story) }
         } catch {
             report(error)
-            if state?.user.id == owner,let remote=try? await API.shared.get("/api/data",as:DataResponse.self).data,state?.user.id == owner { merge(remote); persist() }
+            if state?.user.id == owner,let remote=try? await accountData(owner:owner),state?.user.id == owner { merge(remote); persist() }
         }
     }
 }
@@ -684,5 +691,29 @@ extension AppStore {
             }
             UserDefaults.standard.set(self.seriesFetched,forKey:"rany.seriesFetched")
         }
+    }
+}
+
+// The account is read with only the progress changed since the last read, so
+// a refresh costs a few database rows instead of one per chapter ever read.
+// A full read still happens on first use, once a day, and whenever the
+// server answers in full (after a deletion, for example).
+extension AppStore {
+    func accountData(owner: String) async throws -> AccountData {
+        let now = Date().timeIntervalSince1970 * 1000
+        var since: Double?
+        if let synced = state?.dataSyncedAt, let full = state?.dataFullAt, now >= full, now - full < 86_400_000 { since = synced }
+        let response = try await API.shared.get("/api/data",query:since.map { ["since":String(Int64($0))] } ?? [:],as:DataResponse.self)
+        guard state?.user.id == owner else { throw CancellationError() }
+        if let count = response.unreadMessages { unreadMessages = max(0,count) }
+        if response.delta == true {
+            // A partial answer can only complete a copy that was asked for.
+            guard since != nil, let held = state?.data else { state?.dataSyncedAt = nil; state?.dataFullAt = nil; throw APIError(message:"تعذر تحديث المكتبة الآن.",status:0) }
+            state?.dataSyncedAt = response.syncedAt
+            return held.applyingChanges(response.data)
+        }
+        state?.dataSyncedAt = response.syncedAt
+        state?.dataFullAt = response.syncedAt == nil ? nil : now
+        return response.data
     }
 }

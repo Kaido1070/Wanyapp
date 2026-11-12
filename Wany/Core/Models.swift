@@ -140,6 +140,10 @@ struct AccountState: Codable {
     var fyp: [Recommendation] = []
     var newFeed: NewFeed?
     var lastSynced: Date?
+    // Marks for changes-only account reads: the server time of the last read and
+    // the local time of the last full one.
+    var dataSyncedAt: Double?
+    var dataFullAt: Double?
 }
 struct Recommendation: Codable, Identifiable {
     var item: Story
@@ -184,7 +188,9 @@ struct ChaptersResponse: Codable {
     }
 }
 struct SessionResponse: Codable { var user: Account? }
-struct DataResponse: Codable { var data: AccountData }
+// `delta` marks an answer holding only progress changed since the `since` the
+// app sent; `syncedAt` is what to send next time. Older servers send neither.
+struct DataResponse: Codable { var data: AccountData; var syncedAt: Double?; var delta: Bool?; var unreadMessages: Int? }
 struct OK: Codable { var ok: Bool? }
 
 // Flexible server-owned profile, lists and statistics fields; never synthesize badges.
@@ -446,5 +452,20 @@ enum SeriesChapters {
         if (a.synthetic == true) != (b.synthetic == true) { return a.synthetic == true ? b : a }
         if a.url == nil && b.url != nil { return b }
         return a
+    }
+}
+
+extension AccountData {
+    // A changes-only answer completes the copy already held: its progress rows
+    // replace the same chapters, its completions are added; favorites, the
+    // library and the last-opened chapter always arrive complete.
+    func applyingChanges(_ changes: AccountData) -> AccountData {
+        var merged = changes
+        merged.progress = progress.merging(changes.progress) { _, new in new }
+        var completed = self.completed
+        var known = completedSet
+        for key in changes.completed where known.insert(key).inserted { completed.append(key) }
+        merged.completed = completed
+        return merged
     }
 }

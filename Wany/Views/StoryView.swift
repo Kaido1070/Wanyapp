@@ -16,6 +16,7 @@ struct StoryView: View {
     @State private var chapterPage = 1
     @State private var selecting = false
     @State private var listPicker = false
+    @State private var sharing = false
     @State private var preparingUnread = false
     @State private var selected: Set<String> = []
     @State private var pendingDownload: StoryDownloadRequest?
@@ -68,12 +69,14 @@ struct StoryView: View {
             }.buttonStyle(RanySurfaceButtonStyle()).disabled(preparingUnread || downloads.preparing.contains(story.key) || !store.online)
             if let job = downloads.savedJobs.first(where:{$0.id == story.key}) { DownloadSummary(job:job).card() }
             VStack(spacing:12) {
-            HStack {
-                Text("الفصول · \(story.chapters?.count ?? 0)").font(RanyTypography.font(.title3).bold())
-                Spacer()
-                if loading { ProgressView() }
-                Button(selecting ? "إلغاء" : "تحديد للتنزيل") { selecting.toggle(); selected.removeAll() }
-                    .font(RanyTypography.font(.subheadline).weight(.medium)).foregroundStyle(Theme.accent).frame(minHeight:44)
+            // Same place as on the website: beside the chapters heading, in the accent
+            // color. On narrow phones the actions move under the heading.
+            ViewThatFits(in:.horizontal) {
+                HStack { chaptersTitle; Spacer(); shareButton; if loading { ProgressView() }; selectButton }
+                VStack(alignment:.leading,spacing:8) {
+                    HStack { chaptersTitle; Spacer(); if loading { ProgressView() } }
+                    HStack { shareButton; Spacer(); selectButton }
+                }
             }.id("chapters-top")
             Button { ascending.toggle() } label: {
                 Label(ascending ? "من الأقدم للأحدث" : "من الأحدث للأقدم",systemImage:"arrow.up.arrow.down")
@@ -115,6 +118,7 @@ struct StoryView: View {
             .confirmationDialog("تعليم جميع الفصول كمقروءة؟",isPresented:$confirmReadAll,titleVisibility:.visible) { Button("تأكيد تعليم \(story.chapters?.count ?? 0) فصل") { Task { await store.manualRead(story,chapters:story.orderedChapters.map(\.number)) } }; Button("إلغاء",role:.cancel) {} }
             .confirmationDialog("مسح تقدم هذه القصة؟",isPresented:$confirmClear,titleVisibility:.visible) { Button("مسح التقدم",role:.destructive) { Task { await store.manualUnreadGroup(story,keys:sourceKeys) } }; Button("إلغاء",role:.cancel) {} } message: { Text("يُحذف سجل وتقدم القراءة لكل المصادر المرتبطة بهذه القصة في حسابك. تبقى الملفات المحملة والمفضلة والقوائم.") }
             .sheet(isPresented:$listPicker) { StoryListPicker(story:story) }
+            .sheet(isPresented:$sharing) { ShareWithFriendSheet(story:story).environment(store) }
             .downloadQualityChoice(request:$pendingDownload) { request,quality in startDownload(request,quality:quality) }
             .task { await refresh() }.refreshable { await refresh(force:true) }
             .onChange(of:query) { _,_ in chapterPage=1 }
@@ -122,6 +126,19 @@ struct StoryView: View {
             .onChange(of:story.key) { _,_ in chapterPage=1; selected.removeAll(); selecting=false }
             .onChange(of:chapters.count) { _,_ in chapterPage=page.number }
         }
+    }
+    private var chaptersTitle: some View {
+        Text("الفصول · \(story.chapters?.count ?? 0)").font(RanyTypography.font(.title3).bold()).lineLimit(1).fixedSize()
+    }
+    private var shareButton: some View {
+        Button { sharing = true } label: {
+            Label("مشاركة",systemImage:"paperplane").font(RanyTypography.font(.subheadline).weight(.semibold)).lineLimit(1)
+                .foregroundStyle(.black).padding(.horizontal,14).frame(minHeight:40).background(Theme.accent,in:Capsule())
+        }.buttonStyle(.plain).fixedSize().disabled(!store.online).accessibilityIdentifier("story.share")
+    }
+    private var selectButton: some View {
+        Button(selecting ? "إلغاء" : "تحديد للتنزيل") { selecting.toggle(); selected.removeAll() }
+            .font(RanyTypography.font(.subheadline).weight(.medium)).foregroundStyle(Theme.accent).frame(minHeight:44).fixedSize()
     }
     private func startDownload(_ request: StoryDownloadRequest,quality: ImageQuality) {
         switch request {
