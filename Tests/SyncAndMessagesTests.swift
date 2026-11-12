@@ -49,6 +49,11 @@ import XCTest
         XCTAssertNil(plain.mangaId); XCTAssertNil(plain.chapter)
     }
 
+    func testEmojiOnlyMessagesShowLarge() {
+        for text in ["🔥","🔥🔥"," 😂😂😂 ","👍🏽","❤️","👨‍👩‍👧"] { XCTAssertTrue(isEmojiOnly(text),text) }
+        for text in ["","1","تمام 🔥","🔥🔥🔥🔥","hi","#"] { XCTAssertFalse(isEmojiOnly(text),text) }
+    }
+
     func testImageLimitIsSaidOnceAMonth() {
         let downloads = Downloads.shared
         let previous = UserDefaults.standard.string(forKey:"rany.imageLimitNotice")

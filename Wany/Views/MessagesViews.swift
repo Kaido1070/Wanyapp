@@ -39,6 +39,18 @@ enum ChatTime {
     static func sameDay(_ a: Double, _ b: Double) -> Bool { Calendar.current.isDate(date(a), inSameDayAs:date(b)) }
 }
 
+// A message made only of emoji (up to three) is shown large, without a bubble.
+func isEmojiOnly(_ text: String) -> Bool {
+    let value = text.trimmingCharacters(in:.whitespacesAndNewlines)
+    guard !value.isEmpty else { return false }
+    let characters = value.filter { !$0.isWhitespace }
+    guard characters.count <= 3 else { return false }
+    return characters.allSatisfy { character in
+        guard let first = character.unicodeScalars.first else { return false }
+        return first.properties.isEmojiPresentation || (first.properties.isEmoji && character.unicodeScalars.count > 1)
+    }
+}
+
 private func placeholderStory(_ key: String) -> Story {
     Story(key:key,source:sourceFromStoryKey(key),slug:String(key.split(separator:":").dropFirst().joined(separator:":")),type:"",url:"",title:"قصة",cover:"",genres:[])
 }
@@ -243,15 +255,22 @@ private struct ChatBubble: View {
     @Environment(AppStore.self) private var store
     let message: ChatMessage
     var body: some View {
+        let big = message.mangaId == nil && isEmojiOnly(message.body)
         VStack(alignment:.leading,spacing:5) {
             if let key = message.mangaId { sharedWork(key) }
-            if !message.body.isEmpty { Text(message.body).font(.body).fixedSize(horizontal:false,vertical:true).textSelection(.enabled) }
+            if !message.body.isEmpty { Text(message.body).font(big ? .system(size:40) : .body).fixedSize(horizontal:false,vertical:true) }
             Text(ChatTime.clockText(message.createdAt)).font(.caption2).foregroundStyle(.secondary).frame(maxWidth:.infinity,alignment:.trailing)
         }
-        .padding(.horizontal,12).padding(.top,9).padding(.bottom,6)
-        .frame(minWidth:76,alignment:.leading)
-        .background(message.mine ? Theme.accent.opacity(0.16) : Theme.surface,in:RoundedRectangle(cornerRadius:18,style:.continuous))
-        .overlay(RoundedRectangle(cornerRadius:18,style:.continuous).stroke(message.mine ? Theme.accent.opacity(0.28) : Color.white.opacity(0.08),lineWidth:1))
+        .padding(.horizontal,big ? 2 : 12).padding(.top,big ? 0 : 9).padding(.bottom,big ? 0 : 6)
+        .frame(minWidth:big ? 0 : 76,alignment:.leading)
+        .background(big ? Color.clear : (message.mine ? Theme.accent.opacity(0.16) : Theme.surface),in:RoundedRectangle(cornerRadius:18,style:.continuous))
+        .overlay(RoundedRectangle(cornerRadius:18,style:.continuous).stroke(big ? Color.clear : (message.mine ? Theme.accent.opacity(0.28) : Color.white.opacity(0.08)),lineWidth:1))
+        // Holding a message offers «نسخ», like any chat app.
+        .contextMenu {
+            if !message.body.isEmpty {
+                Button("نسخ",systemImage:"doc.on.doc") { UIPasteboard.general.string = message.body }
+            }
+        }
         .frame(maxWidth:320,alignment:message.mine ? .trailing : .leading)
         .frame(maxWidth:.infinity,alignment:message.mine ? .trailing : .leading)
     }
@@ -259,14 +278,15 @@ private struct ChatBubble: View {
         let story = store.stories[key] ?? placeholderStory(key)
         let route: RanyRoute = message.chapter.map { .sourceChapter(key:key,chapter:Chapter(number:$0,title:"الفصل \(chapterNumber($0))"),fallback:story) } ?? .story(story)
         WanyLink(route) {
-            HStack(spacing:10) {
-                CoverView(story:story).frame(width:48,height:68).clipShape(RoundedRectangle(cornerRadius:8))
-                VStack(alignment:.leading,spacing:4) {
-                    Text(story.title).font(.subheadline.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
+            // A slim one-line card, so a shared story never fills the screen.
+            HStack(spacing:9) {
+                CoverView(story:story).frame(width:36,height:50).clipShape(RoundedRectangle(cornerRadius:6))
+                VStack(alignment:.leading,spacing:2) {
+                    Text(story.title).font(.footnote.weight(.semibold)).lineLimit(1)
                     Text(message.chapter.map { "اقرأ الفصل \(chapterNumber($0))" } ?? "افتح القصة").font(.caption).foregroundStyle(Theme.accent)
                 }
                 Spacer(minLength:0)
-            }.padding(7).frame(minWidth:220).background(Color.black.opacity(0.24),in:RoundedRectangle(cornerRadius:12)).foregroundStyle(.primary)
+            }.padding(5).frame(width:220).background(Color.black.opacity(0.24),in:RoundedRectangle(cornerRadius:11)).foregroundStyle(.primary)
         }.buttonStyle(.plain)
     }
 }
