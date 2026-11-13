@@ -27,7 +27,7 @@ result += `function catalogGroups(items,filter) {return mergeSourceItems(items.f
 result += `const {rankRecommendations} = ${recommendations};\n`;
 result += `const fypEngine = ${wrap(fyp,'buildFyp')};\n`;
 result += `const newEngine = ${wrap(newFeed,'loadNewChapterFeed')};\n`;
-result += `async function runFeed(kind, data, userId, page, runId) {\n try { const report = p => nativeProgress(runId, JSON.stringify(p)); const value = kind === 'fyp' ? await fypEngine.buildFyp(data,userId,report) : await newEngine.loadNewChapterFeed(page,report); nativeResult(runId,JSON.stringify(value),''); } catch(e) { nativeResult(runId,'',String(e.message || e)); }\n}\n`;
+result += `async function runFeed(kind, data, userId, page, runId, refresh) {\n try { const report = p => nativeProgress(runId, JSON.stringify(p)); const value = kind === 'fyp' ? await fypEngine.buildFyp(data,userId,report) : await newEngine.loadNewChapterFeed(page,report,{refresh:refresh === true}); nativeResult(runId,JSON.stringify(value),''); } catch(e) { nativeResult(runId,'',String(e.message || e)); }\n}\n`;
 fs.writeFileSync(output,result);
 const statsFull=read('src/components/ReadingStatsDashboard.tsx');
 const milestones=statsFull.slice(statsFull.indexOf('const CHAPTER_TROPHIES'),statsFull.indexOf('function formatNumber'));

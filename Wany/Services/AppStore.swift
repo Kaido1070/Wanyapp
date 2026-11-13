@@ -457,7 +457,9 @@ import Observation
             coverRevision += 1; libraryRevision += 1
         } catch { /* A failed cover remains retryable and never clears a saved cover. */ }
     }
-    func loadFeed(_ kind: String, page: Int = 1) async {
+    // `refresh` asks the server to rebuild «جديد» from the sources now (the
+    // refresh button and pull-to-refresh), exactly like the website's تحديث.
+    func loadFeed(_ kind: String, page: Int = 1, refresh: Bool = false) async {
         guard online, !loadingFeed, let current = state else { return }
         if kind == "new",page>1 {
             guard let previous=state?.newFeed,previous.hasMore,page == previous.page+1 else { return }
@@ -465,7 +467,7 @@ import Observation
         loadingFeed = true; feedError=nil; defer { loadingFeed = false }
         if engine == nil { engine = FeedEngine() }
         do {
-            let result = try await engine!.run(kind,data:current.data,user:current.user.id,page:page) { [weak self] text in
+            let result = try await engine!.run(kind,data:current.data,user:current.user.id,page:page,refresh:refresh && kind == "new" && page == 1) { [weak self] text in
                 guard let self else { return }
                 if let p = try? JSONDecoder().decode(JSONValue.self,from:Data(text.utf8)) {
                     self.feedProgress = p["label"].string.isEmpty ? "جاري تجهيز اقتراحاتك \(Int(p.number))٪" : "\(p["label"].string) · \(Int(p["completed"].number))/\(Int(p["total"].number))"

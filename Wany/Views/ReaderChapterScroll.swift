@@ -17,13 +17,15 @@ struct ReaderChapterScroll: UIViewRepresentable {
     var failed: Set<Int> = []
     var onNext: () -> Void
     var onBack: () -> Void
+    // Share this chapter with a friend from the end of the chapter.
+    var onShare: (() -> Void)? = nil
     var onRetry: () -> Void
     var onInvalid: (Int) -> Void
     var onPosition: (Int,Double,Bool) -> Void
     var onScroll: (CGFloat,Bool) -> Void
     func makeUIView(context: Context) -> ChapterScroll { let view = ChapterScroll(); updateUIView(view,context:context); return view }
     func updateUIView(_ view: ChapterScroll, context: Context) {
-        view.onNext = onNext; view.onBack = onBack; view.onRetry = onRetry
+        view.onNext = onNext; view.onBack = onBack; view.onShare = onShare; view.onRetry = onRetry
         view.onInvalid = onInvalid; view.onPosition = onPosition; view.onScroll = onScroll
         view.configure(id:id,urls:urls,ratios:ratios,initialPage:initialPage,nextTitle:nextTitle,online:online,endTitle:endTitle,quality:quality,failed:failed)
     }
@@ -60,6 +62,7 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
     private let endLabel = UILabel()
     private let nextButton = UIButton(configuration:.filled())
     private let backButton = UIButton(configuration:.gray())
+    private let shareButton = UIButton(configuration:.gray())
     private var chapterID: String?
     private var urls: [URL?] = []
     private var ratios: [Int:CGFloat] = [:]
@@ -77,6 +80,7 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
     private(set) var geometryUpdates = 0
     var onNext: (() -> Void)?
     var onBack: (() -> Void)?
+    var onShare: (() -> Void)?
     var onRetry: (() -> Void)?
     var onInvalid: ((Int) -> Void)?
     var onPosition: ((Int,Double,Bool) -> Void)?
@@ -114,16 +118,23 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
         backStyle.image = UIImage(systemName:"list.bullet"); backStyle.imagePlacement = .trailing; backStyle.imagePadding = 8
         backStyle.title = "العودة للفصول"
         backButton.configuration = backStyle
+        var shareStyle = UIButton.Configuration.gray()
+        shareStyle.baseForegroundColor = gold; shareStyle.cornerStyle = .large
+        shareStyle.image = UIImage(systemName:"paperplane"); shareStyle.imagePlacement = .trailing; shareStyle.imagePadding = 8
+        shareStyle.title = "مشاركة الفصل مع صديق"
+        shareButton.configuration = shareStyle
+        shareButton.addTarget(self,action:#selector(share),for:.touchUpInside)
         nextButton.addTarget(self,action:#selector(nextChapter),for:.touchUpInside)
         backButton.addTarget(self,action:#selector(back),for:.touchUpInside)
-        [nextButton,backButton].forEach { $0.heightAnchor.constraint(greaterThanOrEqualToConstant:50).isActive = true }
-        [endLabel,nextButton,backButton].forEach { footer.addArrangedSubview($0) }
+        [nextButton,shareButton,backButton].forEach { $0.heightAnchor.constraint(greaterThanOrEqualToConstant:50).isActive = true }
+        [endLabel,nextButton,shareButton,backButton].forEach { footer.addArrangedSubview($0) }
         footer.setCustomSpacing(18,after:endLabel)
         canvas.addSubview(footer)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
     @objc private func nextChapter() { onNext?() }
     @objc private func back() { onBack?() }
+    @objc private func share() { onShare?() }
     @objc private func retry() { onRetry?() }
     // Loading shows a spinner and a calm message; the retry appears only after a real failure.
     private func updatePlaceholder(_ index: Int) {
@@ -163,6 +174,8 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
         self.urls = urls
         endLabel.text = endTitle
         nextButton.configuration?.title = nextTitle; nextButton.isHidden = nextTitle == nil
+        // Sharing needs the friends list and a message send, so it waits for a connection.
+        shareButton.isHidden = onShare == nil; shareButton.isEnabled = online
         self.failed = failed
         for index in tiles.indices { retries[index].isEnabled = online; updatePlaceholder(index) }
         setNeedsLayout()

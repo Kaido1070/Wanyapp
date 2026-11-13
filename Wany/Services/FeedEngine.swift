@@ -56,7 +56,7 @@ final class FeedEngine: @unchecked Sendable {
         context.setObject(timer,forKeyedSubscript:"nativeTimer" as NSString)
         if let source { context.evaluateScript(source) }
     }
-    @MainActor func run(_ kind: String, data: AccountData, user: String, page: Int = 1, progress: @escaping @MainActor (String)->Void) async throws -> Data {
+    @MainActor func run(_ kind: String, data: AccountData, user: String, page: Int = 1, refresh: Bool = false, progress: @escaping @MainActor (String)->Void) async throws -> Data {
         guard scope == API.shared.generation else { throw CancellationError() }
         let id = UUID().uuidString
         return try await withCheckedThrowingContinuation { continuation in
@@ -66,7 +66,7 @@ final class FeedEngine: @unchecked Sendable {
                     let input = try JSONSerialization.jsonObject(with:JSONEncoder().encode(data))
                     self.completions[id] = continuation; self.callbacks[id] = progress
                     context.exception = nil
-                    context.objectForKeyedSubscript("runFeed").call(withArguments:[kind,input,user,page,id])
+                    context.objectForKeyedSubscript("runFeed").call(withArguments:[kind,input,user,page,id,refresh])
                     if let error = context.exception {
                         self.callbacks.removeValue(forKey:id)
                         self.completions.removeValue(forKey:id)?.resume(throwing:APIError(message:error.toString() ?? "تعذر تجهيز الصفحة",status:0))

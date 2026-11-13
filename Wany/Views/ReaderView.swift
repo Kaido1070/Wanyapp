@@ -45,7 +45,7 @@ struct ReaderView: View {
                         urls:pageFiles.count == payload.pages.count ? pageFiles : payload.pages.map { _ in nil },
                         ratios:pageRatios,initialPage:restoredPage(payload),
                         nextTitle:nextChapter.map { "الفصل التالي \($0.id)" },online:store.online,quality:downloads.quality,failed:failedSet,
-                        onNext:{ if let next = nextChapter { open(next) } },onBack:{ leaveReader() },
+                        onNext:{ if let next = nextChapter { open(next) } },onBack:{ leaveReader() },onShare:{ sharing = true },
                         onRetry:{ downloads.retryChapter(payload) },
                         onInvalid:{ downloads.invalidatePage(payload,index:$0) },
                         onPosition:{ page,value,moved in

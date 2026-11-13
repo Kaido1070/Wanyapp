@@ -2327,6 +2327,6 @@ async function loadNewChapterFeed(page = 1, onProgress, options = {}) {
 
 return {loadNewChapterFeed};
 })();
-async function runFeed(kind, data, userId, page, runId) {
- try { const report = p => nativeProgress(runId, JSON.stringify(p)); const value = kind === 'fyp' ? await fypEngine.buildFyp(data,userId,report) : await newEngine.loadNewChapterFeed(page,report); nativeResult(runId,JSON.stringify(value),''); } catch(e) { nativeResult(runId,'',String(e.message || e)); }
+async function runFeed(kind, data, userId, page, runId, refresh) {
+ try { const report = p => nativeProgress(runId, JSON.stringify(p)); const value = kind === 'fyp' ? await fypEngine.buildFyp(data,userId,report) : await newEngine.loadNewChapterFeed(page,report,{refresh:refresh === true}); nativeResult(runId,JSON.stringify(value),''); } catch(e) { nativeResult(runId,'',String(e.message || e)); }
 }

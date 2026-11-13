@@ -196,11 +196,11 @@ struct FeedView: View {
             }
         }.toolbar {
             ToolbarItem(placement:.topBarTrailing) {
-                Button { Task { await store.loadFeed(kind) } } label: { Image(systemName:"arrow.clockwise").frame(minWidth:44,minHeight:44) }
+                Button { Task { await store.loadFeed(kind,refresh:true) } } label: { Image(systemName:"arrow.clockwise").frame(minWidth:44,minHeight:44) }
                     .disabled(!store.online || store.loadingFeed).accessibilityLabel("تحديث")
             }
         }
-        .task { if kind == "fyp" ? (store.state?.fyp.isEmpty ?? true) : store.newFeedNeedsReload() { await store.loadFeed(kind) } }.refreshable { await store.loadFeed(kind) }
+        .task { if kind == "fyp" ? (store.state?.fyp.isEmpty ?? true) : store.newFeedNeedsReload() { await store.loadFeed(kind) } }.refreshable { await store.loadFeed(kind,refresh:true) }
     }
 }
 struct SourceChapterDestination: View {
