@@ -121,7 +121,7 @@ final class ChapterScroll: UIScrollView, UIScrollViewDelegate {
         var shareStyle = UIButton.Configuration.gray()
         shareStyle.baseForegroundColor = gold; shareStyle.cornerStyle = .large
         shareStyle.image = UIImage(systemName:"paperplane"); shareStyle.imagePlacement = .trailing; shareStyle.imagePadding = 8
-        shareStyle.title = "مشاركة الفصل مع صديق"
+        shareStyle.title = "مشاركة"
         shareButton.configuration = shareStyle
         shareButton.addTarget(self,action:#selector(share),for:.touchUpInside)
         nextButton.addTarget(self,action:#selector(nextChapter),for:.touchUpInside)

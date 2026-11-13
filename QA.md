@@ -219,4 +219,4 @@ Automated checks cover download accounting, persistent account separation, progr
 
 - After a snapshot save the server may answer `archived: true` (it saved a fresh copy of the cover). The app then reloads that story's snapshot and replaces the cover kept on the phone at once, instead of waiting for the next library refresh. Stories with a reviewed replacement cover also get a new saved-cover address from the server, so phones that kept the old picture fetch the new one.
 - «جديد»: the toolbar refresh button and pull-to-refresh pass `refresh` to the feed engine, which sends `refresh=1` to `/api/source/recent` so the server rebuilds its shared copy (same rule as the website's تحديث; a copy rebuilt moments ago is reused). Opening the page and «تحميل المزيد» do not force a rebuild.
-- Reader: the end-of-chapter card shows «الفصل التالي», «مشاركة الفصل مع صديق» (opens the friend picker for this chapter; disabled offline) and «العودة للفصول».
+- Reader: the end-of-chapter card shows «الفصل التالي», «مشاركة» (opens the friend picker for this chapter; disabled offline) and «العودة للفصول».
