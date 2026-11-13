@@ -224,3 +224,7 @@ Automated checks cover download accounting, persistent account separation, progr
 ## 1.4.27
 
 - «جديد · أتابعها»: a chapter you read stays listed with its ✓ (the engine no longer drops read chapters; the unread count still ignores them). Feed engine regenerated from the current algorithms: chapters ordered by number, the manual refresh waits up to 40 s per source, and a followed story is also recognised by its saved name within the same source when the source changed its address.
+
+## 1.4.28
+
+- «جديد»: opening the page shows the saved feed and makes no request unless it is empty or older than 10 minutes; the time is stored per account in UserDefaults, so relaunching the app does not refetch. A background refresh keeps the saved list on screen (no progress card unless the page is empty). The refresh button and pull-to-refresh rebuild at most once a minute. FYP still builds only when empty.

@@ -486,19 +486,39 @@ import Observation
                 else { state?.newFeed=incoming }
                 for r in incoming.all { remember(r.item) }
             }
-            if page == 1 { feedLoadedAt[kind+":"+current.user.id] = Date() }
+            if page == 1 { markFeedLoaded(kind,owner:current.user.id) }
             persist()
         } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.feedError = error.localizedDescription } }
     }
 }
 
 extension AppStore {
-    // «جديد» covers the last 24 hours, so a saved copy goes stale quickly: reload it on the
-    // first visit of a launch, when it is empty, and after a quarter of an hour.
+    // Opening «جديد» shows the saved copy and asks nothing; it is fetched again
+    // quietly only when empty or older than ten minutes. The time is kept across
+    // launches, so reopening the app does not refetch either. The server's shared
+    // copy changes at most every five minutes, so more often would only add reads.
+    static let feedQuietRefresh: TimeInterval = 10*60
+    // The refresh button rebuilds at most once a minute, like the website.
+    static let feedManualCooldown: TimeInterval = 60
+    private func feedLoadedKey(_ kind: String,_ owner: String) -> String { "rany.feedLoadedAt.\(kind).\(owner)" }
+    func feedLoadedDate(_ kind: String) -> Date? {
+        guard let owner=state?.user.id else { return nil }
+        if let date=feedLoadedAt[kind+":"+owner] { return date }
+        let stored=UserDefaults.standard.double(forKey:feedLoadedKey(kind,owner))
+        return stored > 0 ? Date(timeIntervalSince1970:stored) : nil
+    }
+    func markFeedLoaded(_ kind: String,owner: String,at date: Date = Date()) {
+        feedLoadedAt[kind+":"+owner]=date
+        UserDefaults.standard.set(date.timeIntervalSince1970,forKey:feedLoadedKey(kind,owner))
+    }
     func newFeedNeedsReload(now: Date = Date()) -> Bool {
         guard let state else { return false }
-        guard let feed=state.newFeed,!feed.all.isEmpty,let loaded=feedLoadedAt["new:"+state.user.id] else { return true }
-        return now.timeIntervalSince(loaded) > 15*60
+        guard let feed=state.newFeed,!feed.all.isEmpty,let loaded=feedLoadedDate("new") else { return true }
+        return now.timeIntervalSince(loaded) > Self.feedQuietRefresh
+    }
+    func feedRefreshAllowed(_ kind: String,now: Date = Date()) -> Bool {
+        guard let loaded=feedLoadedDate(kind) else { return true }
+        return now.timeIntervalSince(loaded) >= Self.feedManualCooldown
     }
     func resolveMetadata(_ keys: [String]) async {
         guard online,let owner=state?.user.id else { return }

@@ -175,7 +175,8 @@ struct FeedView: View {
     var body: some View {
         WanyScroll {
             if let error=store.feedError { Text(error).font(.caption).foregroundStyle(.orange) }
-            if store.loadingFeed { HStack { ProgressView(); Text(store.feedProgress).font(RanyTypography.font(.caption)) }.card() }
+            // A quiet refresh keeps the saved list on screen; the progress card is only for an empty page.
+            if store.loadingFeed && (kind == "fyp" ? (store.state?.fyp.isEmpty ?? true) : groups.isEmpty) { HStack { ProgressView(); Text(store.feedProgress).font(RanyTypography.font(.caption)) }.card() }
             if kind == "fyp" {
                 let recommendations = Array((store.state?.fyp ?? []).prefix(visible))
                 if recommendations.isEmpty && !store.loadingFeed { EmptyState(icon:"sparkles",title:"اقتراحات تناسب قراءتك",detail:"تُجهز من مفضلتك وسجل قراءتك وقوائمك.") }
@@ -196,11 +197,11 @@ struct FeedView: View {
             }
         }.toolbar {
             ToolbarItem(placement:.topBarTrailing) {
-                Button { Task { await store.loadFeed(kind,refresh:true) } } label: { Image(systemName:"arrow.clockwise").frame(minWidth:44,minHeight:44) }
+                Button { Task { if store.feedRefreshAllowed(kind) { await store.loadFeed(kind,refresh:true) } } } label: { Image(systemName:"arrow.clockwise").frame(minWidth:44,minHeight:44) }
                     .disabled(!store.online || store.loadingFeed).accessibilityLabel("تحديث")
             }
         }
-        .task { if kind == "fyp" ? (store.state?.fyp.isEmpty ?? true) : store.newFeedNeedsReload() { await store.loadFeed(kind) } }.refreshable { await store.loadFeed(kind,refresh:true) }
+        .task { if kind == "fyp" ? (store.state?.fyp.isEmpty ?? true) : store.newFeedNeedsReload() { await store.loadFeed(kind) } }.refreshable { if store.feedRefreshAllowed(kind) { await store.loadFeed(kind,refresh:true) } }
     }
 }
 struct SourceChapterDestination: View {
