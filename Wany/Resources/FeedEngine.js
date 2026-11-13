@@ -868,6 +868,21 @@ function pickPrimary(items) {
         return a.key.localeCompare(b.key);
     })[0];
 }
+function titleMatchesItem(title, item) {
+    const wanted = new Set();
+    addIdentity(wanted, String(title ?? ""));
+    const plain = titleWithoutTrailingQualifier(String(title ?? ""));
+    if (plain) addIdentity(wanted, plain);
+    if (!wanted.size) return false;
+    const identities = sourceIdentityCandidates(item);
+    if (intersects(wanted, identities)) return true;
+    for (const left of wanted){
+        for (const right of identities){
+            if (identitiesLikelySame(left, right)) return true;
+        }
+    }
+    return false;
+}
 function preferredSourceCover(items) {
     const candidates = items.filter((item)=>Boolean(item.cover));
     if (!candidates.length) return items[0];
@@ -1774,6 +1789,19 @@ function readSnapshot(userId, signature) {
         return null;
     }
 }
+function readLastSnapshot(userId) {
+    try {
+        const raw = sessionStorage.getItem(snapshotKey(userId));
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (parsed.algorithmVersion !== RECOMMENDATION_ALGORITHM_VERSION || Date.now() - parsed.generatedAt > RECOMMENDATION_CACHE_TTL_MS || !Array.isArray(parsed.recommendations)) {
+            return null;
+        }
+        return parsed;
+    } catch  {
+        return null;
+    }
+}
 function writeSnapshot(userId, snapshot) {
     try {
         sessionStorage.setItem(snapshotKey(userId), JSON.stringify(snapshot));
@@ -2081,6 +2109,11 @@ const NEW_SOURCE_BUDGET_MS = {
     xsano: 20_000,
     azora: 20_000
 };
+const MANUAL_REFRESH_BUDGET_MS = 40_000;
+const STALE_SOURCE_MS = 30 * 60_000;
+function newestRelease(chapters) {
+    return Math.max(0, ...chapters.map((chapter)=>chapter.releaseAt));
+}
 async function withinSourceBudget(promise, milliseconds = 7500) {
     let timer;
     try {
@@ -2146,8 +2179,20 @@ function mergeLatestWithHistory(latest, history) {
         ...byKey.values()
     ];
 }
+const KEY_SOURCES = {
+    mt: "mangatime",
+    tx: "teamx",
+    aq: "3asq",
+    sz: "starzmanga",
+    xs: "xsano",
+    ml: "mangalik",
+    az: "azora"
+};
+function sourceOfKey(key) {
+    return KEY_SOURCES[String(key).split(":")[0]] ?? "";
+}
 function groupChapters(group, state, read, now) {
-    const trackingRows = state.followed.filter((entry)=>group.items.some((item)=>item.key === entry.mangaId));
+    const trackingRows = state.followed.filter((entry)=>group.items.some((item)=>item.key === entry.mangaId || Boolean(entry.title) && item.source === sourceOfKey(entry.mangaId) && titleMatchesItem(entry.title, item)));
     const trackingStartedAt = trackingRows.length ? Math.min(...trackingRows.map((entry)=>entry.trackingStartedAt)) : null;
     const byIdentity = new Map();
     for (const item of group.items){
@@ -2196,7 +2241,7 @@ function groupChapters(group, state, read, now) {
             });
         }
     }
-    chapters.sort((a, b)=>b.releaseAt - a.releaseAt || b.number - a.number || a.identity.localeCompare(b.identity));
+    chapters.sort((a, b)=>b.number - a.number || b.releaseAt - a.releaseAt || a.identity.localeCompare(b.identity));
     if (!chapters.length) return null;
     const cover = preferredSourceCover(group.items) ?? group.primary;
     return {
@@ -2208,7 +2253,7 @@ function groupChapters(group, state, read, now) {
         sourceKeys: group.items.map((item)=>item.key),
         trackingStartedAt,
         chapters,
-        newestAt: chapters[0].releaseAt
+        newestAt: newestRelease(chapters)
     };
 }
 function collectReadChecks(groups) {
@@ -2260,7 +2305,7 @@ async function loadNewChapterFeed(page = 1, onProgress, options = {}) {
     });
     const latestPromise = Promise.allSettled(sourceTasks.map(({ source, page: sourcePage })=>withinSourceBudget(sourceService.recent(source, sourcePage, {
             refresh: options.refresh
-        }), NEW_SOURCE_BUDGET_MS[source] ?? 7500).finally(()=>{
+        }), options.refresh ? MANUAL_REFRESH_BUDGET_MS : NEW_SOURCE_BUDGET_MS[source] ?? 7500).finally(()=>{
             completedSteps += 1;
             report("جاري جمع أحدث الفصول");
         })));
@@ -2279,11 +2324,15 @@ async function loadNewChapterFeed(page = 1, onProgress, options = {}) {
     const hasMore = latestSettled.some((result)=>result.status === "fulfilled" && result.value.hasMore);
     let builtAt = null;
     let refreshing = false;
-    for (const result of latestSettled){
-        if (result.status !== "fulfilled" || !result.value.snapshot) continue;
-        builtAt = Math.min(builtAt ?? Infinity, result.value.snapshot.builtAt);
-        refreshing ||= result.value.snapshot.refreshing;
-    }
+    const staleSources = new Set();
+    const staleBefore = Date.now() - STALE_SOURCE_MS;
+    latestSettled.forEach((result, index)=>{
+        if (result.status !== "fulfilled" || !result.value.snapshot) return;
+        const snapshot = result.value.snapshot;
+        builtAt = Math.max(builtAt ?? 0, snapshot.builtAt);
+        refreshing ||= snapshot.refreshing;
+        if (snapshot.builtAt < staleBefore) staleSources.add(SOURCE_LABELS[sourceTasks[index].source]);
+    });
     const chapterNumbers = [
         ...new Set(latestItems.flatMap((item)=>(item.chapters ?? []).filter((chapter)=>Boolean(chapter.publishedAt)).map((chapter)=>Number(chapter.number)).filter(Number.isFinite)))
     ];
@@ -2308,12 +2357,12 @@ async function loadNewChapterFeed(page = 1, onProgress, options = {}) {
             chapters: group.chapters.filter((chapter)=>chapter.releaseAt > cutoff).slice(0, MAX_NEW_CHAPTERS_PER_WORK)
         })).filter((group)=>group.chapters.length > 0).map((group)=>({
             ...group,
-            newestAt: group.chapters[0].releaseAt
+            newestAt: newestRelease(group.chapters)
         })).sort((a, b)=>b.newestAt - a.newestAt || a.id.localeCompare(b.id));
     const followed = all.filter((group)=>group.trackingStartedAt != null).map((group)=>({
             ...group,
-            chapters: group.chapters.filter((chapter)=>chapter.releaseAt > Number(group.trackingStartedAt) && !chapter.read)
-        })).filter((group)=>group.chapters.length > 0).sort((a, b)=>b.chapters[0].releaseAt - a.chapters[0].releaseAt || a.id.localeCompare(b.id));
+            chapters: group.chapters.filter((chapter)=>chapter.releaseAt > Number(group.trackingStartedAt))
+        })).filter((group)=>group.chapters.length > 0).sort((a, b)=>newestRelease(b.chapters) - newestRelease(a.chapters) || a.id.localeCompare(b.id));
     return {
         followed,
         all,
@@ -2321,7 +2370,10 @@ async function loadNewChapterFeed(page = 1, onProgress, options = {}) {
         hasMore,
         page: safePage,
         builtAt,
-        refreshing
+        refreshing,
+        staleSources: [
+            ...staleSources
+        ]
     };
 }
 
