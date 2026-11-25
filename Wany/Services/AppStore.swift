@@ -23,6 +23,10 @@ import Observation
     // A failed automatic sync is shown quietly in the top banner instead of an alert.
     var syncProblem: String?
     var loadingFeed = false
+    // A press of the refresh button. It is never blocked by a quiet background
+    // load: it waits for that load to finish, then rebuilds.
+    var feedManualRefreshing = false
+    private var pendingManualFeed = Set<String>()
     // When each feed was last fetched in this launch; a saved copy shows at once and is refreshed behind it.
     var feedLoadedAt: [String:Date] = [:]
     var feedProgress = ""
@@ -489,6 +493,12 @@ import Observation
             if page == 1 { markFeedLoaded(kind,owner:current.user.id) }
             persist()
         } catch { if !Task.isCancelled, !isRequestCancellation(error) { self.feedError = error.localizedDescription } }
+        // A press that arrived during a quiet load runs now; a press that was this load ends here.
+        if pendingManualFeed.remove(kind) != nil, state?.user.id == current.user.id {
+            loadingFeed = false
+            await loadFeed(kind,refresh:true)
+            feedManualRefreshing = false
+        }
     }
 }
 
@@ -516,9 +526,22 @@ extension AppStore {
         guard let feed=state.newFeed,!feed.all.isEmpty,let loaded=feedLoadedDate("new") else { return true }
         return now.timeIntervalSince(loaded) > Self.feedQuietRefresh
     }
+    // Counted from the last press, not from a quiet load, so the button works
+    // right after the page refreshed itself.
+    private func manualRefreshKey(_ kind: String,_ owner: String) -> String { "rany.feedManualAt.\(kind).\(owner)" }
     func feedRefreshAllowed(_ kind: String,now: Date = Date()) -> Bool {
-        guard let loaded=feedLoadedDate(kind) else { return true }
-        return now.timeIntervalSince(loaded) >= Self.feedManualCooldown
+        guard let owner=state?.user.id else { return false }
+        let last=UserDefaults.standard.double(forKey:manualRefreshKey(kind,owner))
+        return last <= 0 || now.timeIntervalSince1970-last >= Self.feedManualCooldown
+    }
+    func refreshFeedNow(_ kind: String) async {
+        guard online,let owner=state?.user.id,!(feedManualRefreshing && loadingFeed) else { return }
+        guard feedRefreshAllowed(kind) else { return }
+        UserDefaults.standard.set(Date().timeIntervalSince1970,forKey:manualRefreshKey(kind,owner))
+        feedManualRefreshing=true
+        if loadingFeed { pendingManualFeed.insert(kind); return }
+        await loadFeed(kind,refresh:true)
+        if !pendingManualFeed.contains(kind) { feedManualRefreshing=false }
     }
     func resolveMetadata(_ keys: [String]) async {
         guard online,let owner=state?.user.id else { return }

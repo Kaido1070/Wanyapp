@@ -3,7 +3,7 @@ import Foundation
 extension NewFeed {
     func appending(_ incoming: NewFeed) -> NewFeed {
         guard incoming.page>page else { return self }
-        return NewFeed(followed:Self.merge(followed,incoming.followed),all:Self.merge(all,incoming.all),hasMore:incoming.hasMore,page:incoming.page)
+        return NewFeed(followed:Self.merge(followed,incoming.followed),all:Self.merge(all,incoming.all),hasMore:incoming.hasMore,page:incoming.page,builtAt:builtAt)
     }
     private static func merge(_ existing: [FeedGroup],_ incoming: [FeedGroup]) -> [FeedGroup] {
         var result=existing

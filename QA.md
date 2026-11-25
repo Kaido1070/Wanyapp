@@ -228,3 +228,8 @@ Automated checks cover download accounting, persistent account separation, progr
 ## 1.4.28
 
 - «جديد»: opening the page shows the saved feed and makes no request unless it is empty or older than 10 minutes; the time is stored per account in UserDefaults, so relaunching the app does not refetch. A background refresh keeps the saved list on screen (no progress card unless the page is empty). The refresh button and pull-to-refresh rebuild at most once a minute. FYP still builds only when empty.
+
+## 1.4.29
+
+- «جديد» refresh button: never disabled by the quiet background load. A press during that load is queued (the button shows a spinner) and rebuilds right after it; a press with nothing running rebuilds at once. The one-minute limit counts from the last press, not from a quiet load. Pull-to-refresh follows the same rule.
+- «جديد» shows «آخر تحديث …» (from the server's `builtAt`) under the الكل / أتابعها switch, with «· يتم جلب الأحدث» while loading.

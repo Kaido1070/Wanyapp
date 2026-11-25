@@ -167,6 +167,11 @@ struct DiscoverFeaturedStories: View {
     }
 }
 struct FeedView: View {
+    private static let relativeFormatter: RelativeDateTimeFormatter = { let f=RelativeDateTimeFormatter(); f.locale=Locale(identifier:"ar"); f.unitsStyle = .full; return f }()
+    static func relative(_ milliseconds: Double,now: Date = Date()) -> String {
+        let date=Date(timeIntervalSince1970:milliseconds/1000)
+        return now.timeIntervalSince(date) < 60 ? "الآن" : relativeFormatter.localizedString(for:date,relativeTo:now)
+    }
     @Environment(AppStore.self) private var store
     let kind: String
     @State private var followed = false
@@ -184,6 +189,13 @@ struct FeedView: View {
                 if visible < (store.state?.fyp.count ?? 0) { Button("عرض المزيد") { visible += 12 }.buttonStyle(.bordered) }
             } else {
                 Picker("العرض",selection:$followed) { Text("الكل").tag(false); Text("أتابعها").tag(true) }.pickerStyle(.segmented)
+                // Like the website: when the list was last rebuilt, and whether it is being fetched now.
+                if let built=store.state?.newFeed?.builtAt, built > 0 {
+                    HStack(spacing:6) {
+                        Text("آخر تحديث "+FeedView.relative(built))
+                        if store.loadingFeed { Text("· يتم جلب الأحدث") }
+                    }.font(RanyTypography.font(.caption)).foregroundStyle(.secondary).frame(maxWidth:.infinity,alignment:.leading)
+                }
                 if groups.isEmpty && !store.loadingFeed { EmptyState(icon:"sparkle",title:"لا توجد فصول جديدة هنا",detail:"الفصول المنشورة خلال آخر 24 ساعة، مع توضيح مصدر كل فصل واستبعاد الإصدارات القديمة المكررة.") }
                 ForEach(groups) { group in
                     VStack(alignment:.leading,spacing:14) {
@@ -197,11 +209,12 @@ struct FeedView: View {
             }
         }.toolbar {
             ToolbarItem(placement:.topBarTrailing) {
-                Button { Task { if store.feedRefreshAllowed(kind) { await store.loadFeed(kind,refresh:true) } } } label: { Image(systemName:"arrow.clockwise").frame(minWidth:44,minHeight:44) }
-                    .disabled(!store.online || store.loadingFeed).accessibilityLabel("تحديث")
+                Button { Task { await store.refreshFeedNow(kind) } } label: {
+                    Group { if store.feedManualRefreshing && store.loadingFeed { ProgressView() } else { Image(systemName:"arrow.clockwise") } }.frame(minWidth:44,minHeight:44)
+                }.disabled(!store.online || (store.feedManualRefreshing && store.loadingFeed)).accessibilityLabel("تحديث")
             }
         }
-        .task { if kind == "fyp" ? (store.state?.fyp.isEmpty ?? true) : store.newFeedNeedsReload() { await store.loadFeed(kind) } }.refreshable { if store.feedRefreshAllowed(kind) { await store.loadFeed(kind,refresh:true) } }
+        .task { if kind == "fyp" ? (store.state?.fyp.isEmpty ?? true) : store.newFeedNeedsReload() { await store.loadFeed(kind) } }.refreshable { await store.refreshFeedNow(kind) }
     }
 }
 struct SourceChapterDestination: View {

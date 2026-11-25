@@ -159,7 +159,11 @@ struct FeedChapter: Codable, Identifiable {
 struct FeedGroup: Codable, Identifiable {
     var id: String; var item: Story; var sourceKeys: [String]; var chapters: [FeedChapter]
 }
-struct NewFeed: Codable { var followed: [FeedGroup]; var all: [FeedGroup]; var hasMore: Bool; var page: Int }
+struct NewFeed: Codable {
+    var followed: [FeedGroup]; var all: [FeedGroup]; var hasMore: Bool; var page: Int
+    // When the server last rebuilt its shared list (milliseconds), shown as «آخر تحديث».
+    var builtAt: Double? = nil
+}
 struct FypSnapshot: Codable { var recommendations: [Recommendation] }
 struct APIList: Codable {
     var items: [Story]; var hasMore: Bool; var page: Int
