@@ -214,7 +214,11 @@ struct FeedView: View {
                 }.disabled(!store.online || (store.feedManualRefreshing && store.loadingFeed)).accessibilityLabel("تحديث")
             }
         }
-        .task { if kind == "fyp" ? (store.state?.fyp.isEmpty ?? true) : store.newFeedNeedsReload() { await store.loadFeed(kind) } }.refreshable { await store.refreshFeedNow(kind) }
+        .task {
+            if kind == "fyp" { if store.state?.fyp.isEmpty ?? true { await store.loadFeed(kind) } }
+            else if store.newFeedNeedsDailyRefresh() { await store.refreshNewFeedForToday() }
+            else if store.newFeedNeedsReload() { await store.loadFeed(kind) }
+        }.refreshable { await store.refreshFeedNow(kind) }
     }
 }
 struct SourceChapterDestination: View {

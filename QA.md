@@ -233,3 +233,4 @@ Automated checks cover download accounting, persistent account separation, progr
 
 - «جديد» refresh button: never disabled by the quiet background load. A press during that load is queued (the button shows a spinner) and rebuilds right after it; a press with nothing running rebuilds at once. The one-minute limit counts from the last press, not from a quiet load. Pull-to-refresh follows the same rule.
 - «جديد» shows «آخر تحديث …» (from the server's `builtAt`) under the الكل / أتابعها switch, with «· يتم جلب الأحدث» while loading.
+- «جديد» daily refresh: the first visit of each calendar day (per account, stored in UserDefaults) runs a source refresh like the button, quietly behind the saved list; later visits that day keep the ten-minute quiet re-read.

@@ -534,6 +534,20 @@ extension AppStore {
         let last=UserDefaults.standard.double(forKey:manualRefreshKey(kind,owner))
         return last <= 0 || now.timeIntervalSince1970-last >= Self.feedManualCooldown
     }
+    // The first visit of each day asks the sources for the newest chapters (like the
+    // refresh button), quietly behind the saved list; later visits only re-read the
+    // shared copy when it is older than ten minutes.
+    private func dailyRefreshKey(_ owner: String) -> String { "rany.feedDailyRefresh.new.\(owner)" }
+    func newFeedNeedsDailyRefresh(now: Date = Date()) -> Bool {
+        guard let owner=state?.user.id else { return false }
+        let today=Calendar.current.startOfDay(for:now).timeIntervalSince1970
+        return UserDefaults.standard.double(forKey:dailyRefreshKey(owner)) < today
+    }
+    func refreshNewFeedForToday(now: Date = Date()) async {
+        guard online,let owner=state?.user.id,!loadingFeed else { return }
+        UserDefaults.standard.set(now.timeIntervalSince1970,forKey:dailyRefreshKey(owner))
+        await loadFeed("new",refresh:true)
+    }
     func refreshFeedNow(_ kind: String) async {
         guard online,let owner=state?.user.id,!(feedManualRefreshing && loadingFeed) else { return }
         guard feedRefreshAllowed(kind) else { return }
